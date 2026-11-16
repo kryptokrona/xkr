@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Dependencies stay pinned to exact versions in the root Cargo.toml ("=x.y.z").
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

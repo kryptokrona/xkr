@@ -1,0 +1,38 @@
+[package]
+name = "xkr-wallet-files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona wallet files: the WalletBackend file (wallet-api, zedwallet++, wallet-backend-js), the WalletGreen container (walletd, zedwallet) and the zedwallet++ address book."
+
+[lints]
+workspace = true
+
+[features]
+# `atomic::fault`: make the next write of a given file fail part way (tests of other crates)
+fault-injection = []
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+# cn_slow_hash_v0 (container key), key checks, OS RNG
+xkr-crypto        = { path = "../xkr-crypto" }
+# CryptoNote varints of the container cache
+xkr-serialization = { path = "../xkr-serialization" }
+# WalletBackend envelope: AES-128-CBC-PKCS7, PBKDF2-HMAC-SHA256
+aes               = { workspace = true }
+cbc               = { workspace = true }
+pbkdf2            = { workspace = true }
+sha2              = { workspace = true }
+rand_core         = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+thiserror         = { workspace = true }
+zeroize           = { workspace = true }
+
+[dev-dependencies]
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+hex               = { workspace = true }
+tempfile          = { workspace = true }

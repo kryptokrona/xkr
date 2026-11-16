@@ -1,0 +1,38 @@
+[package]
+name = "xkr-rpc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona daemon HTTP/JSON-RPC API (C++-compatible subset plus /status), on axum."
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-serialization = { path = "../xkr-serialization" }
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-txpool        = { path = "../xkr-txpool" }
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+# `/status` `hugin`: the relay counters (`HuginStats`)
+xkr-hugin         = { path = "../xkr-hugin" }
+axum              = { workspace = true }
+tokio             = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+hex               = { workspace = true }
+tracing           = { workspace = true }
+# response bodies that hold the request permit until they are sent (`limits_layer`)
+futures           = { workspace = true }
+
+[dev-dependencies]
+# request-limit tests (tests/prop_limits.rs): drive the router without a socket
+tower             = { workspace = true, features = ["util"] }
+# fork-14 wallet-sync vector (tests/tx_v2_walletsync.rs): key derivation and a scripted RNG
+xkr-crypto        = { path = "../xkr-crypto" }
+rand_core         = { workspace = true }
+
+[lints]
+workspace = true

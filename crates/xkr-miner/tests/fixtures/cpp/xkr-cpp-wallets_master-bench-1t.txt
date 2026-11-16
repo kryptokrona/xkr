@@ -1,0 +1,75 @@
+Failed to get block hash - Is your daemon open?
+Started mining for difficulty of 1000000000000. Good luck! ;)
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+
+Mining at 377 H/s
+
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+
+Mining at 388 H/s
+
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?
+Failed to get block hash - Is your daemon open?

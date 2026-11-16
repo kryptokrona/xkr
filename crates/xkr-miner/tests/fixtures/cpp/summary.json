@@ -1,0 +1,109 @@
+{
+  "template": {
+    "height": 11,
+    "majorVersion": "05",
+    "algorithm": "CN-Turtle-Lite v2 (block major 5)"
+  },
+  "runs": [
+    {
+      "kind": "limit",
+      "image": "xkr-cpp-wallets:master",
+      "tag": "xkr-cpp-wallets_master",
+      "limit": 3,
+      "exitCode": "stopped",
+      "chainGained": 857,
+      "blockFoundLines": 856,
+      "seconds": 16,
+      "lastLines": [
+        "Mined requested amount of blocks (3). Quitting.",
+        "Started mining for difficulty of 1. Good luck! ;)",
+        "",
+        "Block found! Hash: 939bd3422041906c5e923c7281d8d889a3d56fa2194a111334ae6580343ef708",
+        "",
+        "Started mining for difficulty of 1. Good luck! ;)"
+      ]
+    },
+    {
+      "kind": "bench",
+      "image": "xkr-cpp-wallets:master",
+      "tag": "xkr-cpp-wallets_master",
+      "threads": 1,
+      "seconds": 130,
+      "difficulty": 1000000000000,
+      "exitCode": "stopped",
+      "hashrateLines": [
+        "Mining at 377 H/s",
+        "Mining at 388 H/s"
+      ],
+      "hostCpu": "AMD Ryzen 7 PRO 6850U with Radeon Graphics",
+      "dockerCpus": 2,
+      "nice": 19
+    },
+    {
+      "kind": "bench",
+      "image": "xkr-cpp-wallets:master",
+      "tag": "xkr-cpp-wallets_master",
+      "threads": 2,
+      "seconds": 130,
+      "difficulty": 1000000000000,
+      "exitCode": "stopped",
+      "hashrateLines": [
+        "Mining at 574 H/s",
+        "Mining at 594 H/s"
+      ],
+      "hostCpu": "AMD Ryzen 7 PRO 6850U with Radeon Graphics",
+      "dockerCpus": 2,
+      "nice": 19
+    },
+    {
+      "kind": "limit",
+      "image": "xkr-cpp-testnet:master",
+      "tag": "master",
+      "limit": 3,
+      "exitCode": "stopped",
+      "chainGained": 762,
+      "blockFoundLines": 761,
+      "seconds": 15,
+      "lastLines": [
+        "",
+        "Started mining for difficulty of 1. Good luck! ;)",
+        "",
+        "Block found! Hash: 62d414a2272185157a83d86256bcbe75d5abbd823b4258725c60ec2d5c8d6596",
+        "",
+        "Started mining for difficulty of 1. Good luck! ;)"
+      ]
+    },
+    {
+      "kind": "bench",
+      "image": "xkr-cpp-testnet:master",
+      "tag": "master",
+      "threads": 1,
+      "seconds": 130,
+      "difficulty": 1000000000000,
+      "exitCode": "stopped",
+      "hashrateLines": [
+        "Mining at 373 H/s",
+        "Mining at 394 H/s"
+      ],
+      "hostCpu": "AMD Ryzen 7 PRO 6850U with Radeon Graphics",
+      "dockerCpus": 2,
+      "nice": 19
+    },
+    {
+      "kind": "bench",
+      "image": "xkr-cpp-testnet:master",
+      "tag": "master",
+      "threads": 2,
+      "seconds": 130,
+      "difficulty": 1000000000000,
+      "exitCode": "stopped",
+      "hashrateLines": [
+        "Mining at 381 H/s",
+        "Mining at 226 H/s"
+      ],
+      "hostCpu": "AMD Ryzen 7 PRO 6850U with Radeon Graphics",
+      "dockerCpus": 2,
+      "nice": 19
+    }
+  ]
+}

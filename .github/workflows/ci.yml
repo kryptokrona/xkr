@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  check:
+    name: fmt, clippy, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Installs the toolchain and components pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup toolchain install && rustc --version && cargo clippy --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Tests that need `node` and bridge/node_modules are #[ignore]d and do not run here;
+      # the testnet suite (testnet/suite.sh) needs Docker images and is not run in CI.
+      - name: test
+        run: cargo test --locked --workspace
+
+  # The Linux x86_64 release archive as build.yml packs it (packaging/scripts/package-release.sh),
+  # so every push checks the packaging too.
+  release-build:
+    name: release archive (linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build
+        run: >-
+          cargo build --locked --release
+          -p xkrd -p xkr-wallet-api -p xkr-walletd -p xkr-wallet-cli -p xkr-miner
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.21.0"
+      - name: Package
+        run: |
+          packaging/scripts/bundle-bridge.sh --out dist/bridge
+          archive=$(packaging/scripts/package-release.sh --target x86_64-unknown-linux-gnu \
+            --version "dev-${GITHUB_SHA::12}" --bin-dir target/release --bridge dist/bridge \
+            --out dist/release)
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - name: Smoke test
+        run: |
+          mkdir -p dist/smoke
+          tar -C dist/smoke -xzf "$ARCHIVE"
+          dir=$(echo dist/smoke/xkr-*)
+          for bin in xkrd xkr-wallet-api wallet-api xkr-walletd kryptokrona-service xkrwallet \
+                     xkr-miner miner; do
+            "$dir/$bin" --version
+          done
+          (cd "$dir" && sha256sum -c --quiet SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xkr-linux-x86_64
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 14

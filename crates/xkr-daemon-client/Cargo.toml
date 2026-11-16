@@ -1,0 +1,45 @@
+[package]
+name = "xkr-daemon-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Typed async client for the xkrd and kryptokronad HTTP/JSON-RPC API (wallet sync, sending, mining, explorer)."
+
+[lints]
+workspace = true
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+# transaction hash of a sent blob when the node does not return one (C++ answers carry only `status`)
+xkr-serialization = { path = "../xkr-serialization" }
+# `Address` for the node fee and `getblocktemplate`
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+tokio             = { workspace = true }
+hyper             = { workspace = true, features = ["client", "http1"] }
+hyper-util        = { workspace = true }
+http-body-util    = { workspace = true }
+# `tower::Service<Uri>` for the plain/TLS connector of the hyper-util client
+tower             = { workspace = true }
+rustls            = { workspace = true }
+tokio-rustls      = { workspace = true }
+rustls-native-certs = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+thiserror         = { workspace = true }
+tracing           = { workspace = true }
+hex               = { workspace = true }
+
+[dev-dependencies]
+# in-process node behind the axum router (tests/common, tests/walletsync.rs)
+xkr-rpc           = { path = "../xkr-rpc" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-crypto        = { path = "../xkr-crypto" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+axum              = { workspace = true }
+tower             = { workspace = true, features = ["util"] }
+rand_core         = { workspace = true }

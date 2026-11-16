@@ -1,0 +1,31 @@
+[package]
+name = "xkr-p2pool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "The Kryptokrona p2pool sidechain inside xkrd: share format, sidechain rules and identifiers, byte for byte compatible with the C++ p2pool."
+
+[lints]
+workspace = true
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-crypto        = { path = "../xkr-crypto" }
+xkr-serialization = { path = "../xkr-serialization" }
+xkr-consensus     = { path = "../xkr-consensus" }
+# miner wallet: address parsing and the SEKR text for display
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+# stratum server: submit parameters and target helpers shared with the client
+xkr-stratum       = { path = "../xkr-stratum" }
+hex               = { workspace = true }
+serde_json        = { workspace = true }
+thiserror         = { workspace = true }
+# sidechain P2P: connection tasks and the handshake randomness
+tokio             = { workspace = true }
+rand_core         = { workspace = true }
+
+[dev-dependencies]
+tokio-util = { workspace = true }

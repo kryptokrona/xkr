@@ -1,0 +1,89 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+
+
+ 1	open                     Open a wallet already on your system
+ 2	create                   Create a new wallet
+ 3	seed_restore             Restore a wallet using a seed phrase of words
+ 4	key_restore              Restore a wallet using a view and spend key
+ 5	view_wallet              Import a view only wallet
+ 6	exit                     Exit the program
+
+What would you like to call your new wallet?: 
+Welcome to your new wallet, here is your payment address:
+<address:1>
+
+Please copy your secret keys and mnemonic seed and store them in a secure location:
+
+Private view key:
+<hex:1>
+
+Private spend key:
+<hex:2>
+
+Mnemonic seed:
+<mnemonic:1>
+
+If you lose these your wallet cannot be recreated!
+
+
+Your wallet is syncing with the network in the background.
+Until this is completed new transactions might not show up.
+Use the status command to check the progress.
+
+ 1	advanced                 List available advanced commands
+ 2	address                  Display your payment address
+ 3	balance                  Display how much XKR you have
+ 4	backup                   Backup your private keys and/or seed
+ 5	exit                     Exit and save your wallet
+ 6	help                     List this help message
+ 7	transfer                 Send XKR to someone
+
+<address:1>
+
+Alternate address (same wallet, for services that only support the other prefix):
+<address:2>
+Private view key:
+<hex:1>
+
+Private spend key:
+<hex:2>
+
+Mnemonic seed:
+<mnemonic:1>
+Available balance: 0.00000 XKR
+Locked (unconfirmed) balance: 0.00000 XKR
+Total balance: 0.00000 XKR
+Wallet blockchain height: 142
+Local blockchain height: 142
+Network blockchain height: 142
+
+Network sync status: 100.00%
+Wallet sync status: 100.00%
+
+Peers: 0
+
+Yay! You are synced!
+
+Saving and shutting down...
+Thanks for stopping by...

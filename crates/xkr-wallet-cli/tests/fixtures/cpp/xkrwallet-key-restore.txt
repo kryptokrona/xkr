@@ -1,0 +1,77 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+
+
+ 1	open                     Open a wallet already on your system
+ 2	create                   Create a new wallet
+ 3	seed_restore             Restore a wallet using a seed phrase of words
+ 4	key_restore              Restore a wallet using a view and spend key
+ 5	view_wallet              Import a view only wallet
+ 6	exit                     Exit the program
+
+Enter your private spend key: Enter your private view key: What would you like to call your new wallet?: What height would you like to begin scanning your wallet from?
+
+This can greatly speed up the initial wallet scanning process.
+
+If you do not know the exact height, err on the side of caution so transactions do not get missed.
+
+Hit enter for the sub-optimal default of zero: 
+Making initial contact with kryptokronad.
+Please wait, this sometimes can take a long time...
+
+
+Your wallet SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn has been successfully imported!
+
+It looks like kryptokronad isn't open!
+
+Ensure kryptokronad is open and has finished initializing.
+If it's still not working, try restarting kryptokronad.The daemon sometimes gets stuck.
+Alternatively, perhaps kryptokronad can't communicate with any peers.
+
+The wallet can't function fully until it can communicate with the network.
+
+ 1	try_again                Try to connect to the node again
+ 2	continue                 Continue to the wallet interface regardless
+ 3	exit                     Exit the program
+
+Unknown command: address
+
+ 1	try_again                Try to connect to the node again
+ 2	continue                 Continue to the wallet interface regardless
+ 3	exit                     Exit the program
+
+Unknown command: backup
+
+ 1	try_again                Try to connect to the node again
+ 2	continue                 Continue to the wallet interface regardless
+ 3	exit                     Exit the program
+
+Unknown command: cli-pass-2
+
+ 1	try_again                Try to connect to the node again
+ 2	continue                 Continue to the wallet interface regardless
+ 3	exit                     Exit the program
+
+Shutting down...
+Shutting down node connection...
+Bye.

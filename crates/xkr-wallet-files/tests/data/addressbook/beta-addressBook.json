@@ -1,0 +1,12 @@
+[
+    {
+        "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn",
+        "friendlyName": "friend-one",
+        "paymentID": ""
+    },
+    {
+        "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn",
+        "friendlyName": "friend-pid",
+        "paymentID": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+]

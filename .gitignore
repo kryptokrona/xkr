@@ -1,0 +1,12 @@
+/target
+**/target
+*.redb
+/testnet/data/
+/testnet/**/blockloc/
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+/docs/PRIVATE.md
+/docs/private/

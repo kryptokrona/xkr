@@ -1,0 +1,42 @@
+[package]
+name = "xkr-wallet-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Drop-in for the C++ wallet-api REST service: same flags, routes, status codes, headers and JSON bodies, on the xkr-wallet engine."
+
+[lints]
+workspace = true
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+# Network (default daemon port, ring-size rule), SERVICE_DEFAULT_PORT
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-daemon-client = { path = "../xkr-daemon-client" }
+xkr-wallet        = { path = "../xkr-wallet" }
+# scalar reduction of imported private keys
+xkr-crypto        = { path = "../xkr-crypto" }
+axum              = { workspace = true }
+tokio             = { workspace = true, features = ["signal"] }
+serde_json        = { workspace = true }
+tracing           = { workspace = true }
+tracing-subscriber = { workspace = true }
+# X-API-KEY check: SHA-256 of both sides, compared in constant time
+sha2              = { workspace = true }
+subtle            = { workspace = true }
+zeroize           = { workspace = true }
+
+[dev-dependencies]
+# in-process xkrd (RPC router on a testnet chain) for the handler tests and the fixture replay
+xkr-rpc           = { path = "../xkr-rpc" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+xkr-serialization = { path = "../xkr-serialization" }
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+tower             = { workspace = true, features = ["util"] }
+hex               = { workspace = true }
+tempfile          = { workspace = true }

@@ -1,0 +1,54 @@
+{
+  "file": "walletd-tracking.wallet",
+  "format": "B",
+  "tool": "kryptokrona-service",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "imageCreated": "2026-11-15T23:12:56.530052603+01:00",
+  "password": "pässwörd ✓",
+  "sizeBytes": 8638,
+  "description": "random container, its address deleted, then a tracking address (spend public key of K, random view key); UTF-8 password",
+  "expected": {
+    "addresses": [
+      "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56pQjANh9dE7Ds8kGMnLxTRuyPARLaWoHdG19n1YnKfN1rAQEeLL"
+    ],
+    "viewSecretKey": "bee7375426643dc8ccf39138791bc5116ba3d6419f97692b1dfbc7d4cf765d06",
+    "spendKeys": [
+      {
+        "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56pQjANh9dE7Ds8kGMnLxTRuyPARLaWoHdG19n1YnKfN1rAQEeLL",
+        "keys": {
+          "spendPublicKey": "ff9b6e048297ee435d6219005974c2c8df620a4aca9ca5c4e13f071823482029",
+          "spendSecretKey": "c095e7201c61000070b7b4201c610000e8ce2599097a00000b690899097a0000"
+        },
+        "mnemonic": {
+          "error": {
+            "code": -32700,
+            "data": {
+              "application_code": 6
+            },
+            "message": "Keys not deterministic"
+          },
+          "id": 0,
+          "jsonrpc": "2.0"
+        },
+        "balance": {
+          "availableBalance": 0,
+          "lockedAmount": 0
+        }
+      }
+    ],
+    "balance": {
+      "availableBalance": 0,
+      "lockedAmount": 0
+    },
+    "status": {
+      "blockCount": 155,
+      "knownBlockCount": 155,
+      "lastBlockHash": "c427ea74ea4f613dcb9cb6bd050c208952976273c73b72fdaf0432075d6d1e82",
+      "localDaemonBlockCount": 155,
+      "peerCount": 0
+    },
+    "transactions": [],
+    "transactionsError": null
+  }
+}

@@ -1,0 +1,90 @@
+[
+  {
+    "route": "queryblockslite",
+    "case": "genesis",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "queryblockslite",
+    "case": "top-and-genesis",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "queryblockslite",
+    "case": "before-first-send",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "queryblockslite",
+    "case": "timestamp-block-50",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "queryblockslite",
+    "case": "unknown-only",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "queryblockslite",
+    "case": "empty-ids",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "get_blocks_hashes_by_timestamps",
+    "case": "from-block-1-hour",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "get_blocks_hashes_by_timestamps",
+    "case": "from-0-one-second",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "get_blocks_hashes_by_timestamps",
+    "case": "from-0-ten-seconds",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "get_blocks_hashes_by_timestamps",
+    "case": "zero-seconds",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  },
+  {
+    "route": "get_blocks_hashes_by_timestamps",
+    "case": "whole-chain",
+    "xkrdStatus": 200,
+    "cppStatus": 200,
+    "equal": true,
+    "differingPaths": []
+  }
+]

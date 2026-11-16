@@ -1,0 +1,31 @@
+# Vendored from Cuprate `net/levin` (MIT), see ../VENDORED.md.
+[package]
+name = "xkr-levin"
+version = "0.1.0"
+# Kept on the upstream edition so the vendored code stays byte-for-byte close to Cuprate.
+edition = "2021"
+description = "Levin protocol bucket codec (vendored from Cuprate's cuprate-levin)."
+license = "MIT"
+authors = ["Boog900", "Cuprate Contributors"]
+publish = false
+
+[features]
+default = []
+tracing = ["dep:tracing", "tokio-util/tracing"]
+
+[dependencies]
+cfg-if = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+bitflags = { workspace = true }
+tokio-util = { workspace = true }
+
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio-util = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+
+[lints]

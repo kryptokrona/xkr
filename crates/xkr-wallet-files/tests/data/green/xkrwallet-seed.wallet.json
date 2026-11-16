@@ -1,0 +1,15 @@
+{
+  "file": "xkrwallet-seed.wallet",
+  "format": "B",
+  "tool": "xkrwallet",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "password": "",
+  "description": "seed_restore of seed A, empty password; coinbase, one transfer of 1 XKR to K",
+  "expected": {
+    "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+    "privateSpendKey": "d61a57a59318d70ff77cc7f8ad7f62887c828da1d5d3f3b0d2f7d3fa596c2904",
+    "privateViewKey": "688e5229df6463ec4c27f6ee11c3f1d3d4b4d2480c0aabe64fb807182cfdc801",
+    "mnemonicSeed": "skulls woozy ouch summon gifts huts waffle ourselves obtains hexagon tadpoles hacksaw dormant hence abort listen history atom cadets stylishly snout vegan girth guest history"
+  }
+}

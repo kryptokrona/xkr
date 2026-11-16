@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 22b03fc012a8555798b09285a1f51643e9c1be1a275e2cd83f05306114f48e06 # shrinks to msgs = [Object {"timestamp": Number(1700000000001)}], since = -0.0

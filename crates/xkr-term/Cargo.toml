@@ -1,0 +1,15 @@
+[package]
+name = "xkr-term"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing            = { workspace = true }
+# `Term` is the text logs' writer (`fmt::MakeWriter`)
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,113 @@
+{
+  "file": "walletd-one-synced.wallet",
+  "format": "B",
+  "tool": "kryptokrona-service",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "imageCreated": "2026-11-15T23:12:56.530052603+01:00",
+  "password": "",
+  "sizeBytes": 9734,
+  "description": "walletd-one.wallet after one walletd run (synced; received from A)",
+  "expected": {
+    "addresses": [
+      "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn"
+    ],
+    "viewSecretKey": "1f3f6c220dd9f97619dbf44d967f79f3041b9b1c63da2c895f980f1411d5d704",
+    "spendKeys": [
+      {
+        "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn",
+        "keys": {
+          "spendPublicKey": "ff9b6e048297ee435d6219005974c2c8df620a4aca9ca5c4e13f071823482029",
+          "spendSecretKey": "55e0aa4ca65c0ae016c7364eec313f56fc162901ead0e38a9f846686ac78560f"
+        },
+        "mnemonic": {
+          "error": {
+            "code": -32700,
+            "data": {
+              "application_code": 6
+            },
+            "message": "Keys not deterministic"
+          },
+          "id": 0,
+          "jsonrpc": "2.0"
+        },
+        "balance": {
+          "availableBalance": 400000,
+          "lockedAmount": 0
+        }
+      }
+    ],
+    "balance": {
+      "availableBalance": 400000,
+      "lockedAmount": 0
+    },
+    "status": {
+      "blockCount": 143,
+      "knownBlockCount": 143,
+      "lastBlockHash": "106e157efc9627554d74c15f8dd1ced5e2f0c89242bf21539458b9da8747dc5d",
+      "localDaemonBlockCount": 143,
+      "peerCount": 0
+    },
+    "transactions": [
+      {
+        "amount": 300000,
+        "blockIndex": 131,
+        "extra": "0221000123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01fd5f651cbf888d7bfbf95dfd1eba93664001bc3dd6301be34e7597deaa10cc68",
+        "fee": 10,
+        "isBase": false,
+        "paymentId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "state": 0,
+        "timestamp": 1794783086,
+        "transactionHash": "7f89f107ef3c060a7c84b1e8907e7d54361e19ade2c95f39445cdc2389c81a2c",
+        "transfers": [
+          {
+            "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn",
+            "amount": 300000,
+            "type": 0
+          },
+          {
+            "address": "",
+            "amount": -600000,
+            "type": 0
+          },
+          {
+            "address": "",
+            "amount": 299990,
+            "type": 0
+          }
+        ],
+        "unlockTime": 0
+      },
+      {
+        "amount": 100000,
+        "blockIndex": 131,
+        "extra": "015e61e91ad7f0e90b1bcad769268c0779209e6185432e10b7fed3c75fe7805c26",
+        "fee": 10,
+        "isBase": false,
+        "paymentId": "",
+        "state": 0,
+        "timestamp": 1794783086,
+        "transactionHash": "178d9c7de3b0b6de18f3d2f96c1a4a395edf881c3f047610b19cc0fab47b293a",
+        "transfers": [
+          {
+            "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn",
+            "amount": 100000,
+            "type": 0
+          },
+          {
+            "address": "",
+            "amount": -600090,
+            "type": 0
+          },
+          {
+            "address": "",
+            "amount": 500080,
+            "type": 0
+          }
+        ],
+        "unlockTime": 0
+      }
+    ],
+    "transactionsError": null
+  }
+}

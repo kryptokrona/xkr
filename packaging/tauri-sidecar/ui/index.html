@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>xkr node</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>xkr node</h1>
+      <span id="phase" class="badge">starting</span>
+    </header>
+    <p id="detail" class="detail" hidden></p>
+
+    <section>
+      <h2>Chain</h2>
+      <dl>
+        <dt>Network</dt><dd id="network">–</dd>
+        <dt>Height</dt><dd id="height">–</dd>
+        <dt>Network height</dt><dd id="network-height">–</dd>
+        <dt>Sync</dt><dd><progress id="sync-bar" max="1" value="0"></progress> <span id="sync">–</span></dd>
+        <dt>Peers</dt><dd id="peers">–</dd>
+        <dt>Version</dt><dd id="version">–</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>Mining</h2>
+      <form id="mining-form">
+        <label>Payout address
+          <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="SEKR…">
+        </label>
+        <label>Threads
+          <input id="threads" type="number" min="1" step="1">
+          <small id="threads-hint"></small>
+        </label>
+        <div class="buttons">
+          <button id="mine-start" type="submit">Start mining</button>
+          <button id="mine-stop" type="button">Stop mining</button>
+        </div>
+        <p class="note">Starting or stopping the miner restarts xkrd (a few seconds). The miner
+          waits until the node is synchronized.</p>
+        <p id="mining-error" class="error" hidden></p>
+      </form>
+      <dl>
+        <dt>State</dt><dd id="mining-state">–</dd>
+        <dt>Hashrate</dt><dd id="hashrate">–</dd>
+        <dt>Total hashes</dt><dd id="total-hashes">–</dd>
+        <dt>Mining height / difficulty</dt><dd id="mining-block">–</dd>
+        <dt>Blocks found</dt><dd id="blocks-found">–</dd>
+        <dt>Last error</dt><dd id="mining-last-error">–</dd>
+      </dl>
+    </section>
+
+    <footer>
+      <div>Data: <code id="data-dir">–</code></div>
+      <div>Log: <code id="log-file">–</code></div>
+      <div>RPC: <code id="rpc">–</code> · Hyperswarm: <span id="hyper">–</span></div>
+    </footer>
+  </main>
+</body>
+</html>

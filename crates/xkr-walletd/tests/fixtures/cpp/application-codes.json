@@ -1,0 +1,152 @@
+[
+  {
+    "code": -32700,
+    "application_code": null,
+    "message": "Parse error",
+    "first": "legacy-cors.jsonl:cors/options"
+  },
+  {
+    "code": -32700,
+    "application_code": 1,
+    "message": "Wrong key format",
+    "first": "addresses.jsonl:createAddress/bad-key"
+  },
+  {
+    "code": -32700,
+    "application_code": 2,
+    "message": "Wrong payment id format",
+    "first": "methods.jsonl:createIntegratedAddress/bad-payment-id"
+  },
+  {
+    "code": -32700,
+    "application_code": 4,
+    "message": "Requested object not found",
+    "first": "delayed.jsonl:delete-unknown"
+  },
+  {
+    "code": -32700,
+    "application_code": 5,
+    "message": "Internal error occurred",
+    "first": "fusion.jsonl:sendFusionTransaction/threshold-1"
+  },
+  {
+    "code": -32700,
+    "application_code": 6,
+    "message": "Keys not deterministic",
+    "first": "addresses.jsonl:getMnemonicSeed/sub1-not-deterministic"
+  },
+  {
+    "code": -32700,
+    "application_code": 6,
+    "message": "MixIn count is too big",
+    "first": "fusion.jsonl:sendFusionTransaction"
+  },
+  {
+    "code": -32700,
+    "application_code": 7,
+    "message": "Bad address",
+    "first": "methods.jsonl:getSpendKeys/bad-address"
+  },
+  {
+    "code": -32700,
+    "application_code": 9,
+    "message": "Wrong amount",
+    "first": "send.jsonl:insufficient-funds"
+  },
+  {
+    "code": -32700,
+    "application_code": 11,
+    "message": "The destination is empty",
+    "first": "send.jsonl:amount-0"
+  },
+  {
+    "code": -32700,
+    "application_code": 17,
+    "message": "File exists",
+    "first": "save-export-reset.jsonl:export/existing-file"
+  },
+  {
+    "code": -32700,
+    "application_code": 17,
+    "message": "Transaction fee is too small",
+    "first": "send.jsonl:fee-1"
+  },
+  {
+    "code": -32700,
+    "application_code": 20,
+    "message": "Address already exists",
+    "first": "addresses.jsonl:createAddress/sub1-again"
+  },
+  {
+    "code": -32700,
+    "application_code": 21,
+    "message": "The wallet is in tracking mode",
+    "first": "tracking.jsonl:sendTransaction/from-tracking"
+  },
+  {
+    "code": -32700,
+    "application_code": 22,
+    "message": "Wrong parameters passed",
+    "first": "addresses.jsonl:createAddress/spend-public-in-spend-wallet"
+  },
+  {
+    "code": -32700,
+    "application_code": 23,
+    "message": "Object not found",
+    "first": "addresses.jsonl:deleteAddress/not-in-wallet"
+  },
+  {
+    "code": -32700,
+    "application_code": 24,
+    "message": "Requested wallet not found",
+    "first": "methods.jsonl:getBalance/not-in-wallet"
+  },
+  {
+    "code": -32700,
+    "application_code": 25,
+    "message": "Change address required",
+    "first": "addresses.jsonl:sendTransaction/several-addresses-no-change-address"
+  },
+  {
+    "code": -32700,
+    "application_code": 26,
+    "message": "Change address not found",
+    "first": "send.jsonl:change-not-in-wallet"
+  },
+  {
+    "code": -32700,
+    "application_code": 28,
+    "message": "Destination address not found",
+    "first": "fusion.jsonl:sendFusionTransaction/foreign-destination"
+  },
+  {
+    "code": -32700,
+    "application_code": 29,
+    "message": "Wrong payment id format",
+    "first": "send.jsonl:bad-payment-id"
+  },
+  {
+    "code": -32604,
+    "application_code": null,
+    "message": "Invalid or no rpc password",
+    "first": "transport.jsonl:missing-password"
+  },
+  {
+    "code": -32601,
+    "application_code": null,
+    "message": "Method not found",
+    "first": "transport.jsonl:unknown-method"
+  },
+  {
+    "code": -32600,
+    "application_code": null,
+    "message": "Invalid Request",
+    "first": "addresses.jsonl:createAddress/both-keys"
+  },
+  {
+    "code": -3600,
+    "application_code": null,
+    "message": "Invalid Request",
+    "first": "transport.jsonl:no-method"
+  }
+]

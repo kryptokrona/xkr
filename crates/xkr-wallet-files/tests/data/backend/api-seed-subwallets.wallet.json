@@ -1,0 +1,597 @@
+{
+  "file": "api-seed-subwallets.wallet",
+  "format": "A",
+  "tool": "wallet-api",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "imageCreated": "2026-11-15T23:12:56.530052603+01:00",
+  "password": "",
+  "sizeBytes": 125984,
+  "description": "seed A (skulls woozy ...), empty password; blocks 1..30 coinbase, a random and an imported (fixed key sub1) subwallet, sends to K, to its own subwallet and with a payment id",
+  "expected": {
+    "primaryAddress": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+    "addresses": [
+      "SEKReXYFSPyEXSrUtKSoXo7XTJ67jy2exS5aa26MRLbvSFxCfLXA3cNNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc33yimbM",
+      "SEKReYMuYcDALVoUS2yjtRgRweZgBXjhCKbFuoK2do4mKa7voydSbVkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc34aqXMx",
+      "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf"
+    ],
+    "privateViewKey": "688e5229df6463ec4c27f6ee11c3f1d3d4b4d2480c0aabe64fb807182cfdc801",
+    "subWallets": [
+      {
+        "address": "SEKReXYFSPyEXSrUtKSoXo7XTJ67jy2exS5aa26MRLbvSFxCfLXA3cNNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc33yimbM",
+        "keys": {
+          "privateSpendKey": "6e4ef162d2b057f01756ccef84b48852ed4618e01cdd7d269f592c4cf8f1b80a",
+          "publicSpendKey": "be7c44d850dc3989bee2af9a2702c1f4b669049d95efed29a4cdd4759701a6d5"
+        },
+        "mnemonic": {
+          "errorCode": 41,
+          "errorMessage": "You cannot get a mnemonic seed for this address, as the view key is derived in terms of the spend key."
+        },
+        "balance": {
+          "locked": 0,
+          "unlocked": 250000
+        }
+      },
+      {
+        "address": "SEKReYMuYcDALVoUS2yjtRgRweZgBXjhCKbFuoK2do4mKa7voydSbVkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc34aqXMx",
+        "keys": {
+          "privateSpendKey": "8cc6640d97da3389aa54e4c3463b8ddd8fd3089b3b6c5eac04ba468b038af602",
+          "publicSpendKey": "dea17e5637d132c3283defbeebbc9e8d5fdc3e336f256b62627008c26f076637"
+        },
+        "mnemonic": {
+          "errorCode": 41,
+          "errorMessage": "You cannot get a mnemonic seed for this address, as the view key is derived in terms of the spend key."
+        },
+        "balance": {
+          "locked": 0,
+          "unlocked": 0
+        }
+      },
+      {
+        "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+        "keys": {
+          "privateSpendKey": "d61a57a59318d70ff77cc7f8ad7f62887c828da1d5d3f3b0d2f7d3fa596c2904",
+          "publicSpendKey": "abab87df609dbacc45494c6a8954cde81f934ddd6c32202b62f174798bc66e43"
+        },
+        "mnemonic": {
+          "mnemonicSeed": "skulls woozy ouch summon gifts huts waffle ourselves obtains hexagon tadpoles hacksaw dormant hence abort listen history atom cadets stylishly snout vegan girth guest history"
+        },
+        "balance": {
+          "locked": 299990,
+          "unlocked": 1429551506
+        }
+      }
+    ],
+    "balance": {
+      "locked": 299990,
+      "unlocked": 1429801506
+    },
+    "balances": [
+      {
+        "address": "SEKReXYFSPyEXSrUtKSoXo7XTJ67jy2exS5aa26MRLbvSFxCfLXA3cNNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc33yimbM",
+        "locked": 0,
+        "unlocked": 250000
+      },
+      {
+        "address": "SEKReYMuYcDALVoUS2yjtRgRweZgBXjhCKbFuoK2do4mKa7voydSbVkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc34aqXMx",
+        "locked": 0,
+        "unlocked": 0
+      },
+      {
+        "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+        "locked": 299990,
+        "unlocked": 1429551506
+      }
+    ],
+    "transactions": [
+      {
+        "blockHeight": 1,
+        "fee": 0,
+        "hash": "3653adec2361d3c7c48e91b0108120c524bc2abc82e22e6bcb9108101487db76",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683714
+          }
+        ],
+        "unlockTime": 2
+      },
+      {
+        "blockHeight": 2,
+        "fee": 0,
+        "hash": "ecbb8fa35f3df83ee5e9f03b7c409cc173d8ac1d25083ab28621f03f21ecba02",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683691
+          }
+        ],
+        "unlockTime": 3
+      },
+      {
+        "blockHeight": 3,
+        "fee": 0,
+        "hash": "70bb63bfcb6da3e4ef33c114cd70576e690162d25f0fff4475d0317c0ed67d54",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683668
+          }
+        ],
+        "unlockTime": 4
+      },
+      {
+        "blockHeight": 4,
+        "fee": 0,
+        "hash": "3e8194b051ff1e395190543949d656754e6a5457260fbe546e1eb120802f25db",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683646
+          }
+        ],
+        "unlockTime": 5
+      },
+      {
+        "blockHeight": 5,
+        "fee": 0,
+        "hash": "18285f6c3c6626e0561af5aeaedd773b53eb86690c9324f51dbe531b2c27b2af",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683623
+          }
+        ],
+        "unlockTime": 6
+      },
+      {
+        "blockHeight": 6,
+        "fee": 0,
+        "hash": "03d1419115fb50fcba60041d622d3b0baf87b8d9cfd8fdad881640f474afc52f",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683600
+          }
+        ],
+        "unlockTime": 7
+      },
+      {
+        "blockHeight": 7,
+        "fee": 0,
+        "hash": "b6f6c2d62b42188f4fc5949b32aac73defb3e8feb79dcb0458b25ca3c0aeb770",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683577
+          }
+        ],
+        "unlockTime": 8
+      },
+      {
+        "blockHeight": 8,
+        "fee": 0,
+        "hash": "36190bd44d92a32042072cdbf685d024ff83554a09629b2dbdb570b411d2ac63",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683555
+          }
+        ],
+        "unlockTime": 9
+      },
+      {
+        "blockHeight": 9,
+        "fee": 0,
+        "hash": "5fdfaabb5170da8b08b2eb4045543e7c8010d77a0d836bdcb013567b2be4bbfc",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683532
+          }
+        ],
+        "unlockTime": 10
+      },
+      {
+        "blockHeight": 10,
+        "fee": 0,
+        "hash": "b668796e8556e5f3424b4d539992c5043c0ba3f92c8c38796db58145476cab94",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683509
+          }
+        ],
+        "unlockTime": 11
+      },
+      {
+        "blockHeight": 11,
+        "fee": 0,
+        "hash": "d4b73d2013d431731856455df26495ead157bbf50ab78c9a32c6770705d58b9a",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683487
+          }
+        ],
+        "unlockTime": 12
+      },
+      {
+        "blockHeight": 12,
+        "fee": 0,
+        "hash": "8fc574dddc271386a046a41923b566d622c52cb6f9a376cf810f4489955921ed",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683464
+          }
+        ],
+        "unlockTime": 13
+      },
+      {
+        "blockHeight": 13,
+        "fee": 0,
+        "hash": "2e1932518d470166fa9e0097c7fedcd2ce246dc377063e9f9ca9d6fd0fc4f786",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683441
+          }
+        ],
+        "unlockTime": 14
+      },
+      {
+        "blockHeight": 14,
+        "fee": 0,
+        "hash": "ed7391f435daf002132db870d01200101549fe8f6b5e2c6deaacb66a5c112839",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683418
+          }
+        ],
+        "unlockTime": 15
+      },
+      {
+        "blockHeight": 15,
+        "fee": 0,
+        "hash": "7b03640776c1f7cdf6e1d1c1823d2dafca4aba6324124f63bc7f381f0029aab7",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683396
+          }
+        ],
+        "unlockTime": 16
+      },
+      {
+        "blockHeight": 16,
+        "fee": 0,
+        "hash": "d69b6e1255298e7313ba708db2ab45345b82b53fbc9b8385a750954ebd37717e",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683373
+          }
+        ],
+        "unlockTime": 17
+      },
+      {
+        "blockHeight": 17,
+        "fee": 0,
+        "hash": "75e7dfaf799b5d103262ff635db2cb141a1e5f176058106e80663de89aed2536",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683350
+          }
+        ],
+        "unlockTime": 18
+      },
+      {
+        "blockHeight": 18,
+        "fee": 0,
+        "hash": "1a61709c2b13846b17c5e8ee4a0e72ed3ed16dd1e0f206fff3734f578791ad0e",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683327
+          }
+        ],
+        "unlockTime": 19
+      },
+      {
+        "blockHeight": 19,
+        "fee": 0,
+        "hash": "7e5a6ca053857a2f29c044a2e7f9589cbee060e4f14104665fb34187712c6a3c",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683305
+          }
+        ],
+        "unlockTime": 20
+      },
+      {
+        "blockHeight": 20,
+        "fee": 0,
+        "hash": "b29699f0fa93c9b5bee0f8e235c83189d27e33d028a0d3cb9abe14a61400afb9",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683282
+          }
+        ],
+        "unlockTime": 21
+      },
+      {
+        "blockHeight": 21,
+        "fee": 0,
+        "hash": "64626e3113395590ccb73e57bc231a345c02f34e232efa840285fbfbeba3751d",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683259
+          }
+        ],
+        "unlockTime": 22
+      },
+      {
+        "blockHeight": 22,
+        "fee": 0,
+        "hash": "7caf54c8b1de3eb02fb9b7eae8f6a7348ecaa179247d699a8f8beb5a1ba95449",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683236
+          }
+        ],
+        "unlockTime": 23
+      },
+      {
+        "blockHeight": 23,
+        "fee": 0,
+        "hash": "4ea698a0ef40dcd66398d66c51944810d370183b42fbf56a79b1cf4b3e620611",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683214
+          }
+        ],
+        "unlockTime": 24
+      },
+      {
+        "blockHeight": 24,
+        "fee": 0,
+        "hash": "5ccca89e2f23e5525156d7cc48a5cc85fcfaffffff62f9c62778d647a71e9ebe",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683191
+          }
+        ],
+        "unlockTime": 25
+      },
+      {
+        "blockHeight": 25,
+        "fee": 0,
+        "hash": "1aabd23257e8bf2a4083751486376c76888715e994b3892b8daec4c384a44f72",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683168
+          }
+        ],
+        "unlockTime": 26
+      },
+      {
+        "blockHeight": 26,
+        "fee": 0,
+        "hash": "b4aa75f68cbfb66260a893f985e5bfe0020c5c59d4f5cadb1c1997e00814391e",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683145
+          }
+        ],
+        "unlockTime": 27
+      },
+      {
+        "blockHeight": 27,
+        "fee": 0,
+        "hash": "477ee3cdd02c0fe54b53ff94847aedaaea758de0a671d859ea7ea8d0d3e7f84b",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683123
+          }
+        ],
+        "unlockTime": 28
+      },
+      {
+        "blockHeight": 28,
+        "fee": 0,
+        "hash": "c75b8c31c74fffba257c17853cde532221bd5119fd85a2c94a86f8266d18d916",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683100
+          }
+        ],
+        "unlockTime": 29
+      },
+      {
+        "blockHeight": 29,
+        "fee": 0,
+        "hash": "526a9ad9acfc94e8bb39c84c5ac6a928e5e2c9640410f7a1c5f78f53570d137d",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683077
+          }
+        ],
+        "unlockTime": 30
+      },
+      {
+        "blockHeight": 30,
+        "fee": 0,
+        "hash": "a1bf7af078b2b7fc52f59c192e82544e29d2e3f2ba460c796baff0ba70831cb9",
+        "isCoinbaseTransaction": true,
+        "paymentID": "",
+        "timestamp": 1794783067,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": 47683055
+          }
+        ],
+        "unlockTime": 31
+      },
+      {
+        "blockHeight": 131,
+        "fee": 10,
+        "hash": "7f89f107ef3c060a7c84b1e8907e7d54361e19ade2c95f39445cdc2389c81a2c",
+        "isCoinbaseTransaction": false,
+        "paymentID": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "timestamp": 1794783086,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": -600000
+          }
+        ],
+        "unlockTime": 0
+      },
+      {
+        "blockHeight": 131,
+        "fee": 10,
+        "hash": "178d9c7de3b0b6de18f3d2f96c1a4a395edf881c3f047610b19cc0fab47b293a",
+        "isCoinbaseTransaction": false,
+        "paymentID": "",
+        "timestamp": 1794783086,
+        "transfers": [
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": -100010
+          }
+        ],
+        "unlockTime": 0
+      },
+      {
+        "blockHeight": 131,
+        "fee": 10,
+        "hash": "b69f6625f0aa9a423ab143ed310ec2dc26ce82d5034b3a021c10090defbadf82",
+        "isCoinbaseTransaction": false,
+        "paymentID": "",
+        "timestamp": 1794783086,
+        "transfers": [
+          {
+            "address": "SEKReXYFSPyEXSrUtKSoXo7XTJ67jy2exS5aa26MRLbvSFxCfLXA3cNNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc33yimbM",
+            "amount": 250000
+          },
+          {
+            "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+            "amount": -250010
+          }
+        ],
+        "unlockTime": 0
+      }
+    ],
+    "status": {
+      "hashrate": 0,
+      "isViewWallet": false,
+      "localDaemonBlockCount": 142,
+      "networkBlockCount": 142,
+      "peerCount": 0,
+      "subWalletCount": 3,
+      "walletBlockCount": 142
+    }
+  }
+}

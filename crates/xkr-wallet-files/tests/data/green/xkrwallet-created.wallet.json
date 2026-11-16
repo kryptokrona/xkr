@@ -1,0 +1,12 @@
+{
+  "file": "xkrwallet-created.wallet",
+  "format": "B",
+  "tool": "xkrwallet",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "password": "cli-pass",
+  "description": "create (random keys; see xkrwallet-create.txt for the printed keys, normalised)",
+  "expected": {
+    "address": "SEKReTDkpjTBV5NqR7zZUe67b4B36WwVBCz8DBH7Y68vf272qJPqMUZCWohrw4Vn549r8Jji52E7K5TLz71XzCCYiYEty9yxL37"
+  }
+}

@@ -1,0 +1,49 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+
+Usage:
+  /usr/src/kryptokrona/miner [OPTION...]
+
+ Core options:
+      --help                                       Display this help message
+      --version                                    Output software version information
+
+ Daemon options:
+      --daemon-address <host:port>                 The daemon [host:port] combination to use for node operations. This
+                                                   option overrides --daemon-host and --daemon-rpc-port
+      --daemon-host <host>                         The daemon host to use for node operations (default: 127.0.0.1)
+      --daemon-rpc-port #                          The daemon RPC port to use for node operations (default: 11899)
+      --scan-time #                                Blockchain polling interval (seconds). How often miner will check the
+                                                   Blockchain for updates (default: 1)
+
+ Mining options:
+      --address <address>                          The valid CryptoNote miner's address
+      --block-timestamp-interval #                 Timestamp incremental step for each subsequent block. May be set only
+                                                   if --first-block-timestamp has been set. (default: 0)
+      --first-block-timestamp #                    Set timestamp to the first mined block. 0 means leave timestamp
+                                                   unchanged (default: 0)
+      --limit #                                    Mine this exact quantity of blocks and then stop. 0 means no limit
+                                                   (default: 0)
+      --threads #                                  The mining threads count. Must not exceed hardware capabilities.
+                                                   (default: 16)
+

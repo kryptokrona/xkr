@@ -1,0 +1,103 @@
+# cargo-fuzz harnesses for every byte parser that reads network, RPC or database input.
+#
+# Its own Cargo workspace (the `[workspace]` table below) and NOT a member of the root one, so
+# `cargo build` / `cargo test` of the node never needs cargo-fuzz or a nightly toolchain.
+# See README.md for how to run it. Exact versions only (Socket Firewall policy);
+# they match the root `[workspace.dependencies]`.
+[package]
+name = "xkr-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.10"
+arbitrary     = "=1.4.2"
+bytes         = "=1.11.0"
+serde_json    = "=1.0.149"
+tokio         = { version = "=1.54.1", features = ["rt-multi-thread", "sync"] }
+tokio-util    = { version = "=0.7.18", features = ["codec"] }
+axum          = "=0.8.8"
+tower         = { version = "=0.5.3", features = ["util"] }
+
+xkr-types         = { path = "../crates/xkr-types" }
+xkr-serialization = { path = "../crates/xkr-serialization" }
+xkr-consensus     = { path = "../crates/xkr-consensus" }
+xkr-storage       = { path = "../crates/xkr-storage" }
+xkr-txpool        = { path = "../crates/xkr-txpool" }
+xkr-chain         = { path = "../crates/xkr-chain" }
+xkr-rpc           = { path = "../crates/xkr-rpc" }
+xkr-p2p-legacy    = { path = "../crates/xkr-p2p-legacy" }
+xkr-p2p-hyper     = { path = "../crates/xkr-p2p-hyper" }
+xkr-hugin         = { path = "../crates/xkr-hugin" }
+xkr-levin         = { path = "../vendor/levin" }
+xkr-epee          = { path = "../vendor/epee-encoding" }
+
+# Standalone workspace: keeps this crate out of the node's workspace and lock file.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+# Keep overflow checks on so arithmetic overflow in a parser is reported as a crash.
+overflow-checks = true
+
+[[bin]]
+name = "cn_block"
+path = "fuzz_targets/cn_block.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cn_transaction"
+path = "fuzz_targets/cn_transaction.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "epee"
+path = "fuzz_targets/epee.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "levin_header"
+path = "fuzz_targets/levin_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hyper_frame"
+path = "fuzz_targets/hyper_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hugin_packet"
+path = "fuzz_targets/hugin_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "storage_record"
+path = "fuzz_targets/storage_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rpc_json"
+path = "fuzz_targets/rpc_json.rs"
+test = false
+doc = false
+bench = false

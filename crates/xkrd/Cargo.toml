@@ -1,0 +1,59 @@
+[package]
+name = "xkrd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona node daemon: legacy P2P sync, verification, storage and RPC."
+
+[[bin]]
+name = "xkrd"
+path = "src/main.rs"
+
+# Minimal test wallet for the testnet end-to-end flow (docs/mining.md).
+[[bin]]
+name = "xkr-testwallet"
+path = "src/bin/xkr-testwallet.rs"
+
+[dependencies]
+xkr-types          = { path = "../xkr-types" }
+xkr-consensus      = { path = "../xkr-consensus" }
+xkr-storage        = { path = "../xkr-storage" }
+xkr-chain          = { path = "../xkr-chain" }
+xkr-txpool         = { path = "../xkr-txpool" }
+xkr-p2p-legacy     = { path = "../xkr-p2p-legacy" }
+xkr-rpc            = { path = "../xkr-rpc" }
+# Hyperswarm on Bare worker threads; needs libbare-kit at build time: run
+# scripts/build-bare-kit.sh once (.cargo/config.toml points LIBBARE_DIR at its output);
+# docs/hyper-transport.md, "Building"
+xkr-p2p-hyper      = { path = "../xkr-p2p-hyper" }
+# hugin-node relay on the Hugin topics (crate::hyper)
+xkr-hugin          = { path = "../xkr-hugin" }
+# built-in miner (crate::miner): the shared hashing threads and miner loop
+xkr-miner          = { path = "../xkr-miner" }
+# terminal output shared with xkr-miner (header, live region, step reporter)
+xkr-term           = { path = "../xkr-term" }
+# built-in p2pool (crate::p2pool, `--p2pool`): sidechain, block template, stratum and P2P
+xkr-p2pool         = { path = "../xkr-p2pool" }
+tokio              = { workspace = true, features = ["signal"] }
+tokio-util         = { workspace = true }
+rayon              = { workspace = true }
+clap               = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures            = { workspace = true }
+hex                = { workspace = true }
+# miner, peer state file, test wallet
+xkr-serialization  = { path = "../xkr-serialization" }
+xkr-crypto         = { path = "../xkr-crypto" }
+xkr-wallet-core    = { path = "../xkr-wallet-core" }
+serde_json         = { workspace = true }
+
+[dev-dependencies]
+# the built-in p2pool test mines a share through the stratum client (crate::p2pool tests)
+xkr-stratum        = { path = "../xkr-stratum" }
+
+[lints]
+workspace = true

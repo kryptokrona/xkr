@@ -1,0 +1,256 @@
+name: Build
+
+# Release builds on every supported platform. ci.yml stays the fast gate for pushes and pull
+# requests (fmt, clippy, test on Linux x86_64); this workflow runs the same checks natively on
+# all five targets and packs the release archives (node, wallet tools, miner, bridge). It runs on
+# version tags and by hand; the draft release is made on tags only.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tauri:
+        description: "Also build the Tauri sidecar sample (packaging/tauri-sidecar)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # The hosted runners have 3-4 cores; the proof-of-work and property tests are CPU heavy.
+  RUST_TEST_THREADS: "4"
+  # Tag name on tag pushes, dev-<run number> for manual runs.
+  XKR_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
+  NODE_VERSION: "24.21.0"
+  TAURI_CLI_VERSION: "2.12.3"
+
+jobs:
+  bridge:
+    name: bridge sidecar bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # bridge has no devDependencies; --ignore-scripts because no package needs an install
+      # script (the native addons ship prebuilds).
+      - name: npm ci and test
+        working-directory: bridge
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+      # The bundle keeps the prebuilds of every platform; each release archive prunes its copy.
+      - name: Bundle
+        run: |
+          packaging/scripts/bundle-bridge.sh --out dist/bridge
+          tar -C dist -czf "dist/xkr-bridge-$XKR_VERSION.tar.gz" bridge
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xkr-bridge
+          path: dist/xkr-bridge-${{ env.XKR_VERSION }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    name: ${{ matrix.target }}
+    needs: bridge
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-15, target: aarch64-apple-darwin }
+          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          - { os: windows-2025, target: x86_64-pc-windows-msvc }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Installs the toolchain and components pinned in rust-toolchain.toml. Every build is
+      # native (no cross-compiling), so the tests run on the target itself.
+      - name: Install Rust toolchain
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+          rustc --version && cargo clippy --version
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          [[ "$host" == "${{ matrix.target }}" ]] || { echo "runner host $host is not ${{ matrix.target }}"; exit 1; }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      - name: clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Tests that need node and bridge/node_modules are #[ignore]d, as in ci.yml.
+      - name: test
+        run: cargo test --locked --workspace
+      - name: build
+        run: >-
+          cargo build --locked --release
+          -p xkrd -p xkr-wallet-api -p xkr-walletd -p xkr-wallet-cli -p xkr-miner
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: xkr-bridge
+          path: dist
+      - name: Package
+        run: |
+          tar -C dist -xzf "dist/xkr-bridge-$XKR_VERSION.tar.gz"
+          archive=$(packaging/scripts/package-release.sh --target "${{ matrix.target }}" \
+            --version "$XKR_VERSION" --bin-dir target/release --bridge dist/bridge --out dist/release)
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+      # The packed programs (also under their C++ names) start, the checksums inside the archive
+      # match, and the pruned bridge loads its native addons on this platform under the bundled
+      # layout.
+      - name: Smoke test
+        run: |
+          mkdir -p dist/smoke
+          case "$ARCHIVE" in
+            *.zip) 7z x -y -odist/smoke "$ARCHIVE" >/dev/null ;;
+            *) tar -C dist/smoke -xzf "$ARCHIVE" ;;
+          esac
+          dir=$(echo dist/smoke/xkr-*)
+          for bin in xkrd xkr-wallet-api wallet-api xkr-walletd kryptokrona-service xkrwallet \
+                     xkr-miner miner; do
+            "$dir/$bin" --version
+          done
+          (cd "$dir" && if command -v sha256sum >/dev/null; then sha256sum -c --quiet SHA256SUMS;
+            else shasum -a 256 -c --quiet SHA256SUMS; fi)
+          cd "$dir/bridge"
+          node -e "require('sodium-native'); require('udx-native'); console.log('bridge addons load')"
+          node --input-type=module -e "await import('hyperswarm'); await import('./src/frames.js'); console.log('bridge modules load')"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xkr-${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 14
+
+  # Tags only: manual runs keep the per-target archives as artifacts of the build job.
+  release:
+    name: checksums and draft release
+    if: github.ref_type == 'tag'
+    needs: [bridge, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      # Needed to create the draft release.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: xkr-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum xkr-* > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ env.XKR_VERSION }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+      # A draft: a maintainer reviews the notes and publishes it by hand.
+      - name: Draft GitHub release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$XKR_VERSION" --draft --verify-tag --title "xkr $XKR_VERSION" \
+            --notes "One archive per target: xkrd, xkr-wallet-api (also as wallet-api), xkr-walletd (also as kryptokrona-service), xkrwallet, xkr-miner (also as miner) and the Hyperswarm bridge (needs Node.js 22+ on PATH). Moving from the C++ tools: docs/wallet-tools.md. Verify with SHA256SUMS." \
+            xkr-* SHA256SUMS
+
+  tauri:
+    name: tauri sample ${{ matrix.target }}
+    if: github.event_name == 'workflow_dispatch' && inputs.tauri
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, bundles: "deb,appimage" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, bundles: "deb" }
+          - { os: macos-15, target: aarch64-apple-darwin, bundles: "app" }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, bundles: "app" }
+          - { os: windows-2025, target: x86_64-pc-windows-msvc, bundles: "nsis" }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+      - name: Linux packages for Tauri (WebKitGTK)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev patchelf
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: tauri-${{ matrix.target }}
+          workspaces: packaging/tauri-sidecar/src-tauri
+          cache-bin: true
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version "=$TAURI_CLI_VERSION" --locked
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: xkr-${{ matrix.target }}
+          path: dist
+      # xkrd and the bridge come from this run's release archive; the Node runtime is the
+      # official build installed by setup-node.
+      - name: Prepare sidecars
+        run: |
+          case "$(echo dist/xkr-*)" in
+            *.zip) 7z x -y -odist "$(echo dist/xkr-*.zip)" >/dev/null ;;
+            *) tar -C dist -xzf "$(echo dist/xkr-*.tar.gz)" ;;
+          esac
+          pkg=$(find dist -maxdepth 1 -type d -name 'xkr-*' | head -n1)
+          node_path=$(node -p process.execPath)
+          if command -v cygpath >/dev/null; then node_path=$(cygpath -u "$node_path"); fi
+          packaging/tauri-sidecar/scripts/prepare-sidecars.sh --target "${{ matrix.target }}" \
+            --xkrd-dir "$pkg" --bridge-dir "$pkg/bridge" --node "$node_path"
+      - name: Build
+        working-directory: packaging/tauri-sidecar/src-tauri
+        run: cargo tauri build --bundles "${{ matrix.bundles }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tauri-sample-${{ matrix.target }}
+          path: packaging/tauri-sidecar/src-tauri/target/release/bundle/
+          if-no-files-found: error
+          retention-days: 7

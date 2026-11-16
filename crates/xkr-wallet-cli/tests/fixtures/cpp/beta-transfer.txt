@@ -1,0 +1,60 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+
+
+Your wallet SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf has been successfully opened!
+
+
+ 1	advanced                 List available advanced commands
+ 2	address                  Display your payment address
+ 3	balance                  Display how much XKR you have
+ 4	backup                   Backup your private keys and/or seed
+ 5	exit                     Exit and save your wallet
+ 6	help                     List this help message
+ 7	transfer                 Send XKR to someone
+
+Note: You can type cancel at any time to cancel the transaction
+
+What address do you want to transfer to?: 
+What payment ID do you want to use?
+These are usually used for sending to exchanges.
+Warning: If you were given a payment ID,
+you MUST use it, or your funds may be lost!
+Hit enter for the default of no payment ID: 
+How much XKR do you want to send?: 
+
+Confirm Transaction?
+You are sending 1.00000 XKR, with a network fee of 0.00010 XKR,
+and a node fee of 0.00000 XKR.
+
+FROM: beta-seed.wallet
+TO: SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn
+
+Is this correct? (Y/n): Transaction has been sent!
+Hash: <hex:1>
+Available balance: 13,904.01516 XKR
+Locked (unconfirmed) balance: 398.99990 XKR
+Total balance: 14,303.01506 XKR
+
+Saving and shutting down...
+Thanks for stopping by...

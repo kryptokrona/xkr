@@ -1,0 +1,6 @@
+
+@sleep 15
+balance
+outgoing_transfers
+list_transfers
+exit

@@ -1,0 +1,6 @@
+# Filled by scripts/prepare-sidecars.sh
+src-tauri/binaries/
+src-tauri/resources/
+# Build output and generated schemas
+src-tauri/target/
+src-tauri/gen/

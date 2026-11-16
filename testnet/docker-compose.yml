@@ -1,0 +1,164 @@
+# Local Kryptokrona testnet: three C++ daemons in an exclusive mesh + one CPU miner.
+#
+# For exploring by hand. The regression suite (testnet/suite.sh, docs/testnet-suite.md) does NOT
+# depend on this file: it starts its own C++ containers (--network host, ports 14889-21898) and
+# never peers with these nodes.
+#
+#   ./up.sh            start (prebuilt ghcr image)
+#   ./up.sh --build    build the C++ master branch first (testnet/Dockerfile.cpp-testnet)
+#                      and run that image instead (needed for TESTNET_FIXED_DIFFICULTY)
+#   ./status.sh        getinfo on every node
+#   ./down.sh [--wipe] stop (and delete chain data)
+#
+# Testnet build (`-DTEST_NET=ON` -> USE_TESTNET): network id f14cb8c8-b356-452e-eef0-b499ab716ccc,
+# P2P 11898, RPC 11899, coinbase unlock window 1. Inside the network every node uses those
+# ports on its own IP; on the host they are published on 127.0.0.1 only:
+#   node1 P2P 11898 RPC 11899 | node2 P2P 12898 RPC 12899 | node3 P2P 13898 RPC 13899
+#
+# The image is selectable: XKR_CPP_IMAGE=xkr/kryptokrona-testnet:master docker compose up -d
+# The prebuilt ghcr image (2025-03-31) predates the fixed-difficulty testnet crutch in
+# cryptonote_config.h, so its chain may stall at the V4/V5 PoW switch (see README.md).
+
+name: xkr-testnet
+
+x-daemon: &daemon
+  image: ${XKR_CPP_IMAGE:-ghcr.io/kryptokrona/kryptokrona-testnet:latest}
+  restart: unless-stopped
+  cpus: 2
+  mem_limit: 1g
+  stop_grace_period: 30s
+  working_dir: /usr/src/kryptokrona
+
+services:
+  node1:
+    <<: *daemon
+    container_name: xkr-testnet-node1
+    command:
+      - /usr/src/kryptokrona/kryptokronad
+      - --data-dir=/data
+      - --p2p-bind-ip=0.0.0.0
+      - --p2p-bind-port=11898
+      - --rpc-bind-ip=0.0.0.0
+      - --rpc-bind-port=11899
+      - --enable-cors=*
+      - --add-exclusive-node=172.31.98.12:11898
+      - --add-exclusive-node=172.31.98.13:11898
+      - --allow-local-ip
+      - --no-console
+      - --log-level=2
+    volumes:
+      - ./data/node1:/data
+    ports:
+      - "127.0.0.1:11898:11898"
+      - "127.0.0.1:11899:11899"
+    networks:
+      xkrnet:
+        ipv4_address: 172.31.98.11
+
+  node2:
+    <<: *daemon
+    container_name: xkr-testnet-node2
+    command:
+      - /usr/src/kryptokrona/kryptokronad
+      - --data-dir=/data
+      - --p2p-bind-ip=0.0.0.0
+      - --p2p-bind-port=11898
+      - --rpc-bind-ip=0.0.0.0
+      - --rpc-bind-port=11899
+      - --enable-cors=*
+      - --add-exclusive-node=172.31.98.11:11898
+      - --add-exclusive-node=172.31.98.13:11898
+      - --allow-local-ip
+      - --no-console
+      - --log-level=2
+    volumes:
+      - ./data/node2:/data
+    ports:
+      - "127.0.0.1:12898:11898"
+      - "127.0.0.1:12899:11899"
+    networks:
+      xkrnet:
+        ipv4_address: 172.31.98.12
+
+  node3:
+    <<: *daemon
+    container_name: xkr-testnet-node3
+    command:
+      - /usr/src/kryptokrona/kryptokronad
+      - --data-dir=/data
+      - --p2p-bind-ip=0.0.0.0
+      - --p2p-bind-port=11898
+      - --rpc-bind-ip=0.0.0.0
+      - --rpc-bind-port=11899
+      - --enable-cors=*
+      - --add-exclusive-node=172.31.98.11:11898
+      - --add-exclusive-node=172.31.98.12:11898
+      - --allow-local-ip
+      - --no-console
+      - --log-level=2
+    volumes:
+      - ./data/node3:/data
+    ports:
+      - "127.0.0.1:13898:11898"
+      - "127.0.0.1:13899:11899"
+    networks:
+      xkrnet:
+        ipv4_address: 172.31.98.13
+
+  # Bundled CPU miner (src/miner, cxxopts flags: --daemon-address host:port | --daemon-host +
+  # --daemon-rpc-port, --address, --threads, --limit, --scan-time, --first-block-timestamp,
+  # --block-timestamp-interval). It polls node1's RPC for block templates.
+  # MINER_ADDRESS defaults to the address used by upstream scripts/testnet/miner-cron; make your
+  # own with the commands in README.md ("Manual C++ testnet") to be able to spend the rewards.
+  miner:
+    image: ${XKR_CPP_IMAGE:-ghcr.io/kryptokrona/kryptokrona-testnet:latest}
+    container_name: xkr-testnet-miner
+    restart: unless-stopped
+    cpus: 2
+    mem_limit: 1g
+    depends_on:
+      - node1
+      - node2
+      - node3
+    command:
+      - /usr/src/kryptokrona/miner
+      - --daemon-address=172.31.98.11:11899
+      - --address=${MINER_ADDRESS:-SEKReYwbPp2NBcX5TxYoxrDhPdzPa7kXaXFVW6WqoNTaEkk8CAqM4HCRzkyKtMR2czK1Bma5w5HBM2xHtCb1zwfp9TSS2UitA67}
+      - --threads=1
+      - --scan-time=1
+    networks:
+      xkrnet:
+        ipv4_address: 172.31.98.20
+
+  # Rust node. Uncomment once crates/xkrd exists and has a Dockerfile.
+  # xkrd:
+  #   build:
+  #     context: ..
+  #     dockerfile: testnet/Dockerfile.xkrd
+  #   container_name: xkr-testnet-xkrd
+  #   cpus: 2
+  #   mem_limit: 1g
+  #   command:
+  #     - xkrd
+  #     - --testnet
+  #     - --data-dir=/data
+  #     - --p2p-bind=0.0.0.0:11898
+  #     - --rpc-bind=0.0.0.0:11899
+  #     - --add-exclusive-node=172.31.98.11:11898
+  #     - --add-exclusive-node=172.31.98.12:11898
+  #     - --add-exclusive-node=172.31.98.13:11898
+  #   volumes:
+  #     - ./data/xkrd:/data
+  #   ports:
+  #     - "127.0.0.1:14898:11898"
+  #     - "127.0.0.1:14899:11899"
+  #   networks:
+  #     xkrnet:
+  #       ipv4_address: 172.31.98.30
+
+networks:
+  xkrnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.98.0/24

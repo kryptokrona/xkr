@@ -1,0 +1,26 @@
+[
+  {
+    "input": "walletd-pass",
+    "hash": "5c0a51ef180a75503d3c6cd752b2bc0d70e577d8281f1c335308908d62472617"
+  },
+  {
+    "input": "cli-pass",
+    "hash": "f7bdca0c021d8e834a7293a2ae0673d43a51f536d677891c33d0648b37a22724"
+  },
+  {
+    "input": "cli-pass-2",
+    "hash": "c9ca66ce7b5d37a3a574d8c22f33a57133fda635e109f857232484d69744a81c"
+  },
+  {
+    "input": "view-pass",
+    "hash": "455593fc8207982e0b0852d74988600f4be5b383610c3072dc976fb2a8b86893"
+  },
+  {
+    "input": "compat-walletd-pass",
+    "hash": "60c2f000f670fc293b7107a7175eb013cdb53a5b6ee609364f5373e9039ef9f7"
+  },
+  {
+    "input": "pässwörd ✓",
+    "hash": "84f5960b43f1c73b29c98c2ab0516132659dda9ce319705f48a5ebc262036422"
+  }
+]

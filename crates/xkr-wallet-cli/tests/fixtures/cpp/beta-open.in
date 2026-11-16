@@ -1,0 +1,27 @@
+
+@sleep 15
+balance
+address
+backup
+
+status
+list_transfers
+incoming_transfers
+outgoing_transfers
+ab_add
+friend-one
+SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn
+
+ab_add
+friend-pid
+SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+ab_list
+make_integrated_address
+SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+save
+save_csv
+help
+advanced
+exit

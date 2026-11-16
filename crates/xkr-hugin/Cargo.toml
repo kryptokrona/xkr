@@ -1,0 +1,39 @@
+[package]
+name = "xkr-hugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "hugin-node relay in Rust: bare-rpc PACKET codec, Hugin message pool, PoW share checks, jobs and share submits through p2pool, and the relay logic for Hugin apps and hugin-node peers."
+
+[dependencies]
+xkr-types        = { path = "../xkr-types" }
+xkr-crypto       = { path = "../xkr-crypto" }
+xkr-wallet-core  = { path = "../xkr-wallet-core" }
+# stratum pool client, job blob and target helpers (pool.rs, pow.rs)
+xkr-stratum      = { path = "../xkr-stratum" }
+# ed25519 signature check of `pow.auth` (libsodium crypto_sign_verify_detached semantics)
+curve25519-dalek = { workspace = true }
+sha2             = { workspace = true }
+rand_core        = { workspace = true }
+bytes            = { workspace = true }
+futures          = { workspace = true }
+hex              = { workspace = true }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
+thiserror        = { workspace = true }
+tokio            = { workspace = true }
+tokio-util       = { workspace = true }
+tracing          = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# paused clock in the loopback tests (tokio::time::pause / advance)
+tokio    = { workspace = true, features = ["test-util"] }
+# property tests (tests/prop_*.rs)
+proptest = { workspace = true }
+
+[lints]
+workspace = true

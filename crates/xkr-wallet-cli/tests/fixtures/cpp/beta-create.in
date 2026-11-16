@@ -1,0 +1,10 @@
+create
+beta-created
+cli-pass
+@sleep 8
+address
+backup
+cli-pass
+balance
+status
+exit

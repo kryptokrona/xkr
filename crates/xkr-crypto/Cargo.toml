@@ -1,0 +1,32 @@
+[package]
+name = "xkr-crypto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Keccak/tree hash, CryptoNote ed25519 operations, ring signatures and CryptoNight PoW for Kryptokrona."
+
+[dependencies]
+xkr-types        = { path = "../xkr-types" }
+curve25519-dalek = { workspace = true }
+rand_core        = { workspace = true }
+thiserror        = { workspace = true }
+# CLSAG signing: constant-time key check, nonce/secret wiping
+subtle           = { workspace = true }
+zeroize          = { workspace = true }
+# CryptoNight finalisers
+digest           = { workspace = true }
+groestl          = { workspace = true }
+jh               = { workspace = true }
+skein            = { workspace = true }
+# AES rounds on the CPU's AES instructions for `cryptonight::CnHasher` (`hazmat`, runtime detection)
+aes              = { workspace = true }
+
+[dev-dependencies]
+hex         = { workspace = true }
+tiny-keccak = { workspace = true }
+
+[lints]
+workspace = true

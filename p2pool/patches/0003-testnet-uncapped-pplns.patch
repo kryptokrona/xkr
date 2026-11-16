@@ -1,0 +1,80 @@
+p2pool: testnet-only switch that lifts the PPLNS weight cap (XKR_TESTNET_UNCAPPED_PPLNS)
+
+Base: kryptokrona/p2pool 8edf632fae7ebcbb29d3525144ac77b0dbd6477e with
+0001-fork13-v6.patch and 0002-fork14-tx-v2-coinbase.patch applied. Apply with
+`patch -p1 < 0003-testnet-uncapped-pplns.patch`. Testnet use: docs/testnet-suite.md
+"32-p2pool" in the xkr repository.
+
+* Why: SideChain::get_shares limits the PPLNS window to a total weight of twice the main-chain
+  difficulty (upstream "dynamic PPLNS window", side_chain.cpp `max_pplns_weight =
+  mainchain_diff * 2`), and always ends the window after the share that crosses the limit.
+  On the XKR testnet the block difficulty is fixed at 1 and every share weighs at least the
+  sidechain minimum of 100 000, so the window is exactly one share: the template's own. Every
+  coinbase pays only the wallet of the node that built it, whatever shares the sidechain
+  holds. Correct and intended on mainnet (main-chain difficulty far above the share
+  difficulty); it only makes multi-payee PPLNS untestable on the testnet.
+* What: XKR_TESTNET_UNCAPPED_PPLNS=1 in the environment, honoured only when the daemon's
+  get_info reports "testnet": true (read in SideChain::configure_forks, like the fork
+  heights), sets the cap to the maximum difficulty, so the window is the sidechain's
+  pplns_window blocks (plus uncles). Logged at start-up as "XKR testnet: PPLNS weight not
+  capped ...". Peers recompute every share's payouts with get_shares, so this is a sidechain
+  consensus rule: every node of the test sidechain must set it alike.
+* Without the variable, or against a mainnet daemon, nothing changes (not a byte, not a
+  rule).
+
+diff -ruN a/src/side_chain.cpp b/src/side_chain.cpp
+--- a/src/side_chain.cpp
++++ b/src/side_chain.cpp
+@@ -67,6 +67,7 @@
+ NetworkType SideChain::s_networkType = NetworkType::Invalid;
+ uint64_t SideChain::s_fork13Height = coin::FORK13_HEIGHT_DEFAULT;
+ uint64_t SideChain::s_fork14Height = coin::FORK14_HEIGHT_DEFAULT;
++bool SideChain::s_uncappedPplns = false;
+ 
+ SideChain::SideChain(p2pool* pool, NetworkType type, const char* pool_name)
+ 	: m_pool(pool)
+@@ -360,7 +361,11 @@
+ 
+ 	// Dynamic PPLNS window starting from v2
+ 	// Limit PPLNS weight to 2x of the Monero difficulty (max 2 blocks per PPLNS window on average)
+-	const difficulty_type max_pplns_weight = mainchain_diff * 2;
++	// XKR testnet (XKR_TESTNET_UNCAPPED_PPLNS, SideChain::configure_forks): the block difficulty
++	// is fixed at 1, below every share difficulty, so the cap would end the window after the
++	// first share and every coinbase would pay one wallet. Uncapped, the window is the
++	// sidechain's pplns_window blocks. Never set on mainnet (ignored without a testnet daemon).
++	const difficulty_type max_pplns_weight = s_uncappedPplns ? difficulty_type(~0ULL, ~0ULL) : (mainchain_diff * 2);
+ 	difficulty_type pplns_weight;
+ 
+ 	unordered_set<MinerShare> shares_set;
+@@ -1230,6 +1235,20 @@
+ 	if (s_fork13Height && s_fork14Height && (s_fork14Height <= s_fork13Height)) {
+ 		LOGWARN(1, "fork 14 height " << s_fork14Height << " is not above fork 13 height " << s_fork13Height);
+ 	}
++
++	// Test networks only: lift the PPLNS weight cap of get_shares (2x the block difficulty),
++	// which on the XKR testnet (difficulty 1) leaves exactly one share in every window. This is
++	// a sidechain consensus rule (peers recompute every share's payouts), so all nodes of the
++	// test sidechain must set it alike, like the fork heights.
++	const char* env = std::getenv("XKR_TESTNET_UNCAPPED_PPLNS");
++	const bool want = env && (env[0] == '1') && (env[1] == '\0');
++	if (want && !daemon_testnet) {
++		LOGWARN(1, "XKR_TESTNET_UNCAPPED_PPLNS is set but the daemon is not on testnet, ignoring it");
++	}
++	s_uncappedPplns = want && daemon_testnet;
++	if (s_uncappedPplns) {
++		LOGINFO(1, "XKR testnet: PPLNS weight not capped at 2x the block difficulty, the window is the sidechain's pplns_window");
++	}
+ }
+ 
+ difficulty_type SideChain::total_hashes() const
+diff -ruN a/src/side_chain.h b/src/side_chain.h
+--- a/src/side_chain.h
++++ b/src/side_chain.h
+@@ -135,6 +135,7 @@
+ 	static NetworkType s_networkType;
+ 	static uint64_t s_fork13Height;
+ 	static uint64_t s_fork14Height;
++	static bool s_uncappedPplns; // XKR testnet only: no PPLNS weight cap (configure_forks)
+ 
+ private:
+ 	[[nodiscard]] bool get_shares(const PoolBlock* tip, std::vector<MinerShare>& shares, uint64_t* bottom_height = nullptr, bool quiet = false) const;

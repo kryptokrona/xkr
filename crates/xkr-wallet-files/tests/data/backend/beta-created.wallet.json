@@ -1,0 +1,12 @@
+{
+  "file": "beta-created.wallet",
+  "format": "A",
+  "tool": "beta",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "password": "cli-pass",
+  "description": "create (random keys; see beta-create.txt for the printed keys, normalised)",
+  "expected": {
+    "address": "SEKReWiSPbALNV9Yme1j19crZkrWSB73rEkpupBx9uTQQ1Bu44rzNFC5cvfzJAqKoWJHVJdeJPE4xG94VAzAVbLfT4F95tsHx58"
+  }
+}

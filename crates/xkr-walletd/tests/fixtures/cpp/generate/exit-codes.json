@@ -1,0 +1,10 @@
+{
+  "address-k": 0,
+  "bad-seed-checksum": 0,
+  "bad-spend-key": 0,
+  "file-exists": 1,
+  "keys-k-empty-password": 0,
+  "random-unicode-password": 0,
+  "seed-a": 0,
+  "view-key-only": 0
+}

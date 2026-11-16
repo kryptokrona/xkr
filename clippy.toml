@@ -1,0 +1,11 @@
+# Proper nouns that clippy::doc_markdown would otherwise want in backticks.
+# ".." keeps clippy's built-in list (GitHub, JavaScript, ...).
+doc-valid-idents = [
+    "..",
+    "CryptoNote",
+    "CryptoNight",
+    "TurtleCoin",
+    "HyperDHT",
+    "BLAKE2b",
+    "PoW",
+]

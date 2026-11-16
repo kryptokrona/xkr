@@ -1,0 +1,51 @@
+[package]
+name = "xkr-wallet-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Terminal wallet xkrwallet: the commands, flags and prompts of the C++ xkrwallet and xkrwallet-beta (zedwallet, zedwallet++), both wallet file formats, on the xkr-wallet engine."
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "xkrwallet"
+path = "src/main.rs"
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+# private key checks (`secret_key_to_public_key`, `check_key`)
+xkr-crypto        = { path = "../xkr-crypto" }
+# Network (default daemon port), MINIMUM_FEE, CRYPTONOTE_NAME
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-daemon-client = { path = "../xkr-daemon-client" }
+xkr-wallet        = { path = "../xkr-wallet" }
+# mnemonic check, Address (alternate prefix form)
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+# .addressBook.json in both forms
+xkr-wallet-files  = { path = "../xkr-wallet-files" }
+tokio             = { workspace = true, features = ["signal"] }
+rustyline         = { workspace = true }
+rpassword         = { workspace = true }
+zeroize           = { workspace = true }
+# --debug: engine logs to xkrwallet.log
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# in-process xkrd (RPC router on a testnet chain) for the scripted sessions
+xkr-rpc           = { path = "../xkr-rpc" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+xkr-serialization = { path = "../xkr-serialization" }
+axum              = { workspace = true }
+tower             = { workspace = true, features = ["util"] }
+serde_json        = { workspace = true }
+hex               = { workspace = true }
+tempfile          = { workspace = true }

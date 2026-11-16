@@ -1,0 +1,169 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/xkr-types",
+    "crates/xkr-serialization",
+    "crates/xkr-crypto",
+    "crates/xkr-consensus",
+    "crates/xkr-storage",
+    "crates/xkr-p2p-legacy",
+    "crates/xkr-p2p-hyper",
+    # node core
+    "crates/xkr-txpool",
+    "crates/xkr-chain",
+    "crates/xkr-rpc",
+    "crates/xkrd",
+    # wallet core (keys, addresses, scanning, transaction construction)
+    "crates/xkr-wallet-core",
+    # wallet file formats (WalletBackend JSON file, WalletGreen container) and daemon RPC client
+    "crates/xkr-wallet-files",
+    "crates/xkr-daemon-client",
+    # wallet engine (state, sync, sending, persistence)
+    "crates/xkr-wallet",
+    # wallet services: wallet-api (REST) and kryptokrona-service (JSON-RPC) drop-ins
+    "crates/xkr-wallet-api",
+    "crates/xkr-walletd",
+    # terminal wallet (xkrwallet)
+    "crates/xkr-wallet-cli",
+    # terminal look shared by xkrd, xkrwallet and xkr-miner (logo, large digits, steps, colours)
+    "crates/xkr-term",
+    # stratum client and message types, standalone miner
+    "crates/xkr-stratum",
+    "crates/xkr-miner",
+    # hugin-node relay (bare-rpc PACKET protocol, message pool, PoW shares)
+    "crates/xkr-hugin",
+    # p2pool sidechain embedded in xkrd (share format, sidechain rules)
+    "crates/xkr-p2pool",
+    # shared crypto core for the Hugin apps (C ABI for React Native, rlib for napi-rs)
+    "crates/xkr-crypto-ffi",
+    # vendored (MIT, from Cuprate, see vendor/VENDORED.md)
+    "vendor/levin",
+    "vendor/epee-encoding",
+    # vendored later: "vendor/cryptonight"
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.100"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/kryptokrona/xkr"
+
+# Exact versions only: add new dependencies here, never with "*" or caret ranges.
+[workspace.dependencies]
+# core
+bytemuck        = { version = "=1.25.2", features = ["derive"] }
+bytes           = "=1.11.0"
+thiserror       = "=2.0.18"
+hex             = "=0.4.3"
+bitflags        = "=2.13.2"
+cfg-if          = "=1.0.5"
+paste           = "=1.0.15"
+ref-cast        = "=1.0.27"
+serde           = { version = "=1.0.229", features = ["derive"] }
+serde_json      = "=1.0.149"
+# crypto
+curve25519-dalek = { version = "=5.0.0", features = ["alloc", "zeroize", "precomputed-tables", "digest", "group"] }
+tiny-keccak     = { version = "=2.0.2", features = ["keccak"] }
+# SHA-512 for ed25519 seed -> public key (Hugin topic derivation in xkr-p2p-hyper)
+sha2            = "=0.11.0"
+# constant-time selection and wiping in the CLSAG signer (xkr-crypto/src/clsag.rs)
+subtle          = "=2.6.1"
+# CryptoNight finalisers (vendored Cuprate cryptonight in xkr-crypto). Same majors as Cuprate;
+# skein 0.1.0 is yanked, 0.1.1 has the same API. They use the digest 0.10 API.
+digest          = "=0.10.7"
+groestl         = "=0.10.1"
+jh              = "=0.1.0"
+skein           = "=0.1.1"
+zeroize         = "=1.8.2"
+rand_core       = { version = "=0.9.3", features = ["os_rng"] }
+# storage
+redb            = "=4.5.0"
+zstd            = "=0.14.4"
+# runtime / net
+tokio           = { version = "=1.54.1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
+tokio-util      = { version = "=0.7.18", features = ["codec"] }
+# TLS to Hugin stratum pools (`stratum+ssl://`, xkr-hugin): ring provider, system roots
+rustls          = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls    = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "=0.8.2"
+# dev-dependency of xkr-rpc (router tests without a socket)
+tower           = "=0.5.3"
+futures         = "=0.3.31"
+rayon           = "=1.12.0"
+tracing         = "=0.1.44"
+tracing-subscriber = { version = "=0.3.22", features = ["env-filter", "json"] }
+parking_lot     = "=0.12.5"
+axum            = "=0.8.8"
+clap            = { version = "=4.5.60", features = ["derive"] }
+# vendored crates (vendor/VENDORED.md)
+xkr-levin       = { path = "vendor/levin" }
+xkr-epee        = { path = "vendor/epee-encoding" }
+# dev
+proptest        = "=1.11.0"
+tempfile        = "=3.24.0"
+hyper           = "=1.12.0"
+hyper-util      = { version = "=0.1.21", features = ["client-legacy", "http1", "tokio"] }
+http-body-util  = "=0.1.5"
+aes             = { version = "=0.9.4", features = ["hazmat"] }
+cbc             = { version = "=0.2.1", features = ["alloc"] }
+pbkdf2          = { version = "=0.13.0", default-features = false, features = ["hmac"] }
+hmac            = "=0.13.0"
+rustyline       = { version = "=19.0.0", default-features = false }
+rpassword       = "=7.5.5"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_possible_truncation = "allow"
+# Consensus arithmetic mirrors C++ signed/unsigned casts on purpose; vendored tables use long literals.
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+unreadable_literal = "allow"
+many_single_char_names = "allow"
+too_many_lines = "allow"
+# `assert!(x.is_empty())` reads fine in tests
+assert_is_empty = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+
+# PoW tests are unusably slow unoptimised; vendored CryptoNight is inside xkr-crypto.
+[profile.dev.package.xkr-crypto]
+opt-level = 3
+
+[profile.dev.package.aes]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.pbkdf2]
+opt-level = 3
+
+[profile.dev.package.hmac]
+opt-level = 3
+
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+
+[profile.dev.package.tiny-keccak]
+opt-level = 3
+
+[profile.dev.package.groestl]
+opt-level = 3
+
+[profile.dev.package.jh]
+opt-level = 3
+
+[profile.dev.package.skein]
+opt-level = 3

@@ -1,0 +1,7 @@
+# Cargo settings for this repository.
+
+[env]
+# libbare-kit, which xkr-p2p-hyper links (the Bare workers of xkrd's Hyperswarm bridge):
+# scripts/build-bare-kit.sh builds bare-kit 3.1.0 into target/bare-kit/lib (relative to the
+# repository root). Without `force`, a LIBBARE_DIR already set in the environment wins.
+LIBBARE_DIR = { value = "target/bare-kit/lib", relative = true }

@@ -1,0 +1,24 @@
+# cbindgen configuration that regenerates an equivalent of include/xkr_crypto_ffi.h from
+# src/ffi.rs (the checked-in header is hand-written and is the reference; regenerate only to
+# compare, then keep the hand-written comments):
+#   cbindgen --config cbindgen.toml --crate xkr-crypto-ffi --output /tmp/xkr_crypto_ffi.h
+language = "C"
+include_guard = "XKR_CRYPTO_FFI_H"
+cpp_compat = true
+usize_is_size_t = true
+sys_includes = ["stddef.h", "stdint.h"]
+no_includes = true
+documentation = true
+
+[export]
+prefix = ""
+include = ["XkrCryptoStr", "XkrCryptoBuffer", "XkrCryptoPowResult"]
+
+[export.rename]
+"c_char" = "char"
+
+[fn]
+prefix = ""
+
+[parse]
+parse_deps = false

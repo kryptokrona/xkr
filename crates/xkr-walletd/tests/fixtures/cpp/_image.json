@@ -1,0 +1,29 @@
+{
+  "image": "xkr-cpp-wallets:master",
+  "id": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "created": "2026-11-15T23:12:56.530052603+01:00",
+  "files": [
+    "kryptokrona-service",
+    "kryptokronad",
+    "miner",
+    "wallet-api",
+    "xkrwallet",
+    "xkrwallet-beta"
+  ],
+  "versions": {
+    "kryptokronad": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+    "wallet-api": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+    "kryptokrona-service": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+    "xkrwallet": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+    "xkrwallet-beta": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+    "miner": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   "
+  },
+  "xkrwalletBeta": true,
+  "helpDefaults": {
+    "kryptokronad": " --p2p-bind-port # TCP port for the P2P service (default: 11898)| --rpc-bind-port # TCP port for the RPC service (default: 11899)|",
+    "miner": " option overrides --daemon-host and --daemon-rpc-port| --daemon-rpc-port # The daemon RPC port to use for node operations (default: 11899)|",
+    "kryptokrona-service": " --daemon-port <port> The daemon RPC port to use for node operations (default: 11899)| --bind-port <port> TCP port for the RPC service (default: 8070)|",
+    "wallet-api": " -p, --port <port> The port to listen on for http requests (default: 8070)|"
+  },
+  "testnetDefaultPorts": true
+}

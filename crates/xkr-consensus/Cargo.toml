@@ -1,0 +1,22 @@
+[package]
+name = "xkr-consensus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona consensus rules: parameters, versions, difficulty, rewards, block and transaction validation."
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-serialization = { path = "../xkr-serialization" }
+xkr-crypto        = { path = "../xkr-crypto" }
+hex               = { workspace = true }
+thiserror         = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

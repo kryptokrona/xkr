@@ -1,0 +1,68 @@
+{
+  "capturedBy": "testnet/fixtures/capture-wallet-api.sh",
+  "captured": "2026-11-15T17:57:45Z",
+  "tool": "wallet-api",
+  "image": {
+    "image": "xkr-cpp-wallets:master",
+    "id": "sha256:f2fe072d7c884f39bd8e38462495e7ba5c51590703a57cc0d18966a9907c3c1d",
+    "created": "2026-11-15T18:19:08.116672012+01:00",
+    "files": [
+      "kryptokrona-service",
+      "kryptokronad",
+      "miner",
+      "wallet-api",
+      "xkrwallet",
+      "xkrwallet-beta"
+    ],
+    "versions": {
+      "kryptokronad": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+      "wallet-api": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+      "kryptokrona-service": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+      "xkrwallet": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+      "xkrwallet-beta": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   ",
+      "miner": "oooo                                            .             oooo      `888                                          .o8             `888                                                   888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.     888 .8P'   `888\"\"8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888\"\"8P d88' `88b `888P\"Y88b  `P  )88b   "
+    },
+    "xkrwalletBeta": true,
+    "helpDefaults": {
+      "kryptokronad": " --p2p-bind-port # TCP port for the P2P service (default: 11898)| --rpc-bind-port # TCP port for the RPC service (default: 11899)|",
+      "miner": " option overrides --daemon-host and --daemon-rpc-port| --daemon-rpc-port # The daemon RPC port to use for node operations (default: 11899)|",
+      "kryptokrona-service": " --daemon-port <port> The daemon RPC port to use for node operations (default: 11899)| --bind-port <port> TCP port for the RPC service (default: 8070)|",
+      "wallet-api": " -p, --port <port> The port to listen on for http requests (default: 8070)|"
+    },
+    "testnetDefaultPorts": true
+  },
+  "xkrd": "xkrd 0.1.0",
+  "chain": {
+    "network": "testnet",
+    "genesisOnly": true,
+    "mainWalletBlocks": [
+      1,
+      30
+    ],
+    "fillerBlocksTo": 130,
+    "blocksAfterSends": 12,
+    "walletdAndXkrwalletDaemon": "xkrd"
+  },
+  "format": {
+    "line": "{name, request: {method, path, headers, body}, response: {status, headers, body}}",
+    "body": "parsed JSON if the text is JSON, else the raw text; \"\" = empty response body; null = no request body",
+    "headers": "response headers without Date; Content-Length is that of the original (not normalised) body"
+  },
+  "normalisation": {
+    "hex64": "<kind:N> per kind (tx, block, spendkey, spendpub, viewkey, txkey, txpub, hex), numbered by first appearance",
+    "addresses": "<address:N> / <integrated:N> unless derived from fixed keys",
+    "seeds": "<mnemonic:N> unless fixed",
+    "extra": "01<txpub:N> + the other fields",
+    "timestamps": "<timestamp>",
+    "peerCount": "<peers>",
+    "walletdChange": "<change>",
+    "shape": "names ending in ~shape: every number in the response body is <n>"
+  },
+  "notes": [
+    "wallet-api runs against xkrd X directly (Nigel routes)",
+    "image xkr-cpp-wallets:master: a testnet build of the C++ checkout (versions in _image.json); it knows the Xkr prefix if the checkout does",
+    "testnet heights are below MIXIN_LIMITS_V1_HEIGHT: no mixin limits apply, so mixin-0 / mixin-500 show the daemon's and the decoy answers, not MIXIN_TOO_SMALL/BIG",
+    "fixed material: lib-wallet.sh (seeds A and B, keys K, sub keys, payment ids); wallet files: /w/api-*.wallet with passwords pass-a, empty (B), pass-k, pass-view, pass-created",
+    "UNLOCK_AT=170 (unlock-time send), first send mined at height 131"
+  ]
+}

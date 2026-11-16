@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1
+#
+# Kryptokrona C++ daemon/miner/wallet, master branch, testnet build (-DTEST_NET=ON, which the
+# top-level CMakeLists.txt turns into add_definitions(-DUSE_TESTNET)).
+#
+# Needed because ghcr.io/kryptokrona/kryptokrona-testnet:latest (2025-03-31) predates
+# TESTNET_FIXED_DIFFICULTY / UPGRADE_HEIGHT_V2..V5 = 0 in src/config/cryptonote_config.h.
+#
+# make targets: kryptokronad, miner, zedwallet (-> xkrwallet), zedwallet++ (-> xkrwallet-beta),
+# service (-> kryptokrona-service), wallet_api (-> wallet-api).
+#
+# Build context = the C++ checkout; optional patches (fork-13 tests) come in through a named
+# BuildKit context so the C++ tree is never modified on disk:
+#
+#   docker build -f testnet/Dockerfile.cpp-testnet \
+#       --build-context xkrpatches=testnet/patches \
+#       -t xkr/kryptokrona-testnet:master "$XKR_CPP_SRC"   # a clone of github.com/kryptokrona/kryptokrona
+#
+# (testnet/build-cpp.sh does exactly this.) Every *.patch in that context is applied with
+# `patch -p1` in name order before compiling; build-cpp.sh selects which (XKR_CPP_PATCHES).
+#
+# Build argument FORK13_HEIGHT (optional): compiled-in fork-13 height for
+# patches/0001-fork13-testnet.patch (-DXKR_FORK13_HEIGHT). Testnet daemons of that patch also
+# read the XKR_FORK13_HEIGHT environment variable at start-up, which overrides it, so one
+# image serves every height (testnet/fork13-scenario.sh relies on that). Without a patch that
+# uses it the definition is ignored.
+
+FROM ubuntu:22.04 AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gcc-11 g++-11 cmake git patch python3 \
+        libssl-dev libffi-dev \
+        libboost-all-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /usr/src/kryptokrona
+COPY --from=xkrpatches . /patches
+WORKDIR /usr/src/kryptokrona
+
+RUN set -e; for p in $(ls /patches/*.patch 2>/dev/null | sort); do \
+        echo "applying $p"; patch -p1 --forward < "$p"; \
+    done
+
+ARG FORK13_HEIGHT=
+RUN mkdir -p build
+WORKDIR /usr/src/kryptokrona/build
+# Optimisation -O2 (RelWithDebInfo flags without debug info): the reference build for the
+# suite and the wallet fixtures.
+RUN cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTEST_NET=ON \
+          -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
+          -DCMAKE_CXX_FLAGS="-g0 -Os -fPIC -std=gnu++17${FORK13_HEIGHT:+ -DXKR_FORK13_HEIGHT=${FORK13_HEIGHT}}" .. \
+    && nice -n 19 make -j3 kryptokronad miner zedwallet zedwallet++ service wallet_api
+
+FROM ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/kryptokrona
+COPY --from=builder /usr/src/kryptokrona/build/src/kryptokronad .
+COPY --from=builder /usr/src/kryptokrona/build/src/miner .
+COPY --from=builder /usr/src/kryptokrona/build/src/xkrwallet .
+COPY --from=builder /usr/src/kryptokrona/build/src/kryptokrona-service .
+COPY --from=builder /usr/src/kryptokrona/build/src/xkrwallet-beta .
+COPY --from=builder /usr/src/kryptokrona/build/src/wallet-api .
+RUN chmod +x kryptokronad miner xkrwallet xkrwallet-beta kryptokrona-service wallet-api && mkdir -p /data
+
+EXPOSE 11898 11899
+CMD ["/usr/src/kryptokrona/kryptokronad", "--data-dir=/data", "--p2p-bind-ip=0.0.0.0", \
+     "--rpc-bind-ip=0.0.0.0", "--enable-cors=*", "--no-console"]

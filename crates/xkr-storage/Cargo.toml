@@ -1,0 +1,28 @@
+[package]
+name = "xkr-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona chain storage on redb: compact fixed-width indexes, key-stripped records in zstd chunks, pruning."
+
+[dependencies]
+xkr-types = { path = "../xkr-types" }
+redb      = { workspace = true }
+zstd      = { workspace = true }
+bytemuck  = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+# size-regression test over the real mainnet fixture blocks
+xkr-serialization = { path = "../xkr-serialization" }
+serde_json        = { workspace = true }
+hex               = { workspace = true }
+# property tests (tests/prop_*.rs)
+proptest          = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,42 @@
+[package]
+name = "xkr-wallet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona wallet engine: wallet state, sync, sending, fusion, delayed transactions, persistence in the C++ wallet formats, events."
+
+[lints]
+workspace = true
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-crypto        = { path = "../xkr-crypto" }
+xkr-serialization = { path = "../xkr-serialization" }
+# network parameters (ring-size rule), fusion constants, timestamps
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+xkr-wallet-files  = { path = "../xkr-wallet-files" }
+xkr-daemon-client = { path = "../xkr-daemon-client" }
+tokio             = { workspace = true }
+parking_lot       = { workspace = true }
+serde_json        = { workspace = true }
+tracing           = { workspace = true }
+hex               = { workspace = true }
+zeroize           = { workspace = true }
+
+[dev-dependencies]
+# in-process node behind the axum router (tests/router.rs), as in xkr-daemon-client's tests
+xkr-rpc           = { path = "../xkr-rpc" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+axum              = { workspace = true }
+tower             = { workspace = true, features = ["util"] }
+serde             = { workspace = true }
+rand_core         = { workspace = true }
+tempfile          = { workspace = true }
+# writes that stop part way (tests/files.rs, tests/crash.rs)
+xkr-wallet-files  = { path = "../xkr-wallet-files", features = ["fault-injection"] }

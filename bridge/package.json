@@ -1,0 +1,24 @@
+{
+  "name": "xkr-hyper-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hyperswarm/HyperDHT bridge that xkrd runs on Bare worker threads (frame protocol in docs/hyper-bridge-protocol.md)",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "src/worker.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "testnet": "node test/testnet-bootstrap.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "hyperswarm": "4.17.2",
+    "hyperdht": "6.36.0",
+    "hypercore-crypto": "3.7.0",
+    "b4a": "1.9.0",
+    "sodium-universal": "5.0.1",
+    "compact-encoding": "3.7.0"
+  }
+}

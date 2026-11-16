@@ -1,0 +1,236 @@
+Subject: [PATCH] Fork 13 (block major version 6) for the testnet
+
+Base: kryptokrona master cf5a63e16b64200adb5445ea97d4186a0fdcb88a ("Increment application
+version", v1.2.2). Apply from the top of the C++ checkout with `patch -p1` (testnet/
+Dockerfile.cpp-testnet does this for every testnet/patches/*.patch).
+
+Adds fork index 13 to FORK_HEIGHTS, SOFTWARE_SUPPORTED_FORK_INDEX = 13, BLOCK_MAJOR_VERSION_6
+and its upgrade height (Currency::upgradeHeight(6), registered with the UpgradeManager of Core,
+BlockchainCache and DatabaseBlockchainCache), lets the block header deserializer and
+Currency::checkProofOfWork accept version 6, and reports the run-time height in /getinfo.
+Version 6 uses the v5 block format, PoW (CN-Turtle-Lite v2, CachedBlock::getBlockLongHash
+already maps >= 5), difficulty and reward: only the number changes.
+
+Where it is active:
+  * testnet builds (-DTEST_NET=ON -> USE_TESTNET): fork 13 at the XKR_FORK13_HEIGHT environment
+    variable read at start-up, else the compile definition XKR_FORK13_HEIGHT, else 0;
+  * any build with -DXKR_FORK13_HEIGHT=<h>: fork 13 at <h> (no environment override on mainnet);
+  * mainnet builds without the definition: unchanged (13 FORK_HEIGHTS entries, index 12,
+    version 6 never activates).
+Height 0 = not scheduled. Block <h> is the last v5 block, block <h> + 1 the first v6 block
+(UpgradeManager: upgrade height < block index), the same convention as xkr-consensus.
+
+diff -ru a/src/config/cryptonote_config.h b/src/config/cryptonote_config.h
+--- a/src/config/cryptonote_config.h
++++ b/src/config/cryptonote_config.h
+@@ -9,6 +9,7 @@
+ 
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdlib>
+ #include <string>
+ #include <limits>
+ #include <initializer_list>
+@@ -226,6 +227,38 @@
+ #endif
+         const uint32_t UPGRADE_HEIGHT_CURRENT = UPGRADE_HEIGHT_V5;
+ 
++/* Fork 13 ("flag day"): block major version 6 with the block format, proof of work
++   (CN-Turtle-Lite v2), difficulty (LWMA-3) and reward of version 5; only the version number
++   changes, so nodes without this change stop at the fork height. It is part of the build for
++   testnet builds (USE_TESTNET) and for builds with -DXKR_FORK13_HEIGHT=<height>; a mainnet
++   build without the definition is unchanged. Height 0 = not scheduled. The block after the fork
++   height is the first v6 block (UpgradeManager: upgrade height < block index). */
++#if defined(USE_TESTNET) || defined(XKR_FORK13_HEIGHT)
++#define XKR_FORK13 1
++#ifndef XKR_FORK13_HEIGHT
++#define XKR_FORK13_HEIGHT 0
++#endif
++#endif
++
++        /* Height of fork 13 for this process; 0 = not scheduled. Testnet daemons read the
++           XKR_FORK13_HEIGHT environment variable at start-up, so one image serves any height;
++           otherwise (and on mainnet always) the compile-time value is used. */
++        inline uint64_t fork13Height()
++        {
++#ifdef XKR_FORK13
++#ifdef USE_TESTNET
++            const char *env = std::getenv("XKR_FORK13_HEIGHT");
++            if (env != nullptr && *env != '\0')
++            {
++                return std::strtoull(env, nullptr, 10);
++            }
++#endif
++            return static_cast<uint64_t>(XKR_FORK13_HEIGHT);
++#else
++            return 0;
++#endif
++        }
++
+         const unsigned UPGRADE_VOTING_THRESHOLD = 90;                             // percent
+         const uint32_t UPGRADE_VOTING_WINDOW = EXPECTED_NUMBER_OF_BLOCKS_PER_DAY; // blocks
+         const uint32_t UPGRADE_WINDOW = EXPECTED_NUMBER_OF_BLOCKS_PER_DAY;        // blocks
+@@ -248,10 +281,17 @@
+                 1600000, // 10
+                 1800000, // 11
+                 2200000, // 12
++#ifdef XKR_FORK13
++                static_cast<uint64_t>(XKR_FORK13_HEIGHT), // 13: block major version 6 (run time: fork13Height())
++#endif
+         };
+ 
+         /* MAKE SURE TO UPDATE THIS VALUE WITH EVERY MAJOR RELEASE BEFORE A FORK */
++#ifdef XKR_FORK13
++        const uint64_t SOFTWARE_SUPPORTED_FORK_INDEX = 13;
++#else
+         const uint64_t SOFTWARE_SUPPORTED_FORK_INDEX = 12;
++#endif
+ 
+         const uint64_t FORK_HEIGHTS_SIZE = sizeof(FORK_HEIGHTS) / sizeof(*FORK_HEIGHTS);
+ 
+@@ -284,6 +324,7 @@
+     const uint8_t BLOCK_MAJOR_VERSION_3 = 3;
+     const uint8_t BLOCK_MAJOR_VERSION_4 = 4;
+     const uint8_t BLOCK_MAJOR_VERSION_5 = 5;
++    const uint8_t BLOCK_MAJOR_VERSION_6 = 6;
+ 
+     const uint8_t BLOCK_MINOR_VERSION_0 = 0;
+     const uint8_t BLOCK_MINOR_VERSION_1 = 1;
+diff -ru a/src/cryptonote_core/blockchain_cache.cpp b/src/cryptonote_core/blockchain_cache.cpp
+--- a/src/cryptonote_core/blockchain_cache.cpp
++++ b/src/cryptonote_core/blockchain_cache.cpp
+@@ -1330,6 +1330,7 @@
+         upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_3, currency.upgradeHeight(BLOCK_MAJOR_VERSION_3));
+         upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_4, currency.upgradeHeight(BLOCK_MAJOR_VERSION_4));
+         upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_5, currency.upgradeHeight(BLOCK_MAJOR_VERSION_5));
++        upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_6, currency.upgradeHeight(BLOCK_MAJOR_VERSION_6));
+         return upgradeManager.getBlockMajorVersion(height);
+     }
+ 
+diff -ru a/src/cryptonote_core/core.cpp b/src/cryptonote_core/core.cpp
+--- a/src/cryptonote_core/core.cpp
++++ b/src/cryptonote_core/core.cpp
+@@ -238,6 +238,7 @@
+         upgradeManager->addMajorBlockVersion(BLOCK_MAJOR_VERSION_3, currency.upgradeHeight(BLOCK_MAJOR_VERSION_3));
+         upgradeManager->addMajorBlockVersion(BLOCK_MAJOR_VERSION_4, currency.upgradeHeight(BLOCK_MAJOR_VERSION_4));
+         upgradeManager->addMajorBlockVersion(BLOCK_MAJOR_VERSION_5, currency.upgradeHeight(BLOCK_MAJOR_VERSION_5));
++        upgradeManager->addMajorBlockVersion(BLOCK_MAJOR_VERSION_6, currency.upgradeHeight(BLOCK_MAJOR_VERSION_6));
+ 
+         transactionPool = std::unique_ptr<ITransactionPoolCleanWrapper>(new TransactionPoolCleanWrapper(
+             std::unique_ptr<ITransactionPool>(new TransactionPool(logger)),
+diff -ru a/src/cryptonote_core/cryptonote_serialization.cpp b/src/cryptonote_core/cryptonote_serialization.cpp
+--- a/src/cryptonote_core/cryptonote_serialization.cpp
++++ b/src/cryptonote_core/cryptonote_serialization.cpp
+@@ -429,7 +429,7 @@
+     void serializeBlockHeader(BlockHeader &header, ISerializer &serializer)
+     {
+         serializer(header.majorVersion, "major_version");
+-        if (header.majorVersion > BLOCK_MAJOR_VERSION_5)
++        if (header.majorVersion > BLOCK_MAJOR_VERSION_6)
+         {
+             throw std::runtime_error("Wrong major version");
+         }
+diff -ru a/src/cryptonote_core/currency.cpp b/src/cryptonote_core/currency.cpp
+--- a/src/cryptonote_core/currency.cpp
++++ b/src/cryptonote_core/currency.cpp
+@@ -206,6 +206,10 @@
+         {
+             return m_upgradeHeightV5;
+         }
++        else if (majorVersion == BLOCK_MAJOR_VERSION_6)
++        {
++            return m_upgradeHeightV6;
++        }
+         else
+         {
+             return static_cast<uint32_t>(-1);
+@@ -767,6 +771,7 @@
+         case BLOCK_MAJOR_VERSION_3:
+         case BLOCK_MAJOR_VERSION_4:
+         case BLOCK_MAJOR_VERSION_5:
++        case BLOCK_MAJOR_VERSION_6:
+             return checkProofOfWorkV2(block, currentDiffic);
+         }
+ 
+@@ -833,6 +838,7 @@
+                                               m_upgradeHeightV3(currency.m_upgradeHeightV3),
+                                               m_upgradeHeightV4(currency.m_upgradeHeightV4),
+                                               m_upgradeHeightV5(currency.m_upgradeHeightV5),
++                                              m_upgradeHeightV6(currency.m_upgradeHeightV6),
+                                               m_upgradeVotingThreshold(currency.m_upgradeVotingThreshold),
+                                               m_upgradeVotingWindow(currency.m_upgradeVotingWindow),
+                                               m_upgradeWindow(currency.m_upgradeWindow),
+@@ -901,6 +907,11 @@
+         upgradeHeightV3(parameters::UPGRADE_HEIGHT_V3);
+         upgradeHeightV4(parameters::UPGRADE_HEIGHT_V4);
+         upgradeHeightV5(parameters::UPGRADE_HEIGHT_V5);
++        {
++            /* Fork 13: 0 (not scheduled) is UNDEF_HEIGHT, i.e. version 6 never activates. */
++            const uint64_t fork13 = parameters::fork13Height();
++            upgradeHeightV6(fork13 == 0 || fork13 >= UINT32_MAX ? static_cast<uint32_t>(-1) : static_cast<uint32_t>(fork13));
++        }
+         upgradeVotingThreshold(parameters::UPGRADE_VOTING_THRESHOLD);
+         upgradeVotingWindow(parameters::UPGRADE_VOTING_WINDOW);
+         upgradeWindow(parameters::UPGRADE_WINDOW);
+diff -ru a/src/cryptonote_core/currency.h b/src/cryptonote_core/currency.h
+--- a/src/cryptonote_core/currency.h
++++ b/src/cryptonote_core/currency.h
+@@ -231,6 +231,7 @@
+         uint32_t m_upgradeHeightV3;
+         uint32_t m_upgradeHeightV4;
+         uint32_t m_upgradeHeightV5;
++        uint32_t m_upgradeHeightV6;
+         unsigned int m_upgradeVotingThreshold;
+         uint32_t m_upgradeVotingWindow;
+         uint32_t m_upgradeWindow;
+@@ -456,6 +457,11 @@
+             m_currency.m_upgradeHeightV5 = val;
+             return *this;
+         }
++        CurrencyBuilder &upgradeHeightV6(uint32_t val)
++        {
++            m_currency.m_upgradeHeightV6 = val;
++            return *this;
++        }
+         CurrencyBuilder &upgradeVotingThreshold(unsigned int val);
+         CurrencyBuilder &upgradeVotingWindow(uint32_t val)
+         {
+diff -ru a/src/cryptonote_core/database_blockchain_cache.cpp b/src/cryptonote_core/database_blockchain_cache.cpp
+--- a/src/cryptonote_core/database_blockchain_cache.cpp
++++ b/src/cryptonote_core/database_blockchain_cache.cpp
+@@ -1220,6 +1220,7 @@
+         upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_3, currency.upgradeHeight(BLOCK_MAJOR_VERSION_3));
+         upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_4, currency.upgradeHeight(BLOCK_MAJOR_VERSION_4));
+         upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_5, currency.upgradeHeight(BLOCK_MAJOR_VERSION_5));
++        upgradeManager.addMajorBlockVersion(BLOCK_MAJOR_VERSION_6, currency.upgradeHeight(BLOCK_MAJOR_VERSION_6));
+         return upgradeManager.getBlockMajorVersion(height);
+     }
+ 
+diff -ru a/src/rpc/rpc_server.cpp b/src/rpc/rpc_server.cpp
+--- a/src/rpc/rpc_server.cpp
++++ b/src/rpc/rpc_server.cpp
+@@ -723,6 +723,24 @@
+         res.network_height = std::max(static_cast<uint32_t>(1), m_protocol.getBlockchainHeight());
+         res.upgrade_heights = cryptonote::parameters::FORK_HEIGHTS_SIZE == 0 ? std::vector<uint64_t>() : std::vector<uint64_t>(cryptonote::parameters::FORK_HEIGHTS, cryptonote::parameters::FORK_HEIGHTS + cryptonote::parameters::FORK_HEIGHTS_SIZE);
+         res.supported_height = cryptonote::parameters::FORK_HEIGHTS_SIZE == 0 ? 0 : cryptonote::parameters::FORK_HEIGHTS[cryptonote::parameters::CURRENT_FORK_INDEX];
++#ifdef XKR_FORK13
++        {
++            /* Fork 13's height is chosen at start-up (fork13Height()); 0 = not scheduled. */
++            const uint64_t fork13 = cryptonote::parameters::fork13Height();
++            if (!res.upgrade_heights.empty())
++            {
++                if (fork13 == 0)
++                {
++                    res.upgrade_heights.pop_back();
++                }
++                else
++                {
++                    res.upgrade_heights.back() = fork13;
++                }
++            }
++            res.supported_height = fork13 != 0 ? fork13 : (res.upgrade_heights.empty() ? 0 : res.upgrade_heights.back());
++        }
++#endif
+         res.hashrate = (uint32_t)round(res.difficulty / cryptonote::parameters::DIFFICULTY_TARGET);
+         res.synced = ((uint64_t)res.height == (uint64_t)res.network_height);
+         res.testnet = m_core.getCurrency().isTestnet();

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window. The app's own commands (node_info, node_status, set_mining) are allowed for every window by default; nothing else is granted.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

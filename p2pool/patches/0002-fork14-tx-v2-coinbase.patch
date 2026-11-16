@@ -1,0 +1,252 @@
+p2pool: fork 14 (block major version 7, version-2 coinbase with view tags)
+
+Base: kryptokrona/p2pool 8edf632fae7ebcbb29d3525144ac77b0dbd6477e with
+0001-fork13-v6.patch applied. Apply with `patch -p1 < 0002-fork14-tx-v2-coinbase.patch`.
+Specification: docs/tx-v2.md (sections 2, 3, 5) in the xkr repository.
+
+* coin_config.h: XKR_FORK14_HEIGHT (compile-time, default 3000000 = xkrd's provisional
+  FORK_14_HEIGHT_MAINNET), FORK14_MAJOR_VERSION = 7, COINBASE_TX_VERSION_2,
+  coinbase_tx_version(major), SUPPORTED_FORK_INDEX = 14 (signals forks 13 and 14).
+* SideChain::network_major_version / configure_forks: major version 7 from block F + 1 on,
+  XKR_FORK14_HEIGHT from the environment against a testnet daemon.
+* xkr_serialize_real_coinbase (pool_block.cpp; used for the submitted block, the PoW blob,
+  the coinbase hash, the aux header hash, the sidechain id and the tx key seed): for major
+  version >= 7 the coinbase is version 2 and every output is `varint amount, 0x03, key[32],
+  view_tag`. The view tag is the one create_miner_tx already derives next to the one-time
+  key (Wallet::get_eph_public_key -> generate_key_derivation -> derive_view_tag, i.e.
+  cn_fast_hash("view_tag" || 8rA || varint(i))[0], byte for byte xkr_crypto::view_tag).
+* PoolBlock::deserialize: coinbase version 1 with 0x02 outputs below major 7, exactly
+  version 2 with 0x03 outputs and a view tag from major 7 on (the same binding as
+  xkr-serialization and the consensus coinbase rule).
+* SideChain::verify: from major 7 on a share whose view tag differs from the payee's is
+  invalid (a wrong tag would hide the output from tag-aware wallets).
+* Below the fork-14 height every byte is unchanged.
+
+diff -ruN a/src/block_template.cpp b/src/block_template.cpp
+--- a/src/block_template.cpp
++++ b/src/block_template.cpp
+@@ -233,7 +233,8 @@
+ 	if (data.major_version != SideChain::network_major_version(data.height)) {
+ 		LOGERR(1, "daemon wants block major version " << static_cast<uint32_t>(data.major_version) << " at height " << data.height <<
+ 			", but this p2pool's fork table says " << SideChain::network_major_version(data.height) <<
+-			" (fork 13 height " << SideChain::fork13_height() << "): set XKR_FORK13_HEIGHT to the daemon's fork height");
++			" (fork 13 height " << SideChain::fork13_height() << ", fork 14 height " << SideChain::fork14_height() <<
++			"): set XKR_FORK13_HEIGHT / XKR_FORK14_HEIGHT to the daemon's fork heights");
+ 	}
+ 
+ 	// Block template construction is relatively slow, but it's better to keep the lock the whole time
+diff -ruN a/src/coin_config.h b/src/coin_config.h
+--- a/src/coin_config.h
++++ b/src/coin_config.h
+@@ -87,6 +87,8 @@
+ //   - outputs use TXOUT_TO_KEY tag 0x02 with NO view tag (Monero: 0x03 tagged
+ //     key + 1 view-tag byte)
+ //   - there is NO trailing RingCT type byte (Monero appends 0x00)
++// From fork 14 (block major version 7) on, the coinbase is version 2 with tagged outputs
++// (see FORK14_MAJOR_VERSION below); there is still no RingCT byte.
+ static constexpr uint8_t  COINBASE_TX_VERSION = 1;
+ static constexpr uint8_t  TXOUT_TO_KEY        = 2;
+ // Coinbase unlock window: coinbase.unlock_time = height + this. Kryptokrona uses
+@@ -110,12 +112,30 @@
+ #endif
+ static constexpr uint64_t FORK13_HEIGHT_DEFAULT = XKR_FORK13_HEIGHT;
+ static constexpr uint8_t  FORK13_MAJOR_VERSION  = 6;
++//   fork 14: block major version 7, and the coinbase is transaction version 2 whose outputs
++//   are all tagged keys: varint amount, 0x03 (TXOUT_TO_TAGGED_KEY), key[32], view tag[1], with
++//   view tag = cn_fast_hash("view_tag" || 8rA || varint(output index))[0] (derive_view_tag;
++//   Monero's formula, docs/tx-v2.md in the xkr repository). The transaction hash stays
++//   keccak(blob). Mainnet: 3 000 000 (provisional, FORK_14_HEIGHT_MAINNET of xkrd);
++//   -DXKR_FORK14_HEIGHT=<h> or, against a testnet daemon, XKR_FORK14_HEIGHT.
++#ifndef XKR_FORK14_HEIGHT
++#define XKR_FORK14_HEIGHT 3000000
++#endif
++static constexpr uint64_t FORK14_HEIGHT_DEFAULT = XKR_FORK14_HEIGHT;
++static constexpr uint8_t  FORK14_MAJOR_VERSION  = 7;
++static constexpr uint8_t  COINBASE_TX_VERSION_2 = 2;
++
++// Coinbase transaction version of a block with this major version.
++static constexpr uint8_t coinbase_tx_version(uint64_t major_version)
++{
++	return (major_version >= FORK14_MAJOR_VERSION) ? COINBASE_TX_VERSION_2 : COINBASE_TX_VERSION;
++}
+ 
+ // Highest fork index this build supports. Written as the block minor version so that
+ // xkrd's /getinfo.fork_readiness counts p2pool blocks (a block signals fork t if
+ // minor >= t and minor != 16; Monero's HARDFORK_SUPPORTED_VERSION 16 counts as no signal).
+ // Neither kryptokronad, xkrd nor p2pool validates the minor version.
+-static constexpr uint8_t  SUPPORTED_FORK_INDEX  = 13;
++static constexpr uint8_t  SUPPORTED_FORK_INDEX  = 14;
+ 
+ // Default kryptokrona daemon RPC port that p2pool talks to via JSON-RPC.
+ // Kryptokrona: mainnet RPC 11898, testnet RPC 11899 (P2P is 11897 / 11898).
+diff -ruN a/src/pool_block.cpp b/src/pool_block.cpp
+--- a/src/pool_block.cpp
++++ b/src/pool_block.cpp
+@@ -157,12 +157,18 @@
+ }
+ 
+ // The REAL coinbase (the multi-output PPLNS payout). CryptoNote format:
+-// version 1, TXOUT_TO_KEY outputs (no view tag), no RingCT byte. The p2pool
++// version 1, TXOUT_TO_KEY outputs (no view tag), no RingCT byte. From fork 14
++// (block major version 7): version 2, TXOUT_TO_TAGGED_KEY outputs (key, then
++// m_viewTag: derived next to the eph key in create_miner_tx, or read by the
++// parser and checked in SideChain::verify), still no RingCT byte. The p2pool
+ // sidechain merkle root is appended to the extra_nonce so it's the last 32
+ // bytes of `extra` (where handle_chain_main reads it back).
+ static void xkr_serialize_real_coinbase(const PoolBlock& b, uint32_t extra_nonce, std::vector<uint8_t>& out)
+ {
+-	writeVarint(static_cast<uint64_t>(coin::COINBASE_TX_VERSION), out);
++	const uint8_t tx_version = coin::coinbase_tx_version(b.m_majorVersion);
++	const bool tagged = (tx_version >= coin::COINBASE_TX_VERSION_2);
++
++	writeVarint(static_cast<uint64_t>(tx_version), out);
+ 	writeVarint(b.m_txinGenHeight + xkr_coinbase_unlock_window(), out);
+ 	out.push_back(1);          // vin count
+ 	out.push_back(TXIN_GEN);   // 0xff
+@@ -171,9 +177,12 @@
+ 	writeVarint(b.m_outputAmounts.size(), out);
+ 	for (size_t i = 0, n = b.m_outputAmounts.size(); i < n; ++i) {
+ 		writeVarint(b.m_outputAmounts[i].m_reward, out);
+-		out.push_back(coin::TXOUT_TO_KEY);     // 0x02, no view tag
++		out.push_back(tagged ? TXOUT_TO_TAGGED_KEY : coin::TXOUT_TO_KEY); // 0x03 / 0x02
+ 		const hash k = b.m_ephPublicKeys[i];
+ 		out.insert(out.end(), k.h, k.h + HASH_SIZE);
++		if (tagged) {
++			out.push_back(static_cast<uint8_t>(b.m_outputAmounts[i].m_viewTag));
++		}
+ 	}
+ 
+ 	// extra = [PUBKEY, txkeyPub][NONCE, size, extra_nonce(4) ++ sidechain_root(32)]
+diff -ruN a/src/pool_block_parser.inl b/src/pool_block_parser.inl
+--- a/src/pool_block_parser.inl
++++ b/src/pool_block_parser.inl
+@@ -107,7 +107,11 @@
+ 		}
+ 
+ 		// ---- Real coinbase ----
+-		EXPECT_BYTE(coin::COINBASE_TX_VERSION);
++		// Version 1 (0x02 outputs) before fork 14, version 2 (tagged outputs) from block major
++		// version 7 on; the major version itself is checked against the height below.
++		const uint8_t coinbase_version = coin::coinbase_tx_version(m_majorVersion);
++		const bool tagged_outputs = (coinbase_version >= coin::COINBASE_TX_VERSION_2);
++		EXPECT_BYTE(coinbase_version);
+ 
+ 		uint64_t unlock_height;
+ 		READ_VARINT(unlock_height);
+@@ -134,7 +138,8 @@
+ 			// Outputs are in the buffer, just read them.
+ 			// XKR (CryptoNote) output is at least 34 bytes: 1 reward, 1 tx_type
+ 			// (TXOUT_TO_KEY), 32 eph_pub_key. No view tag (unlike Monero's 35).
+-			constexpr uint64_t MIN_OUTPUT_SIZE = 34;
++			// Fork 14 (version 2): TXOUT_TO_TAGGED_KEY and a view tag, 35 bytes.
++			const uint64_t MIN_OUTPUT_SIZE = tagged_outputs ? 35 : 34;
+ 
+ 			if (num_outputs > std::numeric_limits<uint64_t>::max() / MIN_OUTPUT_SIZE) return __LINE__;
+ 			if (static_cast<uint64_t>(data_end - data) < num_outputs * MIN_OUTPUT_SIZE) return __LINE__;
+@@ -161,13 +166,20 @@
+ 				if (total_reward + reward < total_reward) return __LINE__;
+ 				total_reward += reward;
+ 
+-				EXPECT_BYTE(coin::TXOUT_TO_KEY);
++				EXPECT_BYTE(tagged_outputs ? TXOUT_TO_TAGGED_KEY : coin::TXOUT_TO_KEY);
+ 
+ 				hash ephPublicKey;
+ 				READ_BUF(ephPublicKey.h, HASH_SIZE);
+ 				m_ephPublicKeys[i] = ephPublicKey;
+ 
+-				t.m_viewTag = 0; // no view tags in CryptoNote
++				if (tagged_outputs) {
++					uint8_t view_tag;
++					READ_BYTE(view_tag);
++					t.m_viewTag = view_tag; // checked against the payee in SideChain::verify
++				}
++				else {
++					t.m_viewTag = 0; // no view tags in CryptoNote before fork 14
++				}
+ 			}
+ 
+ 			outputs_blob_size = static_cast<int>(data - data_begin) - outputs_offset;
+diff -ruN a/src/side_chain.cpp b/src/side_chain.cpp
+--- a/src/side_chain.cpp
++++ b/src/side_chain.cpp
+@@ -66,6 +66,7 @@
+ 
+ NetworkType SideChain::s_networkType = NetworkType::Invalid;
+ uint64_t SideChain::s_fork13Height = coin::FORK13_HEIGHT_DEFAULT;
++uint64_t SideChain::s_fork14Height = coin::FORK14_HEIGHT_DEFAULT;
+ 
+ SideChain::SideChain(p2pool* pool, NetworkType type, const char* pool_name)
+ 	: m_pool(pool)
+@@ -1182,6 +1183,11 @@
+ 		result = coin::FORK13_MAJOR_VERSION;
+ 	}
+ 
++	// XKR fork 14: block major version 7 (and a version-2 coinbase) from block F + 1 on.
++	if (s_fork14Height && (height > s_fork14Height) && (result < coin::FORK14_MAJOR_VERSION)) {
++		result = coin::FORK14_MAJOR_VERSION;
++	}
++
+ 	return result;
+ }
+ 
+@@ -1215,9 +1221,15 @@
+ void SideChain::configure_forks(bool daemon_testnet)
+ {
+ 	s_fork13Height = xkr_fork_height_from_env("XKR_FORK13_HEIGHT", coin::FORK13_HEIGHT_DEFAULT, daemon_testnet);
++	s_fork14Height = xkr_fork_height_from_env("XKR_FORK14_HEIGHT", coin::FORK14_HEIGHT_DEFAULT, daemon_testnet);
+ 
+ 	LOGINFO(1, "XKR fork 13 (block major version " << static_cast<uint32_t>(coin::FORK13_MAJOR_VERSION) << ") at height " << s_fork13Height << (s_fork13Height ? "" : " (not scheduled)") <<
+ 		", signalling fork index " << static_cast<uint32_t>(coin::SUPPORTED_FORK_INDEX));
++	LOGINFO(1, "XKR fork 14 (block major version " << static_cast<uint32_t>(coin::FORK14_MAJOR_VERSION) << ", version-2 coinbase with view tags) at height " << s_fork14Height << (s_fork14Height ? "" : " (not scheduled)"));
++
++	if (s_fork13Height && s_fork14Height && (s_fork14Height <= s_fork13Height)) {
++		LOGWARN(1, "fork 14 height " << s_fork14Height << " is not above fork 13 height " << s_fork13Height);
++	}
+ }
+ 
+ difficulty_type SideChain::total_hashes() const
+@@ -1977,13 +1989,22 @@
+ 			return;
+ 		}
+ 
+-		// XKR: coinbase outputs are TXOUT_TO_KEY (0x02) with NO view tag (unlike
+-		// Monero's tagged keys), so the view tag is not serialized —
++		// XKR: before fork 14 coinbase outputs are TXOUT_TO_KEY (0x02) with NO view tag
++		// (unlike Monero's tagged keys), so the view tag is not serialized —
+ 		// PoolBlock::deserialize sets m_viewTag = 0 for every output. Checking it
+ 		// here would reject every relayed/synced block (the miner has the derived
+ 		// view tag in memory and passes, but a peer parses 0 and fails). Output
+ 		// ownership is still fully verified by the eph public key check below.
+-		(void) view_tag;
++		// From fork 14 (block major version 7) the view tag is part of the coinbase and
++		// must be the payee's: a wrong tag would hide the output from tag-aware wallets.
++		if ((coin::coinbase_tx_version(block->m_majorVersion) >= coin::COINBASE_TX_VERSION_2) && (view_tag != out.m_viewTag)) {
++			LOGWARN(3, "block at height = " << block->m_sidechainHeight <<
++				", id = " << block->m_sidechainId <<
++				", mainchain height = " << block->m_txinGenHeight <<
++				" has a wrong view tag at index " << i);
++			block->m_invalid = true;
++			return;
++		}
+ 
+ 		if (eph_public_key != block->m_ephPublicKeys[i]) {
+ 			LOGWARN(3, "block at height = " << block->m_sidechainHeight <<
+diff -ruN a/src/side_chain.h b/src/side_chain.h
+--- a/src/side_chain.h
++++ b/src/side_chain.h
+@@ -83,6 +83,7 @@
+ 	// XKR fork heights (coin_config.h); call once the daemon's network is known.
+ 	static void configure_forks(bool daemon_testnet);
+ 	[[nodiscard]] static uint64_t fork13_height() { return s_fork13Height; }
++	[[nodiscard]] static uint64_t fork14_height() { return s_fork14Height; }
+ 	[[nodiscard]] FORCEINLINE difficulty_type difficulty() const { ReadLock lock(m_curDifficultyLock); return m_curDifficulty; }
+ 	[[nodiscard]] difficulty_type total_hashes() const;
+ 	[[nodiscard]] uint64_t block_time() const { return m_targetBlockTime; }
+@@ -133,6 +134,7 @@
+ 	P2PServer* p2pServer() const;
+ 	static NetworkType s_networkType;
+ 	static uint64_t s_fork13Height;
++	static uint64_t s_fork14Height;
+ 
+ private:
+ 	[[nodiscard]] bool get_shares(const PoolBlock* tip, std::vector<MinerShare>& shares, uint64_t* bottom_height = nullptr, bool quiet = false) const;

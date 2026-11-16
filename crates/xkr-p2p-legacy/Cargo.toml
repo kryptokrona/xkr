@@ -1,0 +1,29 @@
+[package]
+name = "xkr-p2p-legacy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona legacy P2P (Levin + epee portable storage): wire types, connections, sync state machine."
+
+[dependencies]
+xkr-types     = { path = "../xkr-types" }
+xkr-consensus = { path = "../xkr-consensus" }
+xkr-levin     = { workspace = true }
+xkr-epee      = { workspace = true }
+bytes         = { workspace = true }
+ref-cast      = { workspace = true }
+thiserror     = { workspace = true }
+tokio         = { workspace = true }
+tokio-util    = { workspace = true }
+futures       = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+# property tests (tests/prop_*.rs)
+proptest = { workspace = true }
+
+[lints]
+workspace = true

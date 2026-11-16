@@ -1,0 +1,270 @@
+{
+  "source": "C++ wallet-api: /wallet/create or /wallet/import/seed|key, then /addresses/primary, /keys, /keys/{address}, /keys/mnemonic/{address}",
+  "image": {
+    "name": "xkr-cpp-wallets:master",
+    "id": "sha256:f2fe072d7c884f39bd8e38462495e7ba5c51590703a57cc0d18966a9907c3c1d",
+    "created": "2026-11-15T18:19:08.116672012+01:00"
+  },
+  "wordList": "src/mnemonics/wordlist.h (1626 words), checksum word = CRC32 over the 3-letter prefixes",
+  "vectors": [
+    {
+      "name": "js-seed-skulls",
+      "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+      "privateViewKey": "688e5229df6463ec4c27f6ee11c3f1d3d4b4d2480c0aabe64fb807182cfdc801",
+      "privateSpendKey": "d61a57a59318d70ff77cc7f8ad7f62887c828da1d5d3f3b0d2f7d3fa596c2904",
+      "publicSpendKey": "abab87df609dbacc45494c6a8954cde81f934ddd6c32202b62f174798bc66e43",
+      "mnemonicSeed": "skulls woozy ouch summon gifts huts waffle ourselves obtains hexagon tadpoles hacksaw dormant hence abort listen history atom cadets stylishly snout vegan girth guest history"
+    },
+    {
+      "name": "js-seed-nugget",
+      "address": "SEKReWg3NfSWDdoZBKi9Ln6ksVNaKyRPRQgwfd1Z5exQhxTrMF7YhRvFig6pz1TzW2YSr4Fc9vBPtNBViuBMo38vgWrCdmsftjZ",
+      "privateViewKey": "621b3123599dec2f85cb95a0ed8db9b02228a5134ad87328f0af6332eee4dd04",
+      "privateSpendKey": "36b6e0d750da48527450bc575407362d6af07a29ab6742e77549b3cc8d6b0808",
+      "publicSpendKey": "9c9e8cc9aeae99aaf8d81c63226a4a3a57bbfb348da0119efda67561f4dc8908",
+      "mnemonicSeed": "nugget lazy gang sonic vulture exit veteran poverty affair ringing opus soapy sonic afield dating lectures worry tuxedo ruffled rated locker bested aunt bifocals opus"
+    },
+    {
+      "name": "created-1",
+      "address": "SEKReUESZniLncYQByhR7x5yv4aap8PBaQxgWmH1bDEzK7ZeyFdzt4cLstDkgZHAsmLA6nmNhmH2e47FdfnBq283H8fZKtTRwCp",
+      "privateViewKey": "6fdd5d4d306338559637cac888a9bfa55931c9483b370e198c721ba49c01d505",
+      "privateSpendKey": "d54f59d4a5f7a1cbe8d0ba7af49821bf7221d922b2f3bc2010acc03804bb0b04",
+      "publicSpendKey": "3d1b99b3764b9a0fd592fd331dc7fc20373d2ce58f3f6367618790ab6c4a9e75",
+      "mnemonicSeed": "adopt lynx goat noises shelter nearby rover moat adventure mice hubcaps cafe mystery python symptoms oval hesitate loincloth science umbrella birth corrode tavern tiers adopt"
+    },
+    {
+      "name": "created-2",
+      "address": "SEKReY6VYeDbT4unwaLpLCZnehbNteWgcKmJY7BWzz5yCEo5EyVk1afjkimb4LxfCsMqvwSqwKcYUGgS2na9XjxpAiuKxzo9D8i",
+      "privateViewKey": "9a581d94b1f10867530fecf766bb8aae06fe21a0aa0df316f6b1b308bce6fb04",
+      "privateSpendKey": "d6f0e3824c42a2a033eb88dd79ac192635d575b979519a5f6cce132d8d7cc107",
+      "publicSpendKey": "d43be71acdf5b123f9ea07fdc4056555f4107da5702e7f678fc9101c432fc640",
+      "mnemonicSeed": "zesty nozzle bays inroads saucepan hijack oxidant irate fences egotistic addicted cohesive befit wife racetrack jubilee bodies licks howls jeans oozed boss gigantic haunted howls"
+    },
+    {
+      "name": "created-3",
+      "address": "SEKReTe5Db93hMmb7stxP4iVhLTFB2XPnG3QSk1EMJagibtr3dS2EdsW3pr2wsypgzCcZvH8JnGLEg8UZWqVE78NQuet2QAQCnJ",
+      "privateViewKey": "40fccd0dcee67c8e5124baae66de628c4fa1cb360c7cd8c1834b3fa9cc1c3b01",
+      "privateSpendKey": "478749ce708476f2423b73bdfd0eee53d22d957869171a350b3a40edc4338204",
+      "publicSpendKey": "25ed0edc101e07ee93d50b13f814b58480d488e959ed4d8d665a5635f8b846a4",
+      "mnemonicSeed": "future governing cobra trying knee injury onto speedy mops lyrics bikini jargon null shelter eggs jester inbound opposite eclipse scamper problems cuisine sizes solved shelter"
+    },
+    {
+      "name": "created-4",
+      "address": "SEKReSisZpX1junhuYmi56UPpCEe8nosyDLChrMpptVFihC7iABweqXYhE98wYeKWSMQt1yYNKkmiipoZ2TzVCCvdmQywDgR2sR",
+      "privateViewKey": "4fa493cff10f16aaa69399c87fda4ae734fafdb9c82252c7040a9d1d9a307602",
+      "privateSpendKey": "3bbba2a908a845b43ba131f1b79b50cafc139b5a69d51165199c8b3138410e02",
+      "publicSpendKey": "020a8a84046c53d8b4519e81a3c629d0d5df785c49b8fdde2bfc279af9441337",
+      "mnemonicSeed": "fall rounded humid tyrant tavern moisture evenings square satin fossil buzzer vague organs nirvana veered womanly giddy roles jazz taunts aisle rigid session sidekick session"
+    },
+    {
+      "name": "created-5",
+      "address": "SEKReXZWFQPQbTFMw4M4VwMSbRhetwuUSHXiipCzofHvSNRM1v2o5CWFK2ZVCEP7MLNdq1csSvkEKHjU1WZAhNoJA5t6MfysRws",
+      "privateViewKey": "3700bdc9a5de333bd9708a17c02dcc98c9ebb4177e202302c8a62572df2daf06",
+      "privateSpendKey": "d3ab66760232092d6f286b0a08dea4bdf74dac5bbf7016633f36a839a576c80e",
+      "publicSpendKey": "bf5509cc8d0f32962dbbaa0a7a35d9f47dc8c24762d30422d0f16a0d97ac54df",
+      "mnemonicSeed": "upgrade eldest reduce return lobster portents useful aimless assorted dehydrate oncoming gorilla agony scenic biscuit lakes enhanced paper wobbly threaten auctions went shuffled system threaten"
+    },
+    {
+      "name": "created-6",
+      "address": "SEKReWY2DHKPMSzruXWtYoVNEdVijVve65uTjPhrQRv3FPzL2erCmJVJxBDstjGFXdNhGgCVEmgSufyggrNULZEZ9XKra5kytq9",
+      "privateViewKey": "b424ec9154a00d610ead0f55388101610135e5bd5113cbb1dab1c04dbc24f500",
+      "privateSpendKey": "cf802d700a52b0c4bdd7e10c839ebe67fedce8965b68d5d40871e27c16dea005",
+      "publicSpendKey": "9735aeda85a31f7eff8eca08a9970732891c607b1d5273a3a31a368c5611f653",
+      "mnemonicSeed": "distance anchor leisure jittery never gimmick racetrack jellyfish licks fewest origin agony dual template jabbed rated fainted bifocals agenda logic yellow dyslexic vivid wetsuit jellyfish"
+    },
+    {
+      "name": "created-7",
+      "address": "SEKReTjktap8prGZ2TRuuLZJorozGsEaGYgf3Le4q3W46NEhmAH1mdUWdWWpNXTCzQcwJkXwndZaD9MTbzxD9KdycnF9Tqko7ce",
+      "privateViewKey": "b99b1b45d99292b4529cbde87097b7f7df06e824fe1826cd66e6b7566e60a60a",
+      "privateSpendKey": "dbfed26908380ddd15dc53becb52c0fc7c5f89bce9ce3b74136c6773cb879604",
+      "publicSpendKey": "29c28cad2ec855f6a96a6cabc126b071c353acbdbd6cb258dfd1536d20150275",
+      "mnemonicSeed": "ruthless evicted psychic unusual oust lids espionage agenda serving molten inwardly imitate victim germs ashtray buying return cucumber until duke point lofty oozed oxidant point"
+    },
+    {
+      "name": "created-8",
+      "address": "SEKReToqfAkVZ4V8a84GKL4AFJBmb4kSHFEYQDAKyE2C47HsQcu7sL34cMPFZ7KZvCQZv7ofKpcryVrivuG6Nf4JPgberNfUWsH",
+      "privateViewKey": "9c814e475603afa4e35f669ab6902449fb784e9cef3da13e2fc2aa2cf725b40d",
+      "privateSpendKey": "af8d6a655730101d37cbf7cfd0e3797dd686a0d92323bc7be0810f809667130e",
+      "publicSpendKey": "2c83736daab4af40837b218b12e3924e7c0831de5518abaf5c603719129593b7",
+      "mnemonicSeed": "tarnished hounded slower business nail poker dawn tusks rabbits clue hope tufts smelting skater oven aunt equip sabotage possible fountain splendid himself rarest scenic oven"
+    },
+    {
+      "name": "created-9",
+      "address": "SEKReWjhhypb4gMbPWnUGtWraAaWMmb8TLWYaDW4WtfHYjVPqxTc5iYd4pyE44F7132kXTuPErbnmZsftPaeYpVjJaQv4U8b7Tk",
+      "privateViewKey": "e2530abab077780b26b6adfcfa7b05eacb16b3e1dbd3f890b22fa31b34c82104",
+      "privateSpendKey": "552ea77a47882d3b61ac85d4f4fd7cfafd50f32b5a48f139b0cc9cbc4e474601",
+      "publicSpendKey": "9f16b3bfcba6e2ec2a33b97db27d50656e7ff37874a3952830745a30bdb7790c",
+      "mnemonicSeed": "gnaw pipeline cage musical autumn foxes aching omega jaunt necklace axis argue sneeze puppy tissue bays sizes academy vapidly southern mittens poker seasons sensible axis"
+    },
+    {
+      "name": "created-10",
+      "address": "SEKReTu9GyHMv7eJyWZyF2eZeV2hti9WP5FzTGgYnFcrWAqTK7HUFpw8YvTfQVpnqC7rGejWMFekcDVqxbSHAgsh4wYwwRJxcL5",
+      "privateViewKey": "0e6333c835dd7122b1f6c1f695a2fff74989ff379b6dcab74cefa0d4e6f32202",
+      "privateSpendKey": "9d52853b2a1248cbd5dd44ae4255c4145654007809e5a75c98a09db5a94a1207",
+      "publicSpendKey": "301747dc7d0c15b22648849de092de69e1b160a01975ac19d5f17d2fae64bc70",
+      "mnemonicSeed": "voted pencil tumbling flying error aphid love hairy amidst album stunning uneven directed quick cogs hiding glide rays petals buffet tattoo tuxedo science skulls flying"
+    },
+    {
+      "name": "created-11",
+      "address": "SEKReVYS3yrWniqneypVy52sT4a7ePmEyHMTYZWCVCwyYpRS2dGFX3wVjdvhVpHDAWik7bkxe6Yf1YWynAV8fC6XJAtDs2ashNx",
+      "privateViewKey": "7ae89b38cae9636303dda5684bb6a1571add48bd705f313753e9ae3e5178b30a",
+      "privateSpendKey": "71b6edeb8229edef070328c063fd64452f75b90bae582aa82f1a41a767e78900",
+      "publicSpendKey": "705d72c1b217b5404c3585dc0b2dcc6b10f0c99a61c43a4ad4660bb0be399c9f",
+      "mnemonicSeed": "inbound mobile keep nozzle awoken afield click makeup evicted pride algebra fonts tweezers feast gemstone ascend deodorant thaw cinema lion cent dusted pavements peaches tweezers"
+    },
+    {
+      "name": "created-12",
+      "address": "SEKReZ44qVUNCkWLensC8vUArMedUrQ9rc65UhqCmWBP2jPGpTGpsVUggMc3xDfBt3iBdabCM4jfHSGvKNrhco3KQx5P5SGcKMG",
+      "privateViewKey": "01690e7b198618fe997edceece6a8c1d3832d19cacd2fa22be60a7a0b83df601",
+      "privateSpendKey": "a2f04f3fa6d7b5692be4b8e9f5d37fcc470adde814817d2fe7ff08d2bf42d90f",
+      "publicSpendKey": "f9b8321b7ec311d6ba897e57a2701940e9051d55d1c651a2727a437e0a58f7ca",
+      "mnemonicSeed": "ribbon lava ritual ringing medicate viking equip hope flippant pruned hazard cowl cider taboo rugged roped bagpipe exult terminal pivot ledge aspire paradise rated lava"
+    },
+    {
+      "name": "created-13",
+      "address": "SEKReXR6L9TAnq4cadvd2ocb8yGG3i4smNHT4Wo9QR2QC1wFSt78APZTToU3JhebAhHxnJhaiwh7SGR8DuCJm7BycbcPWCb3ShC",
+      "privateViewKey": "2ca786e572ecdd6206378b3ce38e018952314dea8095cf8fdf24c367eb72160f",
+      "privateSpendKey": "cd0504d4a0d5e95c7ad98c9ebf6e21847620c8ad724586e55234df3f7e68100d",
+      "publicSpendKey": "b9a86bde3a880ef88e5b83e0d4c52b79b74b52947f3f13060e33834941dc721d",
+      "mnemonicSeed": "ivory suede payment awoken puck among geek jazz apply mailed woes likewise torch owls foyer phrases cease alumni zinger fowls nabbing macro innocent kiwi owls"
+    },
+    {
+      "name": "created-14",
+      "address": "SEKReVRNtZuW2XWm9ZrDiK5sdR4aKgU7RZUPjUfjqezcegB6EdmTXJtcmSwvJgEsqUYrgB6zDUm6VhHcaLn64QDZUvhG7oRX5Mn",
+      "privateViewKey": "6b9a15c5f238d8c26708479eb79db0c19401b09732cb5c55b2e7905ab5ae0201",
+      "privateSpendKey": "ad7200cd7ab9e8a000ee7e570c8a92a9e6488a072618d8f879e0d945e1db1404",
+      "publicSpendKey": "6b9b4d28ad8977875288a7341d2214b97dbb0bd8c223988956186ae1e13f1fca",
+      "mnemonicSeed": "rest nylon hover mirror oozed elapse syllabus anchor hope phrases regular hazard dotted aquarium bacon etched gown gather suffice assorted gnaw axes wrist zombie aquarium"
+    },
+    {
+      "name": "created-15",
+      "address": "SEKReYZ6Q4fHKqC1mn924hWEMFHDga6hFawGHt93GjXMcgrdrz6SBvPjVtc9eGKUHedSouXJksRQaHF8STpV9bGALcRcVseBXFP",
+      "privateViewKey": "3d283ffb65aeba34724de8800ee2fb0f3e40f228375313ec8742b3b3d16f2d05",
+      "privateSpendKey": "c374644fb60864cf33b4fbe5c532c52228c30f02785f53584c7de050bbad7e0c",
+      "publicSpendKey": "e62d3d7861994c98eeebda0aaec174b529377beacae3383618ff7400d55c1173",
+      "mnemonicSeed": "avidly tugs dehydrate rhino scenic necklace skater daytime awakened dawn swept wayside leisure neither nifty gymnast textbook deodorant girth names trying tunnel cucumber dual nifty"
+    },
+    {
+      "name": "created-16",
+      "address": "SEKReYKH1PiM8DfVexa76caXdWm5TjZbQ1vREGQj7UcshbnHrs9c89F11LwmrSWjxuj7Bfhmx5HZuTRdQxWKEzFyGF37MrHZcYy",
+      "privateViewKey": "e1d795eb3ba6c3960839358cb83e57d25a046e08e267cfe95c57d2c7d4ba1307",
+      "privateSpendKey": "c6982e2b2a9003b50a39d1c105289793a236367705d5f14fe9f449d652f0170a",
+      "publicSpendKey": "dcdb5c657850f5c2f5a7add5c8738e0244d0187b05819b0be422be1cf2bac507",
+      "mnemonicSeed": "zones affair degrees badge sake judge focus dogs weird sack foolish turnip upbeat hold thwart elite muddy toenail fossil bodies wagtail sensible stunning tidy judge"
+    },
+    {
+      "name": "created-17",
+      "address": "SEKReUHfDsMGgWQL1ZnofvYMwNaHveJm9VPQfpy5YqUVjoWpDutNPFyf1YtBeBfX4M6NfwFByWRf45SMWzhVqRN95Mw4rDnBYP4",
+      "privateViewKey": "f8a4f82b9a04e3fcfe93fb8fd21823469fedf036d5765f8a77b94e3e09515201",
+      "privateSpendKey": "f6cebff6e63c4d374ed50671f3960bc750512ba9bed59279cccb77f03aca5007",
+      "publicSpendKey": "3f474f285dc061f186039791bb7ebfa0f1cb843ca9b5fc05f88c6ed2ffe56fb8",
+      "mnemonicSeed": "eggs alchemy zesty awoken actress dwelt rapid vein height ecstatic fully balding focus soil justice ditch point cease eavesdrop cowl beyond tumbling focus geometry alchemy"
+    },
+    {
+      "name": "created-18",
+      "address": "SEKReZ8x7PRGrsAQjZx4rrKwQ7gw5n6G2FdjVPPGGFLy7LaWPxRR5pdVUA6KcC9vEb19jVzfjFWhLXRp9DjTAvmKin6z72SxnEn",
+      "privateViewKey": "2d39d54bed7a455912fe1442db458f666647b6eecb4ee842b2b0be427f91df05",
+      "privateSpendKey": "e669a53adf41b98f6f790e5ca954e45c3ff90b4a4d5ceada5d9abf080eb6b30b",
+      "publicSpendKey": "fd038d345ed1b6150b3d35cf7138eb5e4489cfe3577ca5da83069e0625e3c466",
+      "mnemonicSeed": "federal january pizza superior testing imagine september vapidly federal enigma revamp avidly ghetto dotted locker school vampire siren films stacking tepid evaluate mayor never mayor"
+    },
+    {
+      "name": "created-19",
+      "address": "SEKReStLNUiGYJM6gMn8SmKPYJtMak5v5gaJyFAN9x2726DbHyhrHrsASSbaas7BQ9PKuVMexzexLfdYLmdHMX5h35Cm2au1XHF",
+      "privateViewKey": "0170d7fc8dda336eb5ee9ed171a20a1dad324f5350f9a265d0d4f9138fd64609",
+      "privateSpendKey": "5a5609a16dfbd018cf4db2498012633bb0318ba62c71ba027ad3a7f2ad828b0a",
+      "publicSpendKey": "086c6d435ce7ca7476e32fba6df0385073e9391eec996d52a41f83ac068431c3",
+      "mnemonicSeed": "zesty tutor lullaby dude rage snout devoid theatrics bypass left ghost negative ghost cucumber suitcase ruling antics argue etched awkward ailments twofold soprano tedious snout"
+    },
+    {
+      "name": "created-20",
+      "address": "SEKReTGnD2HiKTYuNFbjdZ4VGUW9QDafkW4Eu4TwFJiqEVjz7cawUp8UosTYbAmod2GuzbzWtgcvQMh4B8qdmbqg7sJL4C1m2ez",
+      "privateViewKey": "caa17f1f5e6ccfbac533043b0a387a7ea3f8f3d3b6ac60ac40a20d67d6692f09",
+      "privateSpendKey": "56d62106fe9de9d98e864fc290374cca910735c62da227bcfe4ef5e4f6ee3806",
+      "publicSpendKey": "17903872f7068dbd4922e30014d97c67f962b17badb6af1aacccce6e50af3e11",
+      "mnemonicSeed": "gutter exhale fight ravine love gumball vipers wizard rowboat fuzzy almost swung hire casket urgent money lymph ember vapidly swagger reunion energy ruffled segments ember"
+    },
+    {
+      "name": "created-21",
+      "address": "SEKReXZXB9HBqmzEsJbjkJGpWW8YryVU3etRaxxCJVrPLEddetAvdk5XYKmeMndKyQLgBgJXQu1S6NNPvDH9hNWUUXV91PYE1tS",
+      "privateViewKey": "10dddf9b495f506a250fbc65035ee79bf59856256c581ebe3ca9e1806b6bee07",
+      "privateSpendKey": "0d779045603296f0b47a0db84ee57ab78fca9239c7f577e71ffc6f158f0b7008",
+      "publicSpendKey": "bf57cbf840d0592934f43e175e9388ecfbb86880e2826118be52591872ffabc3",
+      "mnemonicSeed": "vulture hoax piano mice dummy cogs album wiring queen withdrawn fawns zippers opposite wayside dazed against threaten saxophone kitchens logic nozzle request enough festival withdrawn"
+    },
+    {
+      "name": "created-22",
+      "address": "SEKReXb4KtwZfnXcdyE3SeMzgZ3wC7A6NTC4VbFD9dqmLwvwZ3RCYaQCDixQZeBSGYWFwPZcy3AYpPRMNgZDAWsYJff6jVzv97Y",
+      "privateViewKey": "9ca151d29dbaf740556b1da2e37aad1fdaa4978646bb5cd2de1054bda13c7009",
+      "privateSpendKey": "30815f9f33ebfe0a451599bcc7c2d0ac6c13f4d72f86197e0c189e524d3dd308",
+      "publicSpendKey": "c06136e4c3503d2a611058df7d849c65fe0b315b9c957c258212445c774177cf",
+      "mnemonicSeed": "sniff bowling saga inwardly digit egotistic buying usher pheasants shuffled igloo avatar aquarium jackets exult dummy industrial until jogger reorder algebra safety sailor sixteen algebra"
+    },
+    {
+      "name": "created-23",
+      "address": "SEKReVmY9ifQNTqJaEPSaXfJ2txb4swcm73QfaJguVmoNMgS53sK9Fy6uJqhfNQuz2c1PncYDtRYkDtHo1XbiSHFRKojomMfmYa",
+      "privateViewKey": "6d3409116587589b2d43f989ac0c431a9b1d1151af176c0c4442ffda647f270f",
+      "privateSpendKey": "d73a5af439b6ceb24532ffdc0e6280d8465cad3b0646c7d7e99c17acba8bbf0b",
+      "publicSpendKey": "793464e88bb86a55fe941d3ce4f1605968f01232241eb007863cb7867faeb61f",
+      "mnemonicSeed": "vats lunar kiosk roomy honked axis river betting western cease zesty technical poker hairy obliged fixate nasty idled hiding intended bamboo essential subtly today bamboo"
+    },
+    {
+      "name": "created-24",
+      "address": "SEKReTPYmQFVv9CRjveFt9XXPnD6p1ZrDbL9L3qq1ciWavwm6EHfWXyQd8xXyB2fWBEn6wyZH9mTpYAL7UupboeLZWFeRA1DnMj",
+      "privateViewKey": "14979316f7e69a9fafccbdd172a9b6e494de87d93719b8ab40267454eda2ca07",
+      "privateSpendKey": "26203f17ec1232aee4a275362e721355e860fbec47f24a5994b40aca0e7a2806",
+      "publicSpendKey": "1c20ef2cace0fbd02440af66b67dbbfbbe429f36cd3efbd434fb2853cadac9de",
+      "mnemonicSeed": "hence ulcers womanly assorted kept calamity energy tapestry anchor lukewarm hexagon refer folding boil amended summon jewels sneeze total weird satin western ambush ascend tapestry"
+    }
+  ],
+  "nonDeterministic": [
+    {
+      "name": "js-keys-non-deterministic",
+      "address": "SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn",
+      "privateViewKey": "1f3f6c220dd9f97619dbf44d967f79f3041b9b1c63da2c895f980f1411d5d704",
+      "privateSpendKey": "55e0aa4ca65c0ae016c7364eec313f56fc162901ead0e38a9f846686ac78560f",
+      "publicSpendKey": "ff9b6e048297ee435d6219005974c2c8df620a4aca9ca5c4e13f071823482029",
+      "mnemonicError": {
+        "errorCode": 41,
+        "errorMessage": "You cannot get a mnemonic seed for this address, as the view key is derived in terms of the spend key."
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "bad-checksum",
+      "mnemonicSeed": "nugget lazy gang sonic vulture exit veteran poverty affair ringing opus soapy sonic afield dating lectures worry tuxedo ruffled rated locker bested aunt bifocals soapy",
+      "status": 400,
+      "response": {
+        "errorCode": 35,
+        "errorMessage": "The mnemonic seed given has an invalid checksum word."
+      }
+    },
+    {
+      "name": "24-words",
+      "mnemonicSeed": "nugget lazy gang sonic vulture exit veteran poverty affair ringing opus soapy sonic afield dating lectures worry tuxedo ruffled rated locker bested aunt bifocals",
+      "status": 400,
+      "response": {
+        "errorCode": 34,
+        "errorMessage": "The mnemonic seed given is the wrong length. It should be 25 words long, but it is 24 words long."
+      }
+    },
+    {
+      "name": "unknown-word",
+      "mnemonicSeed": "a lazy gang sonic vulture exit veteran poverty affair ringing opus soapy sonic afield dating lectures worry tuxedo ruffled rated locker bested aunt bifocals opus",
+      "status": 400,
+      "response": {
+        "errorCode": 33,
+        "errorMessage": "The mnemonic seed given has a word that is not present in the english word list (a)."
+      }
+    },
+    {
+      "name": "empty",
+      "mnemonicSeed": "",
+      "status": 400,
+      "response": {
+        "errorCode": 34,
+        "errorMessage": "The mnemonic seed given is the wrong length. It should be 25 words long, but it is 0 words long."
+      }
+    }
+  ]
+}

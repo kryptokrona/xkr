@@ -1,0 +1,28 @@
+# Vendored from Cuprate `net/epee-encoding` (MIT), see ../VENDORED.md.
+[package]
+name = "xkr-epee"
+version = "0.5.0"
+# Kept on the upstream edition so the vendored code stays byte-for-byte close to Cuprate.
+edition = "2021"
+license = "MIT"
+authors = ["Boog900", "Cuprate Contributors"]
+readme = "README.md"
+description = "Epee portable-storage binary format (vendored from Cuprate's cuprate-epee-encoding)."
+publish = false
+
+[features]
+default = ["std"]
+std = ["dep:thiserror", "bytes/std"]
+
+__not_public_32_bit = []
+
+[dependencies]
+paste = { workspace = true }
+ref-cast = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+hex = { workspace = true }
+
+[lints]

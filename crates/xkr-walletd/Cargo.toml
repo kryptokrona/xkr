@@ -1,0 +1,54 @@
+[package]
+name = "xkr-walletd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Drop-in for the C++ kryptokrona-service (walletd): same flags and config file, POST /json_rpc with the same methods, envelopes, error codes and result shapes, on the xkr-wallet engine."
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# The release also ships this binary as `kryptokrona-service` (src/bin/kryptokrona-service.rs).
+[[bin]]
+name = "xkr-walletd"
+path = "src/main.rs"
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+# cn_slow_hash_v0 (RPC password), key checks, OS RNG
+xkr-crypto        = { path = "../xkr-crypto" }
+# Network, genesis hash, dust and fusion thresholds, default ports
+xkr-consensus     = { path = "../xkr-consensus" }
+# transaction blobs from /gettransactions (full extra, input and output totals)
+xkr-serialization = { path = "../xkr-serialization" }
+# addresses, base58, mnemonics, mixin rules
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+xkr-daemon-client = { path = "../xkr-daemon-client" }
+xkr-wallet        = { path = "../xkr-wallet" }
+axum              = { workspace = true }
+tokio             = { workspace = true, features = ["signal"] }
+clap              = { workspace = true }
+serde_json        = { workspace = true }
+parking_lot       = { workspace = true }
+tracing           = { workspace = true }
+tracing-subscriber = { workspace = true }
+hex               = { workspace = true }
+zeroize           = { workspace = true }
+
+[dev-dependencies]
+# in-process xkrd (RPC router on the fork-14 test chain of crates/xkr-rpc/tests/tx_v2_walletsync)
+# behind the wallet, for the handler tests and the fixture replay
+xkr-rpc           = { path = "../xkr-rpc" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+tower             = { workspace = true, features = ["util"] }
+serde             = { workspace = true }
+rand_core         = { workspace = true }
+tempfile          = { workspace = true }

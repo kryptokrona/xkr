@@ -1,0 +1,33 @@
+[package]
+name = "xkr-chain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona chain state: batch block verification (rayon), storage glue, alternative chains and reorgs."
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-serialization = { path = "../xkr-serialization" }
+xkr-crypto        = { path = "../xkr-crypto" }
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+xkr-p2p-legacy    = { path = "../xkr-p2p-legacy" }
+redb              = { workspace = true }
+rayon             = { workspace = true }
+parking_lot       = { workspace = true }
+thiserror         = { workspace = true }
+tracing           = { workspace = true }
+hex               = { workspace = true }
+rand_core         = { workspace = true }
+# `Chain::subscribe_tip` (new-tip watch channel for the embedded p2pool)
+tokio             = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

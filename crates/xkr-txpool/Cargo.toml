@@ -1,0 +1,21 @@
+[package]
+name = "xkr-txpool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona transaction memory pool: admission policy, key-image conflicts, eviction."
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-serialization = { path = "../xkr-serialization" }
+xkr-crypto        = { path = "../xkr-crypto" }
+xkr-consensus     = { path = "../xkr-consensus" }
+parking_lot       = { workspace = true }
+thiserror         = { workspace = true }
+tracing           = { workspace = true }
+
+[lints]
+workspace = true

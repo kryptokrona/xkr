@@ -1,0 +1,55 @@
+{
+  "file": "api-fresh-import.wallet",
+  "format": "A",
+  "tool": "wallet-api",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "imageCreated": "2026-11-15T23:12:56.530052603+01:00",
+  "password": "fresh",
+  "sizeBytes": 1184,
+  "description": "seed A imported with scanHeight 142 (the top), password fresh: no transactions, sync state only",
+  "expected": {
+    "primaryAddress": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+    "addresses": [
+      "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf"
+    ],
+    "privateViewKey": "688e5229df6463ec4c27f6ee11c3f1d3d4b4d2480c0aabe64fb807182cfdc801",
+    "subWallets": [
+      {
+        "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+        "keys": {
+          "privateSpendKey": "d61a57a59318d70ff77cc7f8ad7f62887c828da1d5d3f3b0d2f7d3fa596c2904",
+          "publicSpendKey": "abab87df609dbacc45494c6a8954cde81f934ddd6c32202b62f174798bc66e43"
+        },
+        "mnemonic": {
+          "mnemonicSeed": "skulls woozy ouch summon gifts huts waffle ourselves obtains hexagon tadpoles hacksaw dormant hence abort listen history atom cadets stylishly snout vegan girth guest history"
+        },
+        "balance": {
+          "locked": 0,
+          "unlocked": 0
+        }
+      }
+    ],
+    "balance": {
+      "locked": 0,
+      "unlocked": 0
+    },
+    "balances": [
+      {
+        "address": "SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf",
+        "locked": 0,
+        "unlocked": 0
+      }
+    ],
+    "transactions": [],
+    "status": {
+      "hashrate": 0,
+      "isViewWallet": false,
+      "localDaemonBlockCount": 142,
+      "networkBlockCount": 142,
+      "peerCount": 0,
+      "subWalletCount": 1,
+      "walletBlockCount": 142
+    }
+  }
+}

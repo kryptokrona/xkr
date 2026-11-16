@@ -1,0 +1,192 @@
+p2pool: fork 13 (block major version 6) and fork-index signalling
+
+Base: kryptokrona/p2pool 8edf632fae7ebcbb29d3525144ac77b0dbd6477e ("Increment patch
+version to 2"). Apply from the checkout root with `patch -p1 < 0001-fork13-v6.patch`.
+Notes: p2pool/README.md in the xkr repository.
+
+* coin_config.h: XKR_FORK13_HEIGHT (compile-time, default 0 = not scheduled),
+  FORK13_MAJOR_VERSION = 6, SUPPORTED_FORK_INDEX = 13.
+* SideChain::network_major_version: major version 6 from block F + 1 on (the hardforks
+  tables stop at 5, so without this every v6 share of a peer fails the parser's major
+  version check and the peer is disconnected). SideChain::configure_forks reads the
+  environment variable XKR_FORK13_HEIGHT only when the daemon reports testnet (called from
+  parse_get_info_rpc, before the P2P server and the block cache start).
+* BlockTemplate::update: the block minor version is the supported fork index (13) instead
+  of Monero's HARDFORK_SUPPORTED_VERSION (16), so xkrd's fork_readiness counts p2pool
+  blocks. Not consensus anywhere (kryptokronad, xkrd and the p2pool parser accept any minor
+  version <= 127); this is the one intended change before the fork. Also logs an error when
+  the daemon's major version disagrees with the local fork table.
+* Below the fork height nothing else changes: same coinbase, same block layout, same parser
+  rules (the minor-version byte enters the aux hash and sidechain id, which peers recompute
+  from the received blob).
+
+diff -ruN a/src/block_template.cpp b/src/block_template.cpp
+--- a/src/block_template.cpp
++++ b/src/block_template.cpp
+@@ -227,6 +227,15 @@
+ 		return;
+ 	}
+ 
++	// The daemon decides the major version of the template; the fork table only checks shares
++	// of other nodes (pool_block_parser.inl). A mismatch means this node's fork heights differ
++	// from the daemon's, and its shares or those of its peers will be rejected.
++	if (data.major_version != SideChain::network_major_version(data.height)) {
++		LOGERR(1, "daemon wants block major version " << static_cast<uint32_t>(data.major_version) << " at height " << data.height <<
++			", but this p2pool's fork table says " << SideChain::network_major_version(data.height) <<
++			" (fork 13 height " << SideChain::fork13_height() << "): set XKR_FORK13_HEIGHT to the daemon's fork height");
++	}
++
+ 	// Block template construction is relatively slow, but it's better to keep the lock the whole time
+ 	// instead of using temporary variables and making a quick swap in the end
+ 	//
+@@ -254,11 +263,12 @@
+ 	m_blockHeader.clear();
+ 	m_poolBlockTemplate->m_verified = false;
+ 
+-	// Major and minor hardfork version
++	// Major and minor hardfork version. XKR: the minor version signals the supported fork
++	// index (coin::SUPPORTED_FORK_INDEX) instead of Monero's HARDFORK_SUPPORTED_VERSION (16).
+ 	m_blockHeader.push_back(data.major_version);
+-	m_blockHeader.push_back(HARDFORK_SUPPORTED_VERSION);
++	m_blockHeader.push_back(coin::SUPPORTED_FORK_INDEX);
+ 	m_poolBlockTemplate->m_majorVersion = data.major_version;
+-	m_poolBlockTemplate->m_minorVersion = HARDFORK_SUPPORTED_VERSION;
++	m_poolBlockTemplate->m_minorVersion = coin::SUPPORTED_FORK_INDEX;
+ 
+ 	// Timestamp
+ 	m_timestamp = time(nullptr);
+diff -ruN a/src/coin_config.h b/src/coin_config.h
+--- a/src/coin_config.h
++++ b/src/coin_config.h
+@@ -98,6 +98,25 @@
+ // there is a single aux chain (the block itself), no branch.
+ static constexpr uint8_t  PARENT_MM_TAG_DEPTH = 0;
+ 
++// Fork schedule after the C++ v1.2.2 table (xkrd: xkr-consensus::forks, docs/forks.md in the
++// xkr repository). A fork at height F governs blocks F + 1, F + 2, ...; block F is the last
++// block under the old rules (UpgradeManager: upgrade height < block index). 0 = not scheduled.
++// Build with -DXKR_FORK13_HEIGHT=<h> for a release with a fixed height; a daemon that reports
++// "testnet" lets the environment variable XKR_FORK13_HEIGHT override it at start-up
++// (SideChain::configure_forks), mirroring the kryptokronad testnet patch.
++//   fork 13: block major version 6; block format, coinbase, PoW, difficulty and reward of v5.
++#ifndef XKR_FORK13_HEIGHT
++#define XKR_FORK13_HEIGHT 0
++#endif
++static constexpr uint64_t FORK13_HEIGHT_DEFAULT = XKR_FORK13_HEIGHT;
++static constexpr uint8_t  FORK13_MAJOR_VERSION  = 6;
++
++// Highest fork index this build supports. Written as the block minor version so that
++// xkrd's /getinfo.fork_readiness counts p2pool blocks (a block signals fork t if
++// minor >= t and minor != 16; Monero's HARDFORK_SUPPORTED_VERSION 16 counts as no signal).
++// Neither kryptokronad, xkrd nor p2pool validates the minor version.
++static constexpr uint8_t  SUPPORTED_FORK_INDEX  = 13;
++
+ // Default kryptokrona daemon RPC port that p2pool talks to via JSON-RPC.
+ // Kryptokrona: mainnet RPC 11898, testnet RPC 11899 (P2P is 11897 / 11898).
+ #ifdef USE_TESTNET
+diff -ruN a/src/p2pool.cpp b/src/p2pool.cpp
+--- a/src/p2pool.cpp
++++ b/src/p2pool.cpp
+@@ -1600,6 +1600,10 @@
+ 	// Kryptokrona has no stagenet; mainnet is simply "not testnet".
+ 	const NetworkType node_network = info.testnet ? NetworkType::Testnet : NetworkType::Mainnet;
+ 
++	// Fork heights (XKR fork 13+): before the P2P server starts, so cached and relayed shares
++	// are parsed with the right major version.
++	SideChain::configure_forks(info.testnet);
++
+ 	const NetworkType sidechain_network = m_sideChain->network_type();
+ 
+ 	// Kryptokrona addresses do not encode a network, so the sidechain network is
+diff -ruN a/src/side_chain.cpp b/src/side_chain.cpp
+--- a/src/side_chain.cpp
++++ b/src/side_chain.cpp
+@@ -44,6 +44,7 @@
+ #include <rapidjson/istreamwrapper.h>
+ #endif
+ 
++#include <cstdlib>
+ #include <fstream>
+ #include <iterator>
+ #include <numeric>
+@@ -64,6 +65,7 @@
+ static constexpr uint8_t nano_consensus_id[HASH_SIZE] = { 171,248,206,148,210,226,114,99,250,145,221,96,13,216,23,63,104,53,129,168,244,80,141,138,157,250,50,54,37,189,5,89 };
+ 
+ NetworkType SideChain::s_networkType = NetworkType::Invalid;
++uint64_t SideChain::s_fork13Height = coin::FORK13_HEIGHT_DEFAULT;
+ 
+ SideChain::SideChain(p2pool* pool, NetworkType type, const char* pool_name)
+ 	: m_pool(pool)
+@@ -1173,9 +1175,51 @@
+ 	for (size_t i = 1; (i < num_hard_forks) && (height >= hard_forks[i].height); ++i) {
+ 		result = hard_forks[i].version;
+ 	}
++
++	// XKR fork 13 (not in the hardforks tables because its height is set at run time on the
++	// testnet): block major version 6 from block F + 1 on.
++	if (s_fork13Height && (height > s_fork13Height) && (result < coin::FORK13_MAJOR_VERSION)) {
++		result = coin::FORK13_MAJOR_VERSION;
++	}
++
+ 	return result;
+ }
+ 
++// Kryptokrona addresses carry no network, so s_networkType is always Mainnet and the fork
++// heights cannot depend on it. The daemon's get_info "testnet" flag decides instead: only a
++// testnet daemon lets the environment override the compiled-in heights, like the kryptokronad
++// testnet patch (XKR_FORK13_HEIGHT). Every p2pool node of a sidechain and its daemon must use
++// the same heights, otherwise shares are rejected by the major version check of the parser.
++static uint64_t xkr_fork_height_from_env(const char* name, uint64_t compiled, bool daemon_testnet)
++{
++	const char* env = std::getenv(name);
++	if (!env || !*env) {
++		return compiled;
++	}
++
++	if (!daemon_testnet) {
++		LOGWARN(1, name << " is set but the daemon is not on testnet, ignoring it (using " << compiled << ")");
++		return compiled;
++	}
++
++	char* end = nullptr;
++	const uint64_t h = std::strtoull(env, &end, 10);
++	if (!end || *end) {
++		LOGERR(1, name << " = \"" << env << "\" is not a block height, ignoring it (using " << compiled << ")");
++		return compiled;
++	}
++
++	return h;
++}
++
++void SideChain::configure_forks(bool daemon_testnet)
++{
++	s_fork13Height = xkr_fork_height_from_env("XKR_FORK13_HEIGHT", coin::FORK13_HEIGHT_DEFAULT, daemon_testnet);
++
++	LOGINFO(1, "XKR fork 13 (block major version " << static_cast<uint32_t>(coin::FORK13_MAJOR_VERSION) << ") at height " << s_fork13Height << (s_fork13Height ? "" : " (not scheduled)") <<
++		", signalling fork index " << static_cast<uint32_t>(coin::SUPPORTED_FORK_INDEX));
++}
++
+ difficulty_type SideChain::total_hashes() const
+ {
+ 	const PoolBlock* tip = m_chainTip;
+diff -ruN a/src/side_chain.h b/src/side_chain.h
+--- a/src/side_chain.h
++++ b/src/side_chain.h
+@@ -80,6 +80,9 @@
+ 	[[nodiscard]] uint64_t chain_window_size() const { return m_chainWindowSize; }
+ 	[[nodiscard]] static NetworkType network_type() { return s_networkType; }
+ 	[[nodiscard]] static uint64_t network_major_version(uint64_t height);
++	// XKR fork heights (coin_config.h); call once the daemon's network is known.
++	static void configure_forks(bool daemon_testnet);
++	[[nodiscard]] static uint64_t fork13_height() { return s_fork13Height; }
+ 	[[nodiscard]] FORCEINLINE difficulty_type difficulty() const { ReadLock lock(m_curDifficultyLock); return m_curDifficulty; }
+ 	[[nodiscard]] difficulty_type total_hashes() const;
+ 	[[nodiscard]] uint64_t block_time() const { return m_targetBlockTime; }
+@@ -129,6 +132,7 @@
+ 	p2pool* m_pool;
+ 	P2PServer* p2pServer() const;
+ 	static NetworkType s_networkType;
++	static uint64_t s_fork13Height;
+ 
+ private:
+ 	[[nodiscard]] bool get_shares(const PoolBlock* tip, std::vector<MinerShare>& shares, uint64_t* bottom_height = nullptr, bool quiet = false) const;

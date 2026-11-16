@@ -1,0 +1,10 @@
+view_wallet
+y
+688e5229df6463ec4c27f6ee11c3f1d3d4b4d2480c0aabe64fb807182cfdc801
+SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf
+beta-view
+view-pass
+
+@sleep 15
+balance
+exit

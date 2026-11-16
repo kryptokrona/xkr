@@ -1,0 +1,21 @@
+[package]
+name = "xkr-serialization"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Byte-exact CryptoNote binary (de)serialization and hashing blobs for Kryptokrona blocks and transactions."
+
+[dependencies]
+xkr-types  = { path = "../xkr-types" }
+xkr-crypto = { path = "../xkr-crypto" }
+thiserror  = { workspace = true }
+
+[dev-dependencies]
+hex        = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

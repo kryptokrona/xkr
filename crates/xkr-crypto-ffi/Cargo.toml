@@ -1,0 +1,31 @@
+[package]
+name = "xkr-crypto-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "One crypto core for the Kryptokrona JavaScript stack: the kryptokrona-crypto primitives on top of xkr-crypto, with a C ABI for the React Native C++ TurboModule."
+
+[lib]
+# staticlib: linked into the iOS/Android app by the C++ TurboModule (include/xkr_crypto_ffi.h)
+#            and into the host differential harness (compat/).
+# rlib:      used directly by the napi-rs Node addon and by the tests.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+xkr-types       = { path = "../xkr-types" }
+xkr-crypto      = { path = "../xkr-crypto" }
+xkr-wallet-core = { path = "../xkr-wallet-core" }
+hex             = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+thiserror       = { workspace = true }
+
+[dev-dependencies]
+# the relay's share verifier checks the shares findPowShare finds (tests only)
+xkr-hugin       = { path = "../xkr-hugin" }
+
+[lints]
+workspace = true

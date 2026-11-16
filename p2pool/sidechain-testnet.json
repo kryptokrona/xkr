@@ -1,0 +1,8 @@
+{
+	"name": "xkr-testnet-suite",
+	"password": "xkr-testnet-suite",
+	"block_time": 10,
+	"min_diff": 100000,
+	"pplns_window": 60,
+	"uncle_penalty": 20
+}

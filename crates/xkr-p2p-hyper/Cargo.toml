@@ -1,0 +1,41 @@
+[package]
+name = "xkr-p2p-hyper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Hyperswarm/HyperDHT transport for xkrd: Bare worker threads in-process (bare-kit), frame protocol client, HyperConn byte streams, Hugin and XKR topics."
+# Links a prebuilt libbare-kit from LIBBARE_DIR at build time (scripts/build-bare-kit.sh,
+# build.rs, docs/hyper-transport.md).
+
+[dependencies]
+xkr-crypto = { path = "../xkr-crypto" }
+bytes      = { workspace = true }
+futures    = { workspace = true }
+hex        = { workspace = true }
+sha2       = { workspace = true }
+thiserror  = { workspace = true }
+tokio      = { workspace = true }
+tokio-util = { workspace = true }
+tracing    = { workspace = true }
+# key pair files of the Bare workers
+serde_json = { workspace = true }
+rand_core  = { workspace = true }
+
+[dev-dependencies]
+# compile-time check that HyperConn is a BoxedPeerStream (tests/fake_worker.rs)
+xkr-p2p-legacy     = { path = "../xkr-p2p-legacy" }
+# the DHT testnet of tests/loopback.rs (a node script) and Ctrl-C in examples/hyper_probe.rs
+tokio              = { workspace = true, features = ["process", "signal"] }
+tempfile           = { workspace = true }
+tracing-subscriber = { workspace = true }
+# property tests (tests/prop_*.rs)
+proptest           = { workspace = true }
+
+[[example]]
+name = "hyper_probe"
+
+[lints]
+workspace = true

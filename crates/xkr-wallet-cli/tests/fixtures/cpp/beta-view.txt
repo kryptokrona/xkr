@@ -1,0 +1,346 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+
+
+ 1	open                     Open a wallet already on your system
+ 2	create                   Create a new wallet
+ 3	seed_restore             Restore a wallet using a seed phrase of words
+ 4	key_restore              Restore a wallet using a view and spend key
+ 5	view_wallet              Import a view only wallet
+ 6	exit                     Exit the program
+
+View wallets are only for viewing incoming transactions, and cannot make transfers.
+Is this OK? (Y/n): 
+Private View Key: Enter your public XKR address: What would you like to call your new wallet?: 
+What height would you like to begin scanning your wallet from?
+
+This can greatly speed up the initial wallet scanning process.
+
+If you do not know the exact height, err on the side of caution so transactions do not get missed.
+
+Hit enter for the sub-optimal default of zero: 
+Your view only wallet SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf has been successfully imported!
+
+Please remember that when using a view wallet you can only view incoming transactions!
+Therefore, if you have recieved transactions which you then spent, your balance will appear inflated.
+Scanning through the blockchain to find transactions that belong to you.
+Please wait, this will take some time.
+
+0 of 142
+142 of 142
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:1>
+Block height: 1
+Timestamp: 2026-11-15 22:54
+Amount: 476.83714 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:2>
+Block height: 2
+Timestamp: 2026-11-15 22:54
+Amount: 476.83691 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:3>
+Block height: 3
+Timestamp: 2026-11-15 22:54
+Amount: 476.83668 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:4>
+Block height: 4
+Timestamp: 2026-11-15 22:54
+Amount: 476.83646 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:5>
+Block height: 5
+Timestamp: 2026-11-15 22:54
+Amount: 476.83623 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:6>
+Block height: 6
+Timestamp: 2026-11-15 22:54
+Amount: 476.83600 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:7>
+Block height: 7
+Timestamp: 2026-11-15 22:54
+Amount: 476.83577 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:8>
+Block height: 8
+Timestamp: 2026-11-15 22:54
+Amount: 476.83555 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:9>
+Block height: 9
+Timestamp: 2026-11-15 22:54
+Amount: 476.83532 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:10>
+Block height: 10
+Timestamp: 2026-11-15 22:54
+Amount: 476.83509 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:11>
+Block height: 11
+Timestamp: 2026-11-15 22:54
+Amount: 476.83487 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:12>
+Block height: 12
+Timestamp: 2026-11-15 22:54
+Amount: 476.83464 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:13>
+Block height: 13
+Timestamp: 2026-11-15 22:54
+Amount: 476.83441 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:14>
+Block height: 14
+Timestamp: 2026-11-15 22:54
+Amount: 476.83418 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:15>
+Block height: 15
+Timestamp: 2026-11-15 22:54
+Amount: 476.83396 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:16>
+Block height: 16
+Timestamp: 2026-11-15 22:54
+Amount: 476.83373 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:17>
+Block height: 17
+Timestamp: 2026-11-15 22:54
+Amount: 476.83350 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:18>
+Block height: 18
+Timestamp: 2026-11-15 22:54
+Amount: 476.83327 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:19>
+Block height: 19
+Timestamp: 2026-11-15 22:54
+Amount: 476.83305 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:20>
+Block height: 20
+Timestamp: 2026-11-15 22:54
+Amount: 476.83282 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:21>
+Block height: 21
+Timestamp: 2026-11-15 22:54
+Amount: 476.83259 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:22>
+Block height: 22
+Timestamp: 2026-11-15 22:54
+Amount: 476.83236 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:23>
+Block height: 23
+Timestamp: 2026-11-15 22:54
+Amount: 476.83214 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:24>
+Block height: 24
+Timestamp: 2026-11-15 22:54
+Amount: 476.83191 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:25>
+Block height: 25
+Timestamp: 2026-11-15 22:54
+Amount: 476.83168 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:26>
+Block height: 26
+Timestamp: 2026-11-15 22:54
+Amount: 476.83145 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:27>
+Block height: 27
+Timestamp: 2026-11-15 22:54
+Amount: 476.83123 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:28>
+Block height: 28
+Timestamp: 2026-11-15 22:54
+Amount: 476.83100 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:29>
+Block height: 29
+Timestamp: 2026-11-15 22:54
+Amount: 476.83077 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:30>
+Block height: 30
+Timestamp: 2026-11-15 22:54
+Amount: 476.83055 XKR
+
+
+New transaction found!
+
+Incoming transfer:
+Hash: <hex:31>
+Block height: 131
+Timestamp: 2026-11-15 22:57
+Amount: 69.00350 XKR
+
+
+ 1	advanced                 List available advanced commands
+ 2	address                  Display your payment address
+ 3	balance                  Display how much XKR you have
+ 4	backup                   Backup your private keys and/or seed
+ 5	exit                     Exit and save your wallet
+ 6	help                     List this help message
+
+Available balance: 14,374.01876 XKR
+Locked (unconfirmed) balance: 0.00000 XKR
+Total balance: 14,374.01876 XKR
+
+Please note that view only wallets can only track incoming transactions,
+and so your wallet balance may appear inflated.
+
+Saving and shutting down...
+Thanks for stopping by...

@@ -1,0 +1,511 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+
+
+Your wallet SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf has been successfully opened!
+
+
+ 1	advanced                 List available advanced commands
+ 2	address                  Display your payment address
+ 3	balance                  Display how much XKR you have
+ 4	backup                   Backup your private keys and/or seed
+ 5	exit                     Exit and save your wallet
+ 6	help                     List this help message
+ 7	transfer                 Send XKR to someone
+
+Available balance: 14,304.01516 XKR
+Locked (unconfirmed) balance: 0.00000 XKR
+Total balance: 14,304.01516 XKR
+SEKReX4MYn2HAJFoHvcqVBPyHYom2ynKeK6dpYptbp8gQNzdzE73ZDkNmNurqfhhcMSUXpS1ZGEJKiKJUcPCyw7vYaCc35yBZCf
+
+Alternate address (same wallet, for services that only support the other prefix):
+XkrezgVVv8PTPBBHRdFJMnFBi5GV4d8BV9PHLgKDVMzraC2YLfkjyBX6N2PoUXXyN7Dyt3prMAq1p1QXd8nRaxZy8N9RGwvT4C
+Private view key:
+688e5229df6463ec4c27f6ee11c3f1d3d4b4d2480c0aabe64fb807182cfdc801
+
+Private spend key:
+d61a57a59318d70ff77cc7f8ad7f62887c828da1d5d3f3b0d2f7d3fa596c2904
+
+Mnemonic seed:
+skulls woozy ouch summon gifts huts waffle ourselves obtains hexagon tadpoles hacksaw dormant hence abort listen history atom cadets stylishly snout vegan girth guest history
+Wallet blockchain height: 142
+Local blockchain height: 142
+Network blockchain height: 142
+
+Network sync status: 100.00%
+Wallet sync status: 100.00%
+
+Peers: 0
+
+Yay! You are synced!
+Incoming transfer:
+Hash: <hex:1>
+Block height: 1
+Timestamp: 2026-11-15 22:54
+Amount: 476.83714 XKR
+
+Incoming transfer:
+Hash: <hex:2>
+Block height: 2
+Timestamp: 2026-11-15 22:54
+Amount: 476.83691 XKR
+
+Incoming transfer:
+Hash: <hex:3>
+Block height: 3
+Timestamp: 2026-11-15 22:54
+Amount: 476.83668 XKR
+
+Incoming transfer:
+Hash: <hex:4>
+Block height: 4
+Timestamp: 2026-11-15 22:54
+Amount: 476.83646 XKR
+
+Incoming transfer:
+Hash: <hex:5>
+Block height: 5
+Timestamp: 2026-11-15 22:54
+Amount: 476.83623 XKR
+
+Incoming transfer:
+Hash: <hex:6>
+Block height: 6
+Timestamp: 2026-11-15 22:54
+Amount: 476.83600 XKR
+
+Incoming transfer:
+Hash: <hex:7>
+Block height: 7
+Timestamp: 2026-11-15 22:54
+Amount: 476.83577 XKR
+
+Incoming transfer:
+Hash: <hex:8>
+Block height: 8
+Timestamp: 2026-11-15 22:54
+Amount: 476.83555 XKR
+
+Incoming transfer:
+Hash: <hex:9>
+Block height: 9
+Timestamp: 2026-11-15 22:54
+Amount: 476.83532 XKR
+
+Incoming transfer:
+Hash: <hex:10>
+Block height: 10
+Timestamp: 2026-11-15 22:54
+Amount: 476.83509 XKR
+
+Incoming transfer:
+Hash: <hex:11>
+Block height: 11
+Timestamp: 2026-11-15 22:54
+Amount: 476.83487 XKR
+
+Incoming transfer:
+Hash: <hex:12>
+Block height: 12
+Timestamp: 2026-11-15 22:54
+Amount: 476.83464 XKR
+
+Incoming transfer:
+Hash: <hex:13>
+Block height: 13
+Timestamp: 2026-11-15 22:54
+Amount: 476.83441 XKR
+
+Incoming transfer:
+Hash: <hex:14>
+Block height: 14
+Timestamp: 2026-11-15 22:54
+Amount: 476.83418 XKR
+
+Incoming transfer:
+Hash: <hex:15>
+Block height: 15
+Timestamp: 2026-11-15 22:54
+Amount: 476.83396 XKR
+
+Incoming transfer:
+Hash: <hex:16>
+Block height: 16
+Timestamp: 2026-11-15 22:54
+Amount: 476.83373 XKR
+
+Incoming transfer:
+Hash: <hex:17>
+Block height: 17
+Timestamp: 2026-11-15 22:54
+Amount: 476.83350 XKR
+
+Incoming transfer:
+Hash: <hex:18>
+Block height: 18
+Timestamp: 2026-11-15 22:54
+Amount: 476.83327 XKR
+
+Incoming transfer:
+Hash: <hex:19>
+Block height: 19
+Timestamp: 2026-11-15 22:54
+Amount: 476.83305 XKR
+
+Incoming transfer:
+Hash: <hex:20>
+Block height: 20
+Timestamp: 2026-11-15 22:54
+Amount: 476.83282 XKR
+
+Incoming transfer:
+Hash: <hex:21>
+Block height: 21
+Timestamp: 2026-11-15 22:54
+Amount: 476.83259 XKR
+
+Incoming transfer:
+Hash: <hex:22>
+Block height: 22
+Timestamp: 2026-11-15 22:54
+Amount: 476.83236 XKR
+
+Incoming transfer:
+Hash: <hex:23>
+Block height: 23
+Timestamp: 2026-11-15 22:54
+Amount: 476.83214 XKR
+
+Incoming transfer:
+Hash: <hex:24>
+Block height: 24
+Timestamp: 2026-11-15 22:54
+Amount: 476.83191 XKR
+
+Incoming transfer:
+Hash: <hex:25>
+Block height: 25
+Timestamp: 2026-11-15 22:54
+Amount: 476.83168 XKR
+
+Incoming transfer:
+Hash: <hex:26>
+Block height: 26
+Timestamp: 2026-11-15 22:54
+Amount: 476.83145 XKR
+
+Incoming transfer:
+Hash: <hex:27>
+Block height: 27
+Timestamp: 2026-11-15 22:54
+Amount: 476.83123 XKR
+
+Incoming transfer:
+Hash: <hex:28>
+Block height: 28
+Timestamp: 2026-11-15 22:54
+Amount: 476.83100 XKR
+
+Incoming transfer:
+Hash: <hex:29>
+Block height: 29
+Timestamp: 2026-11-15 22:54
+Amount: 476.83077 XKR
+
+Incoming transfer:
+Hash: <hex:30>
+Block height: 30
+Timestamp: 2026-11-15 22:54
+Amount: 476.83055 XKR
+
+Outgoing transfer:
+Hash: <hex:31>
+Block height: 131
+Timestamp: 2026-11-15 22:57
+Spent: 1.00000 XKR
+Fee: 0.00010 XKR
+Total Spent: 1.00010 XKR
+
+Summary:
+
+30 incoming transactions, totalling 14,305.01526 XKR
+1 outgoing transactions, totalling 1.00010 XKR
+Incoming transfer:
+Hash: <hex:1>
+Block height: 1
+Timestamp: 2026-11-15 22:54
+Amount: 476.83714 XKR
+
+Incoming transfer:
+Hash: <hex:2>
+Block height: 2
+Timestamp: 2026-11-15 22:54
+Amount: 476.83691 XKR
+
+Incoming transfer:
+Hash: <hex:3>
+Block height: 3
+Timestamp: 2026-11-15 22:54
+Amount: 476.83668 XKR
+
+Incoming transfer:
+Hash: <hex:4>
+Block height: 4
+Timestamp: 2026-11-15 22:54
+Amount: 476.83646 XKR
+
+Incoming transfer:
+Hash: <hex:5>
+Block height: 5
+Timestamp: 2026-11-15 22:54
+Amount: 476.83623 XKR
+
+Incoming transfer:
+Hash: <hex:6>
+Block height: 6
+Timestamp: 2026-11-15 22:54
+Amount: 476.83600 XKR
+
+Incoming transfer:
+Hash: <hex:7>
+Block height: 7
+Timestamp: 2026-11-15 22:54
+Amount: 476.83577 XKR
+
+Incoming transfer:
+Hash: <hex:8>
+Block height: 8
+Timestamp: 2026-11-15 22:54
+Amount: 476.83555 XKR
+
+Incoming transfer:
+Hash: <hex:9>
+Block height: 9
+Timestamp: 2026-11-15 22:54
+Amount: 476.83532 XKR
+
+Incoming transfer:
+Hash: <hex:10>
+Block height: 10
+Timestamp: 2026-11-15 22:54
+Amount: 476.83509 XKR
+
+Incoming transfer:
+Hash: <hex:11>
+Block height: 11
+Timestamp: 2026-11-15 22:54
+Amount: 476.83487 XKR
+
+Incoming transfer:
+Hash: <hex:12>
+Block height: 12
+Timestamp: 2026-11-15 22:54
+Amount: 476.83464 XKR
+
+Incoming transfer:
+Hash: <hex:13>
+Block height: 13
+Timestamp: 2026-11-15 22:54
+Amount: 476.83441 XKR
+
+Incoming transfer:
+Hash: <hex:14>
+Block height: 14
+Timestamp: 2026-11-15 22:54
+Amount: 476.83418 XKR
+
+Incoming transfer:
+Hash: <hex:15>
+Block height: 15
+Timestamp: 2026-11-15 22:54
+Amount: 476.83396 XKR
+
+Incoming transfer:
+Hash: <hex:16>
+Block height: 16
+Timestamp: 2026-11-15 22:54
+Amount: 476.83373 XKR
+
+Incoming transfer:
+Hash: <hex:17>
+Block height: 17
+Timestamp: 2026-11-15 22:54
+Amount: 476.83350 XKR
+
+Incoming transfer:
+Hash: <hex:18>
+Block height: 18
+Timestamp: 2026-11-15 22:54
+Amount: 476.83327 XKR
+
+Incoming transfer:
+Hash: <hex:19>
+Block height: 19
+Timestamp: 2026-11-15 22:54
+Amount: 476.83305 XKR
+
+Incoming transfer:
+Hash: <hex:20>
+Block height: 20
+Timestamp: 2026-11-15 22:54
+Amount: 476.83282 XKR
+
+Incoming transfer:
+Hash: <hex:21>
+Block height: 21
+Timestamp: 2026-11-15 22:54
+Amount: 476.83259 XKR
+
+Incoming transfer:
+Hash: <hex:22>
+Block height: 22
+Timestamp: 2026-11-15 22:54
+Amount: 476.83236 XKR
+
+Incoming transfer:
+Hash: <hex:23>
+Block height: 23
+Timestamp: 2026-11-15 22:54
+Amount: 476.83214 XKR
+
+Incoming transfer:
+Hash: <hex:24>
+Block height: 24
+Timestamp: 2026-11-15 22:54
+Amount: 476.83191 XKR
+
+Incoming transfer:
+Hash: <hex:25>
+Block height: 25
+Timestamp: 2026-11-15 22:54
+Amount: 476.83168 XKR
+
+Incoming transfer:
+Hash: <hex:26>
+Block height: 26
+Timestamp: 2026-11-15 22:54
+Amount: 476.83145 XKR
+
+Incoming transfer:
+Hash: <hex:27>
+Block height: 27
+Timestamp: 2026-11-15 22:54
+Amount: 476.83123 XKR
+
+Incoming transfer:
+Hash: <hex:28>
+Block height: 28
+Timestamp: 2026-11-15 22:54
+Amount: 476.83100 XKR
+
+Incoming transfer:
+Hash: <hex:29>
+Block height: 29
+Timestamp: 2026-11-15 22:54
+Amount: 476.83077 XKR
+
+Incoming transfer:
+Hash: <hex:30>
+Block height: 30
+Timestamp: 2026-11-15 22:54
+Amount: 476.83055 XKR
+
+Summary:
+
+30 incoming transactions, totalling 14,305.01526 XKR
+Outgoing transfer:
+Hash: <hex:31>
+Block height: 131
+Timestamp: 2026-11-15 22:57
+Spent: 1.00000 XKR
+Fee: 0.00010 XKR
+Total Spent: 1.00010 XKR
+
+Summary:
+
+1 outgoing transactions, totalling 1.00010 XKR
+Note: You can type cancel at any time to cancel adding someone to your address book.
+
+What friendly name do you want to give this address book entry?: 
+What address does this user have?: 
+Does this address book entry have a payment ID associated with it?
+
+Warning: If you were given a payment ID,
+you MUST use it, or your funds may be lost!
+Hit enter for the default of no payment ID: 
+A new entry has been added to your address book!
+Note: You can type cancel at any time to cancel adding someone to your address book.
+
+What friendly name do you want to give this address book entry?: 
+What address does this user have?: 
+Does this address book entry have a payment ID associated with it?
+
+Warning: If you were given a payment ID,
+you MUST use it, or your funds may be lost!
+Hit enter for the default of no payment ID: 
+A new entry has been added to your address book!
+Address Book Entry: 1 | friend-one
+Address: SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn
+
+Address Book Entry: 2 | friend-pid
+Address: SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn
+Payment ID: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+Creating an integrated address from an address and payment ID pair...
+
+Address: Payment ID: <integrated:1>
+Saving.
+Saved.
+Saving CSV file...
+CSV successfully written to transactions.csv!
+
+ 1	advanced                 List available advanced commands
+ 2	address                  Display your payment address
+ 3	balance                  Display how much XKR you have
+ 4	backup                   Backup your private keys and/or seed
+ 5	exit                     Exit and save your wallet
+ 6	help                     List this help message
+ 7	transfer                 Send XKR to someone
+
+
+ 8	ab_add                   Add a person to your address book
+ 9	ab_delete                Delete a person in your address book
+ 10	ab_list                  List everyone in your address book
+ 11	ab_send                  Send XKR to someone in your address book
+ 12	change_password          Change your wallet password
+ 13	get_tx_private_key       Get the private key of a transaction
+ 14	make_integrated_address  Make a combined address + payment ID
+ 15	incoming_transfers       Show incoming transfers
+ 16	list_transfers           Show all transfers
+ 17	optimize                 Optimize your wallet to send large amounts
+ 18	outgoing_transfers       Show outgoing transfers
+ 19	reset                    Recheck the chain from zero for transactions
+ 20	save                     Save your wallet state
+ 21	save_csv                 Save all wallet transactions to a CSV file
+ 22	send_all                 Send all your balance to someone
+ 23	status                   Display sync status and network hashrate
+ 24	swap_node                Specify a new daemon address/port to sync from
+
+
+Saving and shutting down...
+Thanks for stopping by...

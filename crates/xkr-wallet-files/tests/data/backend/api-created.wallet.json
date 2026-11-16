@@ -1,0 +1,55 @@
+{
+  "file": "api-created.wallet",
+  "format": "A",
+  "tool": "wallet-api",
+  "image": "xkr-cpp-wallets:master",
+  "imageId": "sha256:4c4d02e2e4ae6703210df63fd406e41426f87e786a5e0d27d35afd357bb9395e",
+  "imageCreated": "2026-11-15T23:12:56.530052603+01:00",
+  "password": "fixture-password-fixture-password-fixture-password-fixture-password-fixture-password-fixture-passwor",
+  "sizeBytes": 7824,
+  "description": "/wallet/create (random keys, deterministic view key), 100-character password, nothing received",
+  "expected": {
+    "primaryAddress": "SEKReWbG1zNj26zm8DvTkKM9DTvnyspXDJfdJfo9NHZ1F4o7D8bcN4Lfi7hNeXomX3fGNtYaV7uyk3MFLTcQ9uQhjJZVxsR5rNB",
+    "addresses": [
+      "SEKReWbG1zNj26zm8DvTkKM9DTvnyspXDJfdJfo9NHZ1F4o7D8bcN4Lfi7hNeXomX3fGNtYaV7uyk3MFLTcQ9uQhjJZVxsR5rNB"
+    ],
+    "privateViewKey": "414528364fb2a99f9beac5122eafae3a432dc086a44f1c7d00e0017cacf0660e",
+    "subWallets": [
+      {
+        "address": "SEKReWbG1zNj26zm8DvTkKM9DTvnyspXDJfdJfo9NHZ1F4o7D8bcN4Lfi7hNeXomX3fGNtYaV7uyk3MFLTcQ9uQhjJZVxsR5rNB",
+        "keys": {
+          "privateSpendKey": "1fbc53595f64fc3aaf0d554ad63f17ba9daf9ac8db78a8730639c13e8682ee09",
+          "publicSpendKey": "9964cfd7fb371fce7284ce60786b41f34da0fd24699e2ec271900e0854177a79"
+        },
+        "mnemonic": {
+          "mnemonicSeed": "already tumbling dyslexic waist epoxy library summon loyal solved zinger trash obnoxious tadpoles sovereign nowhere sack pool boxes lion rewind weird wield yoyo akin zinger"
+        },
+        "balance": {
+          "locked": 0,
+          "unlocked": 0
+        }
+      }
+    ],
+    "balance": {
+      "locked": 0,
+      "unlocked": 0
+    },
+    "balances": [
+      {
+        "address": "SEKReWbG1zNj26zm8DvTkKM9DTvnyspXDJfdJfo9NHZ1F4o7D8bcN4Lfi7hNeXomX3fGNtYaV7uyk3MFLTcQ9uQhjJZVxsR5rNB",
+        "locked": 0,
+        "unlocked": 0
+      }
+    ],
+    "transactions": [],
+    "status": {
+      "hashrate": 0,
+      "isViewWallet": false,
+      "localDaemonBlockCount": 130,
+      "networkBlockCount": 130,
+      "peerCount": 0,
+      "subWalletCount": 1,
+      "walletBlockCount": 130
+    }
+  }
+}

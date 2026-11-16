@@ -1,0 +1,43 @@
+
+
+                                                                            
+oooo                                            .             oooo     
+`888                                          .o8             `888                                                 
+ 888  oooo  oooo d8b oooo    ooo oo.ooooo.  .o888oo  .ooooo.   888  oooo  oooo d8b  .ooooo.  ooo. .oo.    .oooo.   
+ 888 .8P'   `888""8P  `88.  .8'   888' `88b   888   d88' `88b  888 .8P'   `888""8P d88' `88b `888P"Y88b  `P  )88b  
+ 888888.     888       `88..8'    888   888   888   888   888  888888.     888     888   888  888   888   .oP"888  
+ 888 `88b.   888        `888'     888   888   888 . 888   888  888 `88b.   888     888   888  888   888  d8(  888  
+o888o o888o d888b        .8'      888bod8P'   "888" `Y8bod8P' o888o o888o d888b    `Y8bod8P' o888o o888o `Y888""8o 
+                     .o..P'       888                                                                              
+                     `Y8P'       o888o                                                                             
+
+ Kryptokrona v1.2.2
+ This software is distributed under the General Public License v3.0
+
+ Copyright 2026, The Kryptokrona Developers
+
+ Additional Copyright(s) may apply, please see the included LICENSE file for more information.
+ If you did not receive a copy of the LICENSE, please visit:
+ https://github.com/kryptokrona/kryptokrona/blob/master/LICENSE
+
+2026-Nov-15 22:49:53.116249 INFO    Starting Payment Gate with remote node, timeout: 10
+2026-Nov-15 22:49:53.118061 INFO    Loading wallet
+2026-Nov-15 22:49:53.118120 INFO    Loading container...
+2026-Nov-15 22:49:53.146770 INFO    Consumer added, consumer 0x5c6b2fd64180, count 1
+2026-Nov-15 22:49:53.146843 INFO    Known Transfers 0
+2026-Nov-15 22:49:53.146866 INFO    Starting...
+2026-Nov-15 22:49:53.146931 INFO    Container loaded, view public key <hex:1>, wallet count 1, actual balance 0.00000, pending balance 0.00000
+2026-Nov-15 22:49:53.146960 INFO    Wallet loading is finished.
+2026-Nov-15 22:49:53.146964 INFO    Removing outdated pool transactions...
+Address: SEKReZCo6myNqvP1x4MuTVFxqVydgF2PBatbBKdER2LP6uH56q3s4EbEaCRGvRc8uXEeoz5PaR5EgDZd1FTbCeVeYFqjboZpBZn
+2026-Nov-15 22:49:53.147185 INFO    Stopping container
+2026-Nov-15 22:49:53.147211 ERROR   WalletGreen is already stopped
+2026-Nov-15 22:49:53.147438 INFO    Stopping...
+2026-Nov-15 22:49:53.147571 INFO    Outdated pool transactions processed
+2026-Nov-15 22:49:53.147677 INFO    Stopped
+2026-Nov-15 22:49:53.149825 INFO    Consumer removed, consumer 0x5c6b2fd64180, count 0
+2026-Nov-15 22:49:53.149873 INFO    Container shut down
+2026-Nov-15 22:49:53.149897 INFO    Stopping...
+2026-Nov-15 22:49:53.149917 INFO    Stopped
+2026-Nov-15 22:49:53.149936 INFO    Stopping...
+2026-Nov-15 22:49:53.149956 INFO    Stopped

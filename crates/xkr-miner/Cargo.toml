@@ -1,0 +1,56 @@
+[package]
+name = "xkr-miner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Kryptokrona CPU miner: jobs, hashing threads and job sources (solo against a daemon, stratum pools, xkrd's own chain), and the xkr-miner binary (the C++ miner's flags plus pool flags)."
+
+[lints]
+workspace = true
+
+[lib]
+name = "xkr_miner"
+path = "src/lib.rs"
+
+[[bin]]
+name = "xkr-miner"
+path = "src/main.rs"
+# the library carries the documentation (same name after normalisation)
+doc = false
+
+[dependencies]
+xkr-types         = { path = "../xkr-types" }
+xkr-crypto        = { path = "../xkr-crypto" }
+xkr-serialization = { path = "../xkr-serialization" }
+# proof-of-work algorithm per block major version, default RPC ports
+xkr-consensus     = { path = "../xkr-consensus" }
+# mining address check
+xkr-wallet-core   = { path = "../xkr-wallet-core" }
+# solo: getblocktemplate / submitblock / getlastblockheader
+xkr-daemon-client = { path = "../xkr-daemon-client" }
+# pool: the stratum client
+xkr-stratum       = { path = "../xkr-stratum" }
+tokio             = { workspace = true, features = ["signal"] }
+tokio-util        = { workspace = true }
+rand_core         = { workspace = true }
+hex               = { workspace = true }
+serde_json        = { workspace = true }
+thiserror         = { workspace = true }
+tracing           = { workspace = true }
+# the binary
+clap               = { workspace = true }
+# the binary's terminal look (header, steps, live panel), shared with xkrd
+xkr-term           = { path = "../xkr-term" }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# solo mining against xkrd's router in process (tests/solo.rs)
+xkr-rpc           = { path = "../xkr-rpc" }
+xkr-chain         = { path = "../xkr-chain" }
+xkr-storage       = { path = "../xkr-storage" }
+xkr-txpool        = { path = "../xkr-txpool" }
+axum              = { workspace = true }
+tower             = { workspace = true, features = ["util"] }
