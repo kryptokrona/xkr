@@ -107,6 +107,11 @@ jobs:
           key: bare-kit-${{ matrix.target }}-${{ hashFiles('scripts/build-bare-kit.sh') }}
       - name: libbare-kit
         run: scripts/build-bare-kit.sh
+      # Windows has no run path: the test programs find bare-kit.dll on PATH (the release
+      # archive carries it next to xkrd.exe).
+      - name: libbare-kit on PATH
+        if: runner.os == 'Windows'
+        run: cygpath -w "$PWD/target/bare-kit/lib" >> "$GITHUB_PATH"
       - name: clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       # Tests that need bridge/node_modules are #[ignore]d, as in ci.yml.
