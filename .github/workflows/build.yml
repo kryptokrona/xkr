@@ -3,9 +3,11 @@ name: Build
 # Release builds on every supported platform. ci.yml stays the fast gate for pushes and pull
 # requests (fmt, clippy, test on Linux x86_64); this workflow runs the same checks natively on
 # all five targets and packs the release archives (node, wallet tools, miner, bridge). It runs on
-# version tags and by hand; the draft release is made on tags only.
+# pushes to main, on version tags and by hand, so main and a release build the same way; the
+# draft release is made on tags only.
 on:
   push:
+    branches: ["main"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
