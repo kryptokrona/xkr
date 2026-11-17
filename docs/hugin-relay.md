@@ -517,15 +517,20 @@ for a client on a loopback address; other clients get the rest.
 ### xkrd private node (`--private`)
 
 With `--private` (`docs/hyper-transport.md`, "Private node") the relay serves Hugin apps only
-through the node's invite (`xkrinv1:` + hex of the sync key, the Hugin key and the secret; the
-console command `invite` prints it). The node joins the node mesh as a client only and does not
-join the public-node topic or the address-based private topic above. Apps connect to the Hugin
-identity of the invite: they derive the topic key
-`cn_fast_hash("xkr/private/hugin/v1" || secret)`, use it like a Hugin topic key (base key pair,
-topic, `mid`) and dial the invite's Hugin key directly; the relay treats them as apps
-(`Role::Client`, same limits). Apps need support for this invite to use it; without
-`--private` the address-based private topic and its invite work as before. `invite new` makes a
-new secret: earlier invites stop working.
+through the node's Hugin app invite. The node joins the node mesh as a client only and does not
+join the public-node topic or the address-based private topic above.
+
+The Hugin app invite has the form of the private node invite above with one field more:
+`<relay address, 99><Hugin topic key, 64 hex><Hugin identity key, 64 hex>` (227 characters).
+The node logs it once the Hugin identity is announced (`Hugin app invite of the private node`)
+and the console command `invite` prints it next to the `xkrinv1:` invite. The topic key is
+`cn_fast_hash("xkr/private/hugin/v1" || secret)`; an app uses its 32 bytes as the Hugin topic
+key (base key pair, topic, `mid`). As with the 163-character invite, the app pays the relay at
+the address in the first 99 characters and admits only the key in the last 64; hugin-network's
+`NodeClient` takes the topic key from the 64 characters between them. The invite reaches the
+Hugin identity only, not block sync; the relay treats these apps as apps (`Role::Client`, same
+limits). Without `--private` the address-based private topic and its invite work as before.
+`invite new` makes a new secret: earlier invites stop working.
 
 ## 12. Tests
 

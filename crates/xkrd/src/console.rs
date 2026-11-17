@@ -925,19 +925,41 @@ fn invite(node: &NodeState, renew: bool, style: Style) -> String {
     let Some(private) = &node.private else {
         return "Not a private node (start xkrd with --private)\n".to_owned();
     };
+    let app = |out: &mut String| {
+        if let Some(app) = private.hugin_app_invite() {
+            let _ = writeln!(
+                out,
+                "{}\n{app}",
+                style.paint(Color::Dim, "Hugin app invite (relay only):")
+            );
+        }
+    };
+    let mut out = String::new();
     if !renew {
-        return format!(
-            "{}\n{}\n",
+        let _ = writeln!(
+            out,
+            "{}\n{}",
             style.paint(Color::Dim, "Private node invite (for --private-peer):"),
             private.invite()
         );
+        app(&mut out);
+        return out;
     }
     match private.renew() {
-        Ok(invite) => format!(
-            "{}\n{invite}\n{}\n",
-            style.paint(Color::Green, "New private node invite:"),
-            style.paint(Color::Dim, "Old invites stop working; Hyperswarm restarts.")
-        ),
+        Ok(invite) => {
+            let _ = writeln!(
+                out,
+                "{}\n{invite}",
+                style.paint(Color::Green, "New private node invite:")
+            );
+            app(&mut out);
+            let _ = writeln!(
+                out,
+                "{}",
+                style.paint(Color::Dim, "Old invites stop working; Hyperswarm restarts.")
+            );
+            out
+        }
         Err(e) => format!("Invite not changed: {e}\n"),
     }
 }

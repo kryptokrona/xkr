@@ -406,6 +406,9 @@ Hyperswarm connections only from peers that hold its invite.
   identity, the public key of the Hugin identity and the secret, 32 bytes each. The node logs it
   once the sync identity is announced (`private node invite (console: invite)`, info level), and
   the console command `invite` prints it.
+  With the Hugin relay on, the node also logs and prints a Hugin app invite
+  (`docs/hugin-relay.md`, "xkrd private node"): relay address, Hugin topic key and Hugin
+  identity key, which reaches the Hugin identity only.
 - **Rotation.** `invite new` in the console writes a new secret and identity to the file and
   restarts the bridge at once (no back-off): every connection closes, the workers leave the DHT
   and the new identities are announced. Invites of the old secret no longer connect; peers that

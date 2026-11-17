@@ -58,6 +58,12 @@ pub const INVITE_PREFIX: &str = "xkrinv1:";
 /// Hex characters after [`INVITE_PREFIX`]: three 32-byte values.
 pub const INVITE_HEX_LEN: usize = 3 * 64;
 
+/// Length of the XKR address at the start of a Hugin app invite.
+pub const APP_INVITE_ADDRESS_LEN: usize = 99;
+
+/// Length of a Hugin app invite: the address, then two 32-byte values in hex.
+pub const APP_INVITE_LEN: usize = APP_INVITE_ADDRESS_LEN + 2 * 64;
+
 /// Domain of the sync topic key.
 pub const SYNC_TOPIC_DOMAIN: &str = "xkr/private/sync/v1";
 /// Domain of the Hugin topic key.
@@ -232,6 +238,19 @@ impl PrivateSecret {
             secret: self.secret,
         }
     }
+
+    /// The invite for Hugin apps ([`APP_INVITE_LEN`] characters): the relay's `address`, the
+    /// Hugin topic key and the Hugin identity's public key, both in hex. An app pays the relay at
+    /// the address, signs its `mid` with the topic key and admits only that key. The invite
+    /// reaches the Hugin identity only: the secret and the sync topic key are not in it.
+    #[must_use]
+    pub fn hugin_app_invite(&self, address: &str) -> String {
+        format!(
+            "{address}{}{}",
+            hex::encode(derive(HUGIN_TOPIC_DOMAIN, &self.secret)),
+            hex::encode(topic::ed25519_public_from_seed(&self.hugin_identity_seed()))
+        )
+    }
 }
 
 fn file_error(path: &Path, what: &str) -> String {
@@ -367,6 +386,31 @@ mod tests {
         // the secret does not show in Debug
         assert!(!format!("{invite:?}").contains(&"11".repeat(32)));
         assert!(!format!("{:?}", sample()).contains("1111"));
+    }
+
+    #[test]
+    fn hugin_app_invite() {
+        let s = sample();
+        let address = format!("SEKR{}", "a".repeat(APP_INVITE_ADDRESS_LEN - 4));
+        let text = s.hugin_app_invite(&address);
+        assert_eq!(text.len(), APP_INVITE_LEN);
+        let (addr, rest) = text.split_at(APP_INVITE_ADDRESS_LEN);
+        let (topic_key, key) = rest.split_at(64);
+        assert_eq!(addr, address);
+        let t = s.topics(XkrNetwork::Mainnet);
+        assert_eq!(topic_key, hex::encode(t.hugin.topic_key));
+        // the same topic key and DHT topic as hugin-network's huginTopicFromKey of those bytes
+        assert_eq!(
+            topic_key,
+            "1757f41fcc392193a50601446066a6b19ddff9ab2422ea8558289ae425070483"
+        );
+        assert_eq!(
+            hex::encode(t.hugin.topic),
+            "f1e836184d1e8d39ded91d16044881d9560dbd9ab09b1dba8f8cc6f8e537ea8c"
+        );
+        assert_eq!(key, hex::encode(s.invite().hugin_key));
+        assert!(!text.contains(&hex::encode(s.secret)));
+        assert!(!text.contains(&hex::encode(t.sync.topic_key)));
     }
 
     #[test]

@@ -368,6 +368,8 @@ impl HyperConfig {
 pub struct PrivateNode {
     file: PathBuf,
     secret: watch::Sender<PrivateSecret>,
+    /// The Hugin relay's address, once the relay runs (the start of the Hugin app invite).
+    hugin_address: OnceLock<String>,
 }
 
 impl PrivateNode {
@@ -378,6 +380,7 @@ impl PrivateNode {
         Ok(Arc::new(Self {
             file,
             secret: watch::channel(secret).0,
+            hugin_address: OnceLock::new(),
         }))
     }
 
@@ -385,6 +388,18 @@ impl PrivateNode {
     #[must_use]
     pub fn invite(&self) -> Invite {
         self.secret.borrow().invite()
+    }
+
+    /// The Hugin app invite of the current secret, once the Hugin relay runs.
+    #[must_use]
+    pub fn hugin_app_invite(&self) -> Option<String> {
+        let address = self.hugin_address.get()?;
+        Some(self.secret.borrow().hugin_app_invite(address))
+    }
+
+    /// Records the Hugin relay's address for the Hugin app invite.
+    fn set_hugin_address(&self, address: &str) {
+        let _ = self.hugin_address.set(address.to_owned());
     }
 
     /// Writes a new secret and hands it to the transport; invites of the old one stop working.
@@ -1725,7 +1740,12 @@ impl Supervisor {
                 &self.shutdown,
                 self.cfg.net.as_ref(),
             ) {
-                Ok(rt) => self.hugin = Some(rt),
+                Ok(rt) => {
+                    if let Some(p) = &self.cfg.private {
+                        p.set_hugin_address(&rt.address);
+                    }
+                    self.hugin = Some(rt);
+                }
                 Err(e) => tracing::error!(error = %e, "Hugin relay disabled"),
             }
         }
@@ -2567,6 +2587,14 @@ impl Session<'_> {
                     tracing::info!(
                         invite = %p.secret.invite(),
                         "private node invite (console: invite)"
+                    );
+                }
+                if label == PRIVATE_HUGIN_LABEL
+                    && let (Some(p), Some(h)) = (&self.private, self.hugin)
+                {
+                    tracing::info!(
+                        invite = %p.secret.hugin_app_invite(&h.address),
+                        "Hugin app invite of the private node (console: invite)"
                     );
                 }
             }
