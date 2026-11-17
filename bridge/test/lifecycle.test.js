@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
-import { parseWorkerArgs } from '../src/worker.js'
+import { parseWorkerArgs } from '../src/worker-main.js'
 import { SwarmManager } from '../src/swarm.js'
 import { keyPairFromSeed } from '../src/mid.js'
 

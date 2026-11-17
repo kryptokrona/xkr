@@ -51,7 +51,8 @@ and so one UDP port.
 | `src/keccak.js` | Keccak-256 with the original padding (`cn_fast_hash`) for the Hugin topic, no dependency | Bare + Node (tests) |
 | `src/swarm.js` | shared DHT, plain swarm, one swarm per Hugin identity | Bare + Node (tests) |
 | `src/session.js` | one Rust client session: the frame protocol, credits, connections, worker index (`worker` of `workers`) | Bare + Node (tests) |
-| `src/worker.js` | the worker entry: runs a `Session` over `Bare.IPC` inside a bare-kit 3.x worklet, arguments after `--xkr-worker` in `Bare.argv`; `startWorker`/`parseWorkerArgs` are importable for the tests | Bare (bare-kit) + Node (tests) |
+| `src/worker.js` | the worker entry xkrd starts: no static imports, it loads `worker-guard.js` and then `worker-main.js` with `import()`, so a package missing from `node_modules` ends only the worker (with its reason, once the guard is loaded) and not xkrd | Bare (bare-kit) |
+| `src/worker-main.js` | the worker: runs a `Session` over `Bare.IPC` inside a bare-kit 3.x worklet, arguments after `--xkr-worker` in `Bare.argv`; `startWorker`/`parseWorkerArgs` are importable for the tests | Bare (bare-kit) + Node (tests) |
 | `src/worker-guard.js` | loaded first by `worker.js`: an uncaught error ends only that worker | Bare |
 | `test/*.test.js` | `node --test` suites | Node |
 | `test/vectors.js` | hand-written frames for the shared golden vectors | Bare + Node (tests) |
@@ -148,7 +149,7 @@ node --test test/*.test.js        # or: npm test
 ```
 
 `frames.test.js` (golden vectors shared with Rust), `mid.test.js` (Hugin layer + local
-testnet), `session.test.js` (two workers, `startWorker` of `worker.js`, on a local testnet over
+testnet), `session.test.js` (two workers, `startWorker` of `worker-main.js`, on a local testnet over
 in-memory streams, driven by a minimal JS client: Hello, Announce, Lookup, Open, Data, credits
 incl. the oversized-message rule, PeerInfo, two-way Close, UNKNOWN_CONN, failing Open,
 UNKNOWN_TYPE; `--port-fixed` binding exactly that port with `DhtStatus` ready, a second worker on

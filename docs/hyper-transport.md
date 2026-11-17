@@ -486,17 +486,23 @@ they derive from the node key (the private-node identity still comes from the vi
   end-of-stream on read or a closed IPC on write, which closes the link at once; the exit code
   from bare-kit's exit callback (`bare_worklet_on_exit`) goes into the log line.
 - An uncaught exception or unhandled rejection in a worklet would abort the whole process
-  (bare-kit's default); `worker-guard.js` (imported first by `worker.js`) catches both, logs
+  (bare-kit's default); `worker-guard.js` (loaded first by `worker.js`) catches both, logs
   them to the system log, sends the error's name and message on one line as one `Error` frame
   (`request_id` 0, code `DHT_ERROR`), ends its IPC and exits that worklet with code 1 (after at
   most 1 s), which the pump then sees as above.
+- `worker.js` has no static imports: Bare resolves those before any module runs, so a package
+  missing from `node_modules` would abort xkrd before the guard is in place. It loads
+  `worker-guard.js` and then `worker-main.js` with `import()`, whose failure is an ordinary
+  rejection. Before it starts a worker, xkrd also checks that every package in the bridge's
+  `package.json` is in `node_modules` and names the missing ones. `xkrd bridge-check` starts
+  one worker without joining the DHT and stops it again (the release smoke test).
 - A worker whose modules do not load (a native addon that cannot load) fails before its
   `Hello`, so that `Error` frame is the first frame it sends. The pump looks at each worker's
   frames until the `Hello`; an `Error` before it becomes the reason `start_in_process` returns
   (`cannot start the bridge: Bare worker 0: AddonError: ...`) instead of "closed during Hello".
   After the `Hello` the bridge logs such a frame as a worker error.
 - Shutdown: `Bridge::close()` shuts every link; each pump sees its link end, closes it, and
-  half-closes the IPC (`bare_ipc_end`). `worker.js` ends its side in turn, its session closes and
+  half-closes the IPC (`bare_ipc_end`). `worker-main.js` ends its side in turn, its session closes and
   the swarm leaves the DHT, and the worklet exits on its own. A worklet that has not exited after
   2 s is terminated (`bare_worklet_terminate`) and gets 2 s more; then the poll, the IPC and the
   worklet are destroyed (`bare_worklet_destroy` never blocks). `BareWorkers::stop` joins the

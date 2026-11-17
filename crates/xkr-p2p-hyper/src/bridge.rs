@@ -257,8 +257,9 @@ impl Default for BridgeConfig {
 }
 
 /// Whether `dir`, its parent, `dir/src`, `dir/src/worker.js` and (where present)
-/// `dir/src/session.js` belong to the owner of `exe` (or root) and nobody else can change them:
-/// not writable by others, writable by the group only when it is the executable's group. A parent with the sticky bit (such as `/tmp`) may be
+/// `dir/src/worker-main.js` and `dir/src/session.js` belong to the owner of `exe` (or root) and
+/// nobody else can change them: not writable by others, writable by the group only when it is
+/// the executable's group. A parent with the sticky bit (such as `/tmp`) may be
 /// writable by others, since only the owner can rename or remove `dir` in it. Always true off
 /// Unix.
 #[must_use]
@@ -280,11 +281,13 @@ pub fn owned_like(dir: &Path, exe: &Path) -> bool {
             })
         };
         let src = dir.join("src");
+        let main = src.join("worker-main.js");
         let session = src.join("session.js");
         dir.parent().is_none_or(|p| fine(p, true))
             && fine(dir, false)
             && fine(&src, false)
             && fine(&src.join("worker.js"), false)
+            && (!main.exists() || fine(&main, false))
             && (!session.exists() || fine(&session, false))
     }
     #[cfg(not(unix))]

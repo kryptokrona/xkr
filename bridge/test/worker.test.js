@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import b4a from 'b4a'
-import { parseWorkerArgs, ARGS_MARKER } from '../src/worker.js'
+import { parseWorkerArgs, ARGS_MARKER } from '../src/worker-main.js'
 import { Session } from '../src/session.js'
 import {
   TYPE,

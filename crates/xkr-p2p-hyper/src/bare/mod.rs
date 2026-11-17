@@ -100,6 +100,38 @@ pub fn teardown(wait: Duration) -> bool {
     spawned.is_ok() && rx.recv_timeout(wait).is_ok()
 }
 
+/// Checks that every package in the `dependencies` of the bridge's `package.json` is installed in
+/// its `node_modules`. Bare resolves the worker's imports before any of its code runs, so a
+/// missing package would end the worker before it can say why; this names the package instead.
+fn check_packages(dir: &Path) -> Result<(), String> {
+    let manifest = dir.join("package.json");
+    let text = std::fs::read_to_string(&manifest)
+        .map_err(|e| format!("cannot read {}: {e}", manifest.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("cannot parse {}: {e}", manifest.display()))?;
+    let Some(deps) = json
+        .get("dependencies")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(());
+    };
+    let modules = dir.join("node_modules");
+    let missing: Vec<&str> = deps
+        .keys()
+        .filter(|name| !modules.join(name.as_str()).join("package.json").is_file())
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "the bridge in {} lacks its npm packages ({} not in node_modules): a release archive \
+         ships them in bridge/node_modules, a source checkout needs `npm ci` in that directory",
+        dir.display(),
+        missing.join(", ")
+    ))
+}
+
 /// Key pair file of worker `worker`: `base` itself for worker 0 (the node key),
 /// `<stem>.<worker>.json` next to it for the others.
 #[must_use]
@@ -306,6 +338,7 @@ impl Bridge {
                 dir.display()
             )));
         }
+        check_packages(&dir).map_err(BridgeError::Spawn)?;
         check_runtime().map_err(BridgeError::Spawn)?;
         let mut seeds = Vec::with_capacity(usize::from(count));
         for i in 0..count {
@@ -621,6 +654,24 @@ fn startup_reason(message: &str) -> String {
 mod tests {
     use super::*;
     use crate::frame::{ErrorFrame, Frame, Hello};
+
+    #[test]
+    fn missing_packages_are_named() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"dependencies":{"b4a":"1.9.0","hyperswarm":"4.17.2"}}"#,
+        )
+        .unwrap();
+        let err = check_packages(dir.path()).unwrap_err();
+        assert!(err.contains("b4a, hyperswarm not in node_modules"), "{err}");
+        for name in ["b4a", "hyperswarm"] {
+            let pkg = dir.path().join("node_modules").join(name);
+            std::fs::create_dir_all(&pkg).unwrap();
+            std::fs::write(pkg.join("package.json"), "{}").unwrap();
+        }
+        check_packages(dir.path()).unwrap();
+    }
 
     #[test]
     fn keypair_files_per_worker() {

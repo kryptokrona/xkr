@@ -9,7 +9,7 @@ import crypto from 'node:crypto'
 import dgram from 'node:dgram'
 import b4a from 'b4a'
 import createTestnet from 'hyperdht/testnet.js'
-import { startWorker } from '../src/worker.js'
+import { startWorker } from '../src/worker-main.js'
 import { keyPairFromSeed, huginTopic } from '../src/mid.js'
 import {
   TYPE,
