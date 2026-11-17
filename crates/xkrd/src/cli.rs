@@ -754,7 +754,11 @@ mod tests {
 
     #[test]
     fn explorer_needs_a_full_node() {
-        assert!(Args::try_parse_from(["xkrd", "--explorer"]).unwrap().explorer);
+        assert!(
+            Args::try_parse_from(["xkrd", "--explorer"])
+                .unwrap()
+                .explorer
+        );
         assert!(!Args::try_parse_from(["xkrd"]).unwrap().explorer);
         // the C++ spelling
         assert!(

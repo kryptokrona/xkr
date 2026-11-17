@@ -173,7 +173,9 @@ fn dispatch(s: &RpcState, method: &str, params: &Value) -> Result<Value, RpcErro
         "getcurrencyid" => Ok(json!({ "currency_id_blob": chain.genesis_hash().to_string() })),
         "getblocktemplate" => mining::get_block_template(s, params),
         "submitblock" => mining::submit_block(s, params),
-        "f_blocks_list_json" | "f_block_json" | "f_transaction_json"
+        "f_blocks_list_json"
+        | "f_block_json"
+        | "f_transaction_json"
         | "f_on_transactions_pool_json"
             if !s.explorer =>
         {

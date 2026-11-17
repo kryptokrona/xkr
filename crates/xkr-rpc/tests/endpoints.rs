@@ -63,7 +63,10 @@ async fn explorer_methods_need_the_flag() {
     for (method, params) in [
         ("f_blocks_list_json", json!({ "height": 0 })),
         ("f_block_json", json!({ "hash": genesis })),
-        ("f_transaction_json", json!({ "hash": genesis_coinbase_hash() })),
+        (
+            "f_transaction_json",
+            json!({ "hash": genesis_coinbase_hash() }),
+        ),
         ("f_on_transactions_pool_json", json!({})),
     ] {
         let v = rpc(&on, method, Some(params.clone())).await;
