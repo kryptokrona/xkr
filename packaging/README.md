@@ -5,8 +5,8 @@ How to produce each distributable piece of xkr, on your own machine and in CI.
 | artifact | what it is | local | CI (`.github/workflows/build.yml`) |
 |---|---|---|---|
 | `xkr-<version>-<target>.tar.gz` (`.zip` on Windows) | node, wallet tools, miner, copies under the C++ names and the bridge bundle for one target | `scripts/package-release.sh` | job `build`, one per target (`ci.yml` packs the Linux x86_64 one on every push) |
-| `xkr-bridge-<version>.tar.gz` | the Hyperswarm bridge with production `node_modules`, prebuilds for every platform | `scripts/bundle-bridge.sh` | job `bridge` |
-| `SHA256SUMS` | SHA-256 of every archive above (each archive also holds its own `SHA256SUMS` of the files inside) | `sha256sum xkr-* > SHA256SUMS` | job `release`, tags only |
+| `xkr-bridge-<version>.tar.gz` | the Hyperswarm bridge with production `node_modules`, prebuilds for every platform; input of the `build` job, not a release file | `scripts/bundle-bridge.sh` | job `bridge` |
+| `SHA256SUMS` | SHA-256 of every per-target archive (each archive also holds its own `SHA256SUMS` of the files inside) | `sha256sum xkr-* > SHA256SUMS` | job `release`, tags only |
 | Tauri sample app (`.deb`, AppImage, `.app`, NSIS installer) | `tauri-sidecar/`: desktop app that runs xkrd as a sidecar | `tauri-sidecar/README.md` | job `tauri`, manual runs only |
 
 Targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
@@ -107,12 +107,12 @@ workflow"; tick "tauri" to also build the sample app):
    `xkr-miner`, `package-release.sh`, then a smoke test of the unpacked archive (every
    program and copy answers `--version`, the archive's `SHA256SUMS` matches, the bridge's
    native addons and modules load under the bundled layout). Artifact `xkr-<target>`.
-3. `release` (tag pushes only): `SHA256SUMS` over all archives, all of it as the
-   `release-<version>` artifact, and a **draft** GitHub release with those files (published
-   by hand).
+3. `release` (tag pushes only): `SHA256SUMS` over the per-target archives (the bridge bundle
+   is left out: every archive carries its own `bridge/`), all of it as the `release-<version>`
+   artifact, and a **draft** GitHub release with those files (published by hand).
 4. `tauri` (manual runs with "tauri" ticked): builds the sample app per target from the
-   archive of step 2. Its "Prepare sidecars" step still passes `--node` (see "libbare-kit and
-   what CI still has to do", item 4).
+   archive of step 2: xkrd, libbare-kit and the pruned `bridge/` go in as they are, so the job
+   needs no Node.js.
 
 The version is the tag name on tags and `dev-<run number>` on manual runs.
 
