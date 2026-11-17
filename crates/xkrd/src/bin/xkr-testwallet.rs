@@ -786,11 +786,10 @@ fn run(args: &Args) -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn wallet_files_are_owner_only() {
         use std::os::unix::fs::PermissionsExt as _;
