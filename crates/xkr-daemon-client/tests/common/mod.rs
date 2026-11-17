@@ -148,6 +148,7 @@ pub fn genesis_node(db: &GenesisDb, fee: (&str, u32)) -> Arc<RpcState> {
         mining,
         hugin: None,
         p2pool: None,
+        explorer: true,
         info: NodeInfo {
             version: "daemon-client-test".into(),
             start_time: 0,

@@ -49,6 +49,40 @@ async fn rpc(app: &Router, method: &str, params: Option<Value>) -> Value {
     v
 }
 
+/// The `f_*` methods answer only on a node started with `--explorer`
+/// ([`xkr_rpc::RpcState::explorer`]); off, they are reported like an unknown method.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explorer_methods_need_the_flag() {
+    let (db_on, db_off) = (TempDb::new(), TempDb::new());
+    let on = state(&db_on);
+    let genesis = on.chain.genesis_hash().to_string();
+    let mut off = state(&db_off);
+    Arc::get_mut(&mut off).expect("unshared").explorer = false;
+    let on = router(on, &[]);
+    let off = router(off, &[]);
+    for (method, params) in [
+        ("f_blocks_list_json", json!({ "height": 0 })),
+        ("f_block_json", json!({ "hash": genesis })),
+        ("f_transaction_json", json!({ "hash": genesis_coinbase_hash() })),
+        ("f_on_transactions_pool_json", json!({})),
+    ] {
+        let v = rpc(&on, method, Some(params.clone())).await;
+        assert_eq!(v["result"]["status"], "OK", "{method} on: {v}");
+        let v = rpc(&off, method, Some(params)).await;
+        assert_eq!(v["error"]["code"], -32601, "{method} off: {v}");
+        assert!(
+            v["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("--explorer")),
+            "{method} off: {v}"
+        );
+        assert!(v.get("result").is_none(), "{method} off: {v}");
+    }
+    // other methods are unaffected
+    let v = rpc(&off, "getblockcount", None).await;
+    assert_eq!(v["result"]["status"], "OK", "{v}");
+}
+
 /// `/get_block_details_by_height` with the C++ `BlockDetails` / `TransactionDetails` keys.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn genesis_block_details() {

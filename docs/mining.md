@@ -360,7 +360,8 @@ that must reach xkrd on the host use `--network host` (no firewall between bridg
 
 5. **Fork 14 on the testnet** (`testnet/fork14-scenario.sh`, `docs/forks.md` §5): with
    `--fork13-height F13 --fork14-height F14 [--fork14-grace N]` the built-in miner and
-   `getblocktemplate` produce major 7 and a version-2 coinbase from `F14 + 1`:
+   `getblocktemplate` produce major 7 and a version-2 coinbase from `F14 + 1` (the `f_*`
+   methods need a node started with `--explorer`):
 
    ```sh
    curl -s -d '{"jsonrpc":"2.0","id":0,"method":"f_block_json","params":{"hash":"<F14+1>"}}' \

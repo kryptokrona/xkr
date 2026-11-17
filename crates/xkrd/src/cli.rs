@@ -179,6 +179,18 @@ pub struct Args {
     #[arg(long = "enable-cors", value_name = "ORIGIN", help_heading = RPC)]
     pub enable_cors: Vec<String>,
 
+    /// Answer the block explorer methods of `/json_rpc` (`f_blocks_list_json`, `f_block_json`,
+    /// `f_transaction_json`, `f_on_transactions_pool_json`; C++ `--enable-blockexplorer`). An
+    /// explorer needs the whole chain, so this is not accepted with `--prune` and the node
+    /// does not start on a pruned database.
+    #[arg(
+        long,
+        alias = "enable-blockexplorer",
+        conflicts_with = "prune",
+        help_heading = RPC
+    )]
+    pub explorer: bool,
+
     /// Remote node fee address reported by `/fee` (empty: no fee).
     #[arg(long, value_name = "ADDRESS", default_value = "", help_heading = RPC)]
     pub fee_address: String,
@@ -739,6 +751,19 @@ mod tests {
     use clap::CommandFactory;
 
     use super::*;
+
+    #[test]
+    fn explorer_needs_a_full_node() {
+        assert!(Args::try_parse_from(["xkrd", "--explorer"]).unwrap().explorer);
+        assert!(!Args::try_parse_from(["xkrd"]).unwrap().explorer);
+        // the C++ spelling
+        assert!(
+            Args::try_parse_from(["xkrd", "--enable-blockexplorer"])
+                .unwrap()
+                .explorer
+        );
+        assert!(Args::try_parse_from(["xkrd", "--explorer", "--prune"]).is_err());
+    }
 
     #[test]
     fn command_line_is_consistent() {

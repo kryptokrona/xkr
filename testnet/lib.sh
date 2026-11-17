@@ -399,14 +399,17 @@ _stop_own() {
 # ------------------------------------------------------------------ xkrd
 
 # start_xkrd <name> <rpc port|0> <data dir> <log> [xkrd args...]: testnet, nice -n 19, waits for
-# the RPC (unless the port is 0). The caller passes P2P, peer and fork flags.
+# the RPC (unless the port is 0). The caller passes P2P, peer and fork flags. The node answers
+# the block explorer methods (--explorer; the scenarios read f_block_json and
+# f_transaction_json) unless NO_EXPLORER=1 (a pruned node refuses the flag).
 start_xkrd() {
-    local name=$1 port=$2 dir=$3 log=$4
+    local name=$1 port=$2 dir=$3 log=$4 explorer=(--explorer)
     shift 4
+    [ "${NO_EXPLORER:-0}" = 1 ] && explorer=()
     mkdir -p "$dir"
     LOGOF[$name]=$log
     start_bg "$name" "$log" ${XKRD_ENV[@]+"${XKRD_ENV[@]}"} "$XKRD" --network testnet --data-dir "$dir" --rpc-bind-port "$port" \
-        --log-level "$LOG_LEVEL" --db-cache-mb "$DB_CACHE_MB" "$@"
+        --log-level "$LOG_LEVEL" --db-cache-mb "$DB_CACHE_MB" ${explorer[@]+"${explorer[@]}"} "$@"
     [ "$port" = 0 ] && return 0
     wait_rpc "127.0.0.1:$port" "$name"
 }

@@ -72,7 +72,7 @@ start_a() {
 }
 # start_p <log>: xkrd P (pruned copy), accepts connections, dials nobody
 start_p() {
-    start_xkrd pr-p "$PORT_PR_P_RPC" "$SD/p" "$1" \
+    NO_EXPLORER=1 start_xkrd pr-p "$PORT_PR_P_RPC" "$SD/p" "$1" \
         --p2p-bind-ip 127.0.0.1 --p2p-bind-port "$PORT_PR_P_P2P" --add-exclusive-node "$DEAD_PEER" --no-hyper
 }
 # start_f <log> <peer...>: xkrd F without a listener, dialing only the given peers

@@ -27,7 +27,7 @@
 //! | `/get_transaction_hashes_by_payment_id` | `onGetTransactionHashesByPaymentId` |
 //! | `/queryblockslite` | `on_query_blocks_lite` (C++ walletd / xkrwallet sync) |
 //! | `/get_blocks_hashes_by_timestamps` | `onGetBlocksHashesByTimestamps` |
-//! | `/json_rpc` | `getblockcount`, `on_getblockhash`, `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`, `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`, `submitblock`, `f_blocks_list_json`, `f_block_json`, `f_transaction_json`, `f_on_transactions_pool_json` |
+//! | `/json_rpc` | `getblockcount`, `on_getblockhash`, `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`, `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`, `submitblock`, `f_blocks_list_json`, `f_block_json`, `f_transaction_json`, `f_on_transactions_pool_json` (the `f_*` methods only on a node started with `--explorer`, [`RpcState::explorer`]) |
 //! | `/status` | xkr only: sync, peer, mining, Hugin relay and p2pool state for the desktop app |
 //!
 //! Like the C++ server, every path accepts GET and POST (the C++ HTTP server ignores the
@@ -302,6 +302,10 @@ pub struct RpcState {
     /// The built-in p2pool, shown by `/status` as `p2pool`; `None` (`"p2pool": null`) when it
     /// is off.
     pub p2pool: Option<watch::Receiver<Arc<P2poolStatus>>>,
+    /// Whether the block explorer methods (`f_blocks_list_json`, `f_block_json`,
+    /// `f_transaction_json`, `f_on_transactions_pool_json`) are answered (`xkrd --explorer`,
+    /// C++ `--enable-blockexplorer`). Off, `/json_rpc` reports them as not found.
+    pub explorer: bool,
     /// Static node facts.
     pub info: NodeInfo,
 }

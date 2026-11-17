@@ -778,7 +778,7 @@ run is evidence for a fork decision.
    Helpers: `pass|fail|skip <check> <text>`, `die` (FAIL and stop), `missing_exit`,
    `wait_for <s> <cmd…>`, `wait_height`, `wait_same_top`, `compare_chains`, `rpc`, `post`,
    `get`, `num|str|arr|bool|obj|count` (JSON without jq), `top_of`, `height_of`, `top_hash_of`,
-   `header_at`, `start_xkrd <name> <rpc port> <dir> <log> [args]`, `stop_proc`, `kill_proc`,
+   `header_at`, `start_xkrd <name> <rpc port> <dir> <log> [args]` (adds `--explorer`; `NO_EXPLORER=1` for a pruned node), `stop_proc`, `kill_proc`,
    `watch` (wait loops die if the process exits), `start_cpp <container> <image> <p2p> <rpc>
    <ENV=v|-> [args]`, `run_cpp_miner`, `mine_cpp`, `wallet`, `send_tx`, `wait_mined`,
    `unlocked_of`, `wait_funds`, `xkrd_db`.

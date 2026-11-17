@@ -495,8 +495,9 @@ and `/json_rpc` (`getblockcount`, `on_getblockhash`,
 `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`,
 `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`,
 `submitblock`, `f_blocks_list_json`, `f_block_json`, `f_transaction_json`,
-`f_on_transactions_pool_json`). Every
-path accepts GET and POST like the C++ server. CORS like `--enable-cors` (one origin per flag, `*`
+`f_on_transactions_pool_json`; the four `f_*` block explorer methods only on a node started with
+`--explorer`, C++ `--enable-blockexplorer`, which needs a full database: not with `--prune`,
+not on a pruned one). Every path accepts GET and POST like the C++ server. CORS like `--enable-cors` (one origin per flag, `*`
 for any; the matching origin is echoed). `/status` is xkr's own JSON for a desktop app: height,
 network height, sync progress, peers per transport, download rates, pool, alternative blocks,
 database size, uptime, the built-in miner (`mining`), the Hugin relay counters (`hugin`:

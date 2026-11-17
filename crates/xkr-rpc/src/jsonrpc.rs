@@ -15,6 +15,9 @@ use crate::{RpcState, explorer, mining};
 const ERR_PARSE: i64 = -32700;
 const ERR_INVALID_REQUEST: i64 = -32600;
 const ERR_METHOD_NOT_FOUND: i64 = -32601;
+/// Answer to a block explorer method on a node started without `--explorer`.
+const EXPLORER_OFF: &str =
+    "Method not found (the block explorer is off; start xkrd with --explorer)";
 const ERR_INTERNAL: i64 = -32603;
 /// `core_rpc_server_error_codes.h`.
 const CORE_RPC_ERROR_CODE_WRONG_PARAM: i64 = -1;
@@ -170,6 +173,12 @@ fn dispatch(s: &RpcState, method: &str, params: &Value) -> Result<Value, RpcErro
         "getcurrencyid" => Ok(json!({ "currency_id_blob": chain.genesis_hash().to_string() })),
         "getblocktemplate" => mining::get_block_template(s, params),
         "submitblock" => mining::submit_block(s, params),
+        "f_blocks_list_json" | "f_block_json" | "f_transaction_json"
+        | "f_on_transactions_pool_json"
+            if !s.explorer =>
+        {
+            Err(RpcError::new(ERR_METHOD_NOT_FOUND, EXPLORER_OFF))
+        }
         "f_blocks_list_json" => explorer::blocks_list(s, params),
         "f_block_json" => explorer::block_details(s, params),
         "f_transaction_json" => explorer::transaction_details(s, params),

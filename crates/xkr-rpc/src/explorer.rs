@@ -9,7 +9,8 @@
 //! signatures are listed under `clsag_signatures` (`[{ "s": [hex…], "c1": hex }]`, one per
 //! input) next to an empty `signatures` array.
 //!
-//! C++ only answers these with `--enable-blockexplorer`; xkrd always does.
+//! Like C++ (`--enable-blockexplorer`), xkrd answers these only when started with `--explorer`
+//! ([`RpcState::explorer`]); otherwise `/json_rpc` reports the method as not found.
 //!
 //! On a pruned node a block or transaction whose ring signatures were dropped is answered with
 //! the error `-1` "block N is pruned on this node (its ring signatures were dropped)" for that

@@ -90,6 +90,7 @@ pub fn node(db: &TempDb) -> Arc<RpcState> {
         mining,
         hugin: None,
         p2pool: None,
+        explorer: true,
         info: NodeInfo {
             version: "xkr-vectors".into(),
             start_time: 0,

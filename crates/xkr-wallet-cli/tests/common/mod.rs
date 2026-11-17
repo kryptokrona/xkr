@@ -93,6 +93,7 @@ impl TestNode {
             mining,
             hugin: None,
             p2pool: None,
+            explorer: true,
             info: NodeInfo {
                 version: "xkr-wallet-cli-tests".into(),
                 start_time: 0,

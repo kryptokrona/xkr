@@ -351,6 +351,15 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
     if ui.shutdown.is_cancelled() {
         return stop_during_startup(&ui, Opened::Store(store));
     }
+    if args.explorer && (prune_state.seed.is_stripe() || prune_state.is_pruned()) {
+        return fail_start(
+            &ui,
+            Opened::Store(store),
+            "--explorer needs the whole chain and this database is pruned: start without \
+             --explorer, or sync a full database in another --data-dir"
+                .into(),
+        );
+    }
 
     let step = ui.step("Transaction pool");
     let pool = Arc::new(TxPool::new(PoolConfig::default()));
@@ -946,6 +955,7 @@ async fn async_main(
             mining: mining_rx,
             hugin: hugin_stats,
             p2pool: p2pool_status,
+            explorer: args.explorer,
             info: NodeInfo {
                 version: VERSION.to_owned(),
                 start_time,
@@ -977,7 +987,11 @@ async fn async_main(
                 token.cancel();
             }
         });
-        step.done_with(rpc_bind.to_string());
+        step.done_with(if args.explorer {
+            format!("{rpc_bind}, block explorer")
+        } else {
+            rpc_bind.to_string()
+        });
         Some(task)
     };
 

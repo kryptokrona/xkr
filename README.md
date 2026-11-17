@@ -35,6 +35,8 @@ target/release/xkrd --help
 
 - `--fast-sync` skips proof of work up to the last checkpoint.
 - `--prune` keeps 25 % of the old ring signatures (about 45 % less disk space).
+- `--explorer` answers the block explorer methods (`f_*`, C++ `--enable-blockexplorer`). An
+  explorer needs the whole chain: not with `--prune`, and not on a pruned database.
 - `--no-hyper` runs the legacy TCP network only.
 - `--port <udp port>` for a node behind a strict firewall or NAT.
 - p2pool runs inside the node (`--no-p2pool` turns it off); `start_mining p2pool` in the console
