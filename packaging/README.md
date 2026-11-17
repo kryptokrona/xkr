@@ -22,7 +22,7 @@ the bridge directory itself: `src/`, `package.json`, `package-lock.json` and `no
 two native addons (`sodium-native`, `udx-native`) ship prebuilds for every platform inside
 their npm packages (`.bare` for Bare, `.node` for Node.js), so the bundle needs no compiler and
 the same `node_modules` works everywhere. `scripts/prune-prebuilds.sh` drops the other
-platforms' prebuilds from a copy (about 40 MB down to about 7 MB).
+platforms' prebuilds and the `.node` builds from a copy (about 40 MB down to about 6 MB).
 
 xkrd finds the bridge as `bridge/` next to its executable (or `--hyper-bridge-dir`,
 `$XKR_BRIDGE_DIR`). The release archives use that layout and carry `libbare-kit` next to
@@ -92,7 +92,7 @@ for b in xkrd xkr-wallet-api wallet-api xkr-walletd kryptokrona-service xkrwalle
     ./$b --version
 done
 sha256sum -c --quiet SHA256SUMS
-(cd bridge && node -e "require('sodium-native'); require('udx-native')")
+./xkrd bridge-check            # runs bridge/ on a Bare worker, no network
 ```
 
 ## CI
@@ -106,7 +106,7 @@ workflow"; tick "tauri" to also build the sample app):
    the release build of `xkrd`, `xkr-wallet-api`, `xkr-walletd`, `xkr-wallet-cli` and
    `xkr-miner`, `package-release.sh`, then a smoke test of the unpacked archive (every
    program and copy answers `--version`, the archive's `SHA256SUMS` matches, the bridge's
-   native addons and modules load under the bundled layout). Artifact `xkr-<target>`.
+   addons and modules load on a Bare worker: `xkrd bridge-check`). Artifact `xkr-<target>`.
 3. `release` (tag pushes only): `SHA256SUMS` over the per-target archives (the bridge bundle
    is left out: every archive carries its own `bridge/`), all of it as the `release-<version>`
    artifact, and a **draft** GitHub release with those files (published by hand).

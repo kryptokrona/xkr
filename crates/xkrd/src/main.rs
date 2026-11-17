@@ -12,6 +12,7 @@
 //!   on blocking threads), started once the node is synchronized;
 //! * while stopping, the shutdown steps (`crate::stopping`).
 
+mod bridge_check;
 mod chain_worker;
 mod cli;
 mod console;
@@ -63,15 +64,32 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 fn main() -> ExitCode {
     let mut args = Args::parse();
     let term = Term::stdout();
-    if let Some(cli::Command::Db(cmd)) = args.command.take() {
-        init_logging("info", false, None, &term);
-        return match db_tool::run(&cmd) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("xkrd db: {e}");
-                ExitCode::FAILURE
-            }
-        };
+    match args.command.take() {
+        Some(cli::Command::Db(cmd)) => {
+            init_logging("info", false, None, &term);
+            return match db_tool::run(&cmd) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("xkrd db: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        Some(cli::Command::BridgeCheck { hyper_bridge_dir }) => {
+            // Errors only: closing the bridge on purpose logs a warning.
+            init_logging("error", false, None, &term);
+            return match bridge_check::run(hyper_bridge_dir) {
+                Ok(dir) => {
+                    println!("bridge ok: {}", dir.display());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("xkrd bridge-check: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        None => {}
     }
     let log_file = match &args.log_file {
         Some(path) => match std::fs::OpenOptions::new()

@@ -5,7 +5,8 @@
 #
 # sodium-native and udx-native (and the bare-* packages) ship prebuilds for every platform
 # inside their npm packages, so an unpruned bundle runs everywhere (about 40 MB). For one
-# target only its own directory (e.g. linux-x64) is needed.
+# target only its own directory (e.g. linux-x64) is needed, and in it only the `.bare` addons:
+# xkrd runs the bridge on Bare, so the `.node` builds for Node.js are dropped too.
 set -euo pipefail
 
 dir=${1:?usage: prune-prebuilds.sh <bridge dir> <target triple | platform-arch>}
@@ -38,4 +39,9 @@ if [[ $found -eq 0 ]]; then
   echo "no prebuilds for $keep in $dir/node_modules" >&2
   exit 1
 fi
-echo "kept prebuilds for $keep"
+find "$dir/node_modules" -path "*/prebuilds/$keep/*.node" -type f -delete
+if [[ -z "$(find "$dir/node_modules" -path "*/prebuilds/$keep/*.bare" -type f -print -quit)" ]]; then
+  echo "no .bare addons for $keep in $dir/node_modules" >&2
+  exit 1
+fi
+echo "kept the .bare prebuilds for $keep"

@@ -587,6 +587,15 @@ pub enum Command {
     /// node's file, and on databases of the previous schema version).
     #[command(subcommand)]
     Db(DbCommand),
+    /// Start one Bare worker of the Hyperswarm bridge and stop it again, without joining the
+    /// network: checks that libbare-kit, the bridge directory and its native addons load.
+    /// Prints `bridge ok: <dir>`.
+    BridgeCheck {
+        /// Directory of the Hyperswarm bridge. Default: as for the node (`$XKR_BRIDGE_DIR`, then
+        /// `bridge/` next to the executable).
+        #[arg(long, value_name = "DIR")]
+        hyper_bridge_dir: Option<PathBuf>,
+    },
 }
 
 /// `xkrd db ...`.
