@@ -48,6 +48,14 @@
 //! * **Built-in p2pool** (`--p2pool`, `crate::p2pool`): once p2pool runs the node joins the
 //!   sidechain's topic ([`p2pool_topic`]) on its own identity and hands every connection on it
 //!   to the p2pool P2P server ([`P2poolTopic::conns`]).
+//! * **Private node** (`--private`, [`PrivateNode`]; `docs/hyper-transport.md`, "Private
+//!   node"): every public topic is joined client-only, the address-based Hugin private topic
+//!   is not joined, and the node listens only on two identities derived from its secret
+//!   (`xkr_p2p_hyper::private`): one for block sync (Levin), one for Hugin apps. Both require
+//!   the `mid` of the invite; [`Tracker::admit`] takes inbound Levin connections only from the
+//!   sync identity. `invite new` (console) writes a new secret and restarts the bridge, so the
+//!   identities of the old one are gone. `--private-peer <invite>` dials a private node's sync
+//!   identity with the invite's `mid` and redials it with the usual back-off.
 //!
 //! Contract with `crate::p2p` (owned by the P2P side): `P2pManager::handle() -> P2pHandle`,
 //! `P2pHandle: Clone + Send + Sync + 'static`,
@@ -77,10 +85,11 @@ use xkr_hugin::{
     PoolStatus, Relay, RelayConfig, Role,
 };
 use xkr_p2p_hyper::frame::{dht_state, nat};
+use xkr_p2p_hyper::private::PRIVATE_FILE;
 use xkr_p2p_hyper::{
     AnnounceMode, BareConfig, BareWorkers, Bridge, BridgeConfig, BridgeError, CloseHandle,
-    CloseReason, DhtStatus, HuginMid, HuginTopic, HyperConn, OpenFlags, PeerAddr, XkrNetwork,
-    topic,
+    CloseReason, DhtStatus, HuginMid, HuginTopic, HyperConn, Invite, OpenFlags, PeerAddr,
+    PrivateSecret, PrivateTopics, XkrNetwork, topic,
 };
 use xkr_p2p_legacy::{BoxedPeerStream, PeerError};
 use xkr_rpc::{HyperDhtState, HyperNat, HyperNetStatus, NetStatus};
@@ -239,7 +248,7 @@ pub struct HyperConfig {
     pub network: Network,
     /// How to start and talk to the Bare workers.
     pub bridge: BridgeConfig,
-    /// `Both`, or `Client` with `--hyper-client-only`.
+    /// `Both`, or `Client` with `--hyper-client-only` or `--private`.
     pub mode: AnnounceMode,
     /// Hard cap on Hyperswarm peers (`--hyper-max-peers`).
     pub max_peers: usize,
@@ -251,6 +260,10 @@ pub struct HyperConfig {
     pub net: Option<watch::Receiver<Arc<NetStatus>>>,
     /// The built-in p2pool's sidechain topic (set by `main` with `--p2pool`).
     pub p2pool: Option<P2poolTopic>,
+    /// The private node's secret (set by `main` with `--private`).
+    pub private: Option<Arc<PrivateNode>>,
+    /// Private nodes to stay connected to (`--private-peer`).
+    pub private_peers: Vec<Invite>,
 }
 
 /// The built-in p2pool on the Hyperswarm network: its sidechain topic, joined once p2pool
@@ -300,7 +313,7 @@ impl HyperConfig {
         Self {
             network,
             bridge,
-            mode: if args.hyper_client_only {
+            mode: if args.hyper_client_only || args.private {
                 AnnounceMode::Client
             } else {
                 AnnounceMode::Both
@@ -310,6 +323,8 @@ impl HyperConfig {
             hugin_stats: Arc::new(HuginStats::default()),
             net: None,
             p2pool: None,
+            private: None,
+            private_peers: args.private_peer.clone(),
         }
     }
 
@@ -346,7 +361,47 @@ impl HyperConfig {
     }
 }
 
-/// The `/status` `hyper` view of a worker's `DhtStatus`; `port_fixed`: `--port` was given.
+/// The private node (`--private`): its secret file (`<data dir>/hyper-private.json`), shared
+/// by the transport and the console (`invite`, `invite new`). A new secret reaches the running
+/// session, which restarts the bridge with the new identities.
+#[derive(Debug)]
+pub struct PrivateNode {
+    file: PathBuf,
+    secret: watch::Sender<PrivateSecret>,
+}
+
+impl PrivateNode {
+    /// Reads the secret file in `data_dir`, creating it on the first start.
+    pub fn load(data_dir: &Path) -> Result<Arc<Self>, String> {
+        let file = data_dir.join(PRIVATE_FILE);
+        let secret = PrivateSecret::load_or_create(&file)?;
+        Ok(Arc::new(Self {
+            file,
+            secret: watch::channel(secret).0,
+        }))
+    }
+
+    /// The invite of the current secret.
+    #[must_use]
+    pub fn invite(&self) -> Invite {
+        self.secret.borrow().invite()
+    }
+
+    /// Writes a new secret and hands it to the transport; invites of the old one stop working.
+    pub fn renew(&self) -> Result<Invite, String> {
+        let secret = PrivateSecret::renew(&self.file)?;
+        let invite = secret.invite();
+        self.secret.send_replace(secret);
+        Ok(invite)
+    }
+
+    fn subscribe(&self) -> watch::Receiver<PrivateSecret> {
+        self.secret.subscribe()
+    }
+}
+
+/// The `/status` `hyper` view of a worker's `DhtStatus`; `port_fixed`: `--port` was given
+/// (`private` stays `false`: the caller sets it).
 #[must_use]
 pub fn hyper_net_status(d: &DhtStatus, port_fixed: bool) -> HyperNetStatus {
     let state = match d.state {
@@ -364,6 +419,7 @@ pub fn hyper_net_status(d: &DhtStatus, port_fixed: bool) -> HyperNetStatus {
             nat::RANDOM => HyperNat::Random,
             _ => HyperNat::Unknown,
         },
+        private: false,
     }
 }
 
@@ -388,7 +444,10 @@ fn udp_port_free(port: u16) -> bool {
 /// Publishes a worker's `DhtStatus` and logs it; says [`PORT_HINT`] once per process
 /// (`hint_said`) when [`wants_port_hint`] holds.
 fn report_dht(p2p: &P2pHandle, d: &DhtStatus, cfg: &HyperConfig, hint_said: &mut bool) {
-    let st = hyper_net_status(d, cfg.port_fixed());
+    let st = HyperNetStatus {
+        private: cfg.private.is_some(),
+        ..hyper_net_status(d, cfg.port_fixed())
+    };
     p2p.set_hyper_net(st);
     match st.state {
         HyperDhtState::Ready => tracing::info!(
@@ -499,8 +558,11 @@ pub struct HuginSettings {
     pub p2pool_nodes: Vec<String>,
     /// `--hugin-share-difficulty`: the app difficulty (`RelayConfig::app_difficulty`).
     pub share_difficulty: u64,
-    /// `--hugin-private`: no public-node topic.
+    /// `--hugin-private` (or `--private`): no public-node topic.
     pub private_only: bool,
+    /// `--private`: the node mesh client-only and no address-based private topic (apps come
+    /// through the private node's invite).
+    pub private_node: bool,
     /// Concurrent share hashes (`RelayConfig::max_concurrent_hashes`): half of
     /// `--verify-threads`, at least 1, so Hugin PoW checks never take the cores block
     /// verification needs.
@@ -532,7 +594,8 @@ impl HuginSettings {
                 args.hugin_p2pool.clone()
             },
             share_difficulty: args.hugin_share_difficulty.max(1),
-            private_only: args.hugin_private,
+            private_only: args.hugin_private || args.private,
+            private_node: args.private,
             hash_threads: hash_threads(args.verify_threads),
             fee: None,
         }
@@ -593,12 +656,14 @@ struct HuginJoin {
 /// any Hugin app; skipped for a private node) and private node (server, apps with the invite).
 /// The bridge gives each its own DHT identity, since a `mid` signs one key. On the testnet the
 /// topics are the testnet ones (`HuginTopic::on_network`), so testnet relays never meet mainnet
-/// apps.
+/// apps. With `private_node` (`--private`) only the node mesh is joined, client-only; apps
+/// reach the relay through the private node's own Hugin topic ([`PrivateNode`]).
 fn hugin_topics(
     network: Network,
     address: &str,
     view_key_hex: &str,
     private_only: bool,
+    private_node: bool,
 ) -> Vec<HuginJoin> {
     let net = xkr_network(network);
     let mesh = HuginTopic::node_mesh().on_network(net);
@@ -606,10 +671,17 @@ fn hugin_topics(
         label: "hugin node mesh",
         mid: mesh.mid(),
         topic: mesh,
-        mode: AnnounceMode::Both,
+        mode: if private_node {
+            AnnounceMode::Client
+        } else {
+            AnnounceMode::Both
+        },
         role: Role::Node,
         after_sync: false,
     }];
+    if private_node {
+        return out;
+    }
     if !private_only {
         let public = HuginTopic::public_nodes().on_network(net);
         out.push(HuginJoin {
@@ -733,6 +805,7 @@ impl HuginRuntime {
                 &identity.address,
                 &identity.view_key_hex(),
                 s.private_only,
+                s.private_node,
             ),
             address: identity.address,
             synced,
@@ -1000,6 +1073,9 @@ struct ConnMeta {
     handshake_hash: [u8; 64],
     /// The remote's address as the bridge sees it ([`address_key`]), if known.
     ip: Option<IpAddr>,
+    /// It came in on the private node's sync identity (`--private`), so the remote holds the
+    /// invite.
+    private: bool,
 }
 
 impl ConnMeta {
@@ -1011,6 +1087,7 @@ impl ConnMeta {
             initiator: i.initiator,
             handshake_hash: i.handshake_hash,
             ip: i.addr.map(address_key),
+            private: false,
         }
     }
 }
@@ -1048,6 +1125,8 @@ enum RejectReason {
     Busy,
     /// [`MAX_INBOUND_PER_IP`] or [`MAX_PENDING_INBOUND_PER_IP`] reached for the address.
     PerAddress,
+    /// A private node (`--private`) takes inbound connections only on its sync identity.
+    NotInvited,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1112,6 +1191,8 @@ fn make_room<V>(map: &mut HashMap<Key, V>, key: &Key, end: impl Fn(&V) -> Instan
 struct Tracker {
     local_key: Key,
     max_peers: usize,
+    /// `--private`: inbound connections only on the private sync identity.
+    invite_only: bool,
     live: HashMap<Key, Live>,
     by_id: HashMap<u64, Key>,
     dialing: HashSet<Key>,
@@ -1130,6 +1211,7 @@ impl Tracker {
         Self {
             local_key: [0; 32],
             max_peers: max_peers.max(1),
+            invite_only: false,
             live: HashMap::new(),
             by_id: HashMap::new(),
             dialing: HashSet::new(),
@@ -1220,6 +1302,8 @@ impl Tracker {
 
     /// Admission of a new connection.
     ///
+    /// * A private node (`invite_only`) refuses inbound connections that did not come in on
+    ///   its sync identity.
     /// * One live connection per key ([`prefer_new`]); a replaced pending connection passes
     ///   its admission time on.
     /// * Outbound: up to `--hyper-max-peers` and [`MAX_PENDING_HANDSHAKES`] pending.
@@ -1227,6 +1311,9 @@ impl Tracker {
     ///   [`MAX_PENDING_INBOUND_PER_IP`] per address; beyond [`MAX_PENDING_INBOUND`] pending, the
     ///   one pending longest is closed.
     fn admit(&mut self, c: ConnMeta, now: Instant) -> Admit {
+        if self.invite_only && !c.initiator && !c.private {
+            return Admit::Reject(RejectReason::NotInvited);
+        }
         if c.key == self.local_key {
             return Admit::Reject(RejectReason::Ourselves);
         }
@@ -1415,6 +1502,20 @@ impl Tracker {
         out
     }
 
+    /// The `--private-peer` keys to dial now (marked as dialing): every one that is
+    /// [`Self::dialable`]. There are few, and the node stays connected to each, so neither the
+    /// outbound target nor the dial limits apply; failures back off as usual.
+    fn private_dial_candidates(&mut self, keys: &[Key], now: Instant) -> Vec<Key> {
+        let mut out = Vec::new();
+        for key in keys {
+            if self.dialable(key, now) {
+                self.dialing.insert(*key);
+                out.push(*key);
+            }
+        }
+        out
+    }
+
     /// Connections and dials fill `--hyper-max-peers`.
     fn at_max_peers(&self) -> bool {
         self.live.len() + self.dialing.len() >= self.max_peers
@@ -1529,6 +1630,11 @@ enum Event {
     },
     /// The built-in p2pool's sidechain topic is announced (with the identity key used).
     P2poolAnnounced(Option<Key>),
+    /// A topic of the private node is announced (with the identity key used).
+    PrivateAnnounced {
+        label: &'static str,
+        key: Option<Key>,
+    },
 }
 
 enum Step {
@@ -1543,16 +1649,30 @@ enum Step {
     StripeTick,
     /// The worker sent a `DhtStatus` (`false`: the bridge is gone).
     Dht(bool),
+    /// The private node has a new secret (`false`: its handle is gone).
+    Renewed(bool),
 }
 
 enum SessionEnd {
     Shutdown,
     Failed(String),
+    /// The private node has a new secret: start the bridge again at once.
+    Renewed,
+}
+
+/// Waits for a new private secret (`false` once the handle is gone); never resolves without
+/// one.
+async fn renewed(rx: Option<&mut watch::Receiver<PrivateSecret>>) -> bool {
+    match rx {
+        Some(rx) => rx.changed().await.is_ok(),
+        None => std::future::pending().await,
+    }
 }
 
 /// Runs the Hyperswarm transport until `shutdown` is cancelled.
 pub async fn run(cfg: HyperConfig, p2p: P2pHandle, shutdown: CancellationToken) {
-    let tracker = Tracker::new(cfg.max_peers);
+    let mut tracker = Tracker::new(cfg.max_peers);
+    tracker.invite_only = cfg.private.is_some();
     Supervisor {
         cfg,
         p2p,
@@ -1585,6 +1705,8 @@ impl Supervisor {
             udp_port = ?self.cfg.bridge.udp_port,
             mode = ?self.cfg.mode,
             max_peers = self.cfg.max_peers,
+            private = self.cfg.private.is_some(),
+            private_peers = self.cfg.private_peers.len(),
             stripe_topics = held_stripe_topics(self.cfg.network, seed).len(),
             pruning_seed = seed.raw(),
             "Hyperswarm transport starting"
@@ -1614,6 +1736,7 @@ impl Supervisor {
             let mut verdict = StartVerdict::Log;
             let starting = HyperNetStatus {
                 port_fixed: self.cfg.port_fixed(),
+                private: self.cfg.private.is_some(),
                 ..HyperNetStatus::default()
             };
             self.p2p.set_hyper_net(starting);
@@ -1636,6 +1759,10 @@ impl Supervisor {
                         match self.session(bridge, host, topic).await {
                             SessionEnd::Shutdown => break,
                             SessionEnd::Failed(why) => why,
+                            SessionEnd::Renewed => {
+                                delay = RESTART_MIN;
+                                continue;
+                            }
                         }
                     }
                     Err(e) => {
@@ -1682,6 +1809,7 @@ impl Supervisor {
         self.p2p.set_hyper_net(HyperNetStatus {
             state: HyperDhtState::Failed,
             port_fixed: self.cfg.port_fixed(),
+            private: self.cfg.private.is_some(),
             ..HyperNetStatus::default()
         });
         let _ = OFF_REASON.set(reason.to_owned());
@@ -1735,6 +1863,28 @@ impl Supervisor {
         };
         let mut xkr_topics: HashSet<Key> = stripe_topics.iter().copied().collect();
         xkr_topics.insert(topic);
+        // The private node's identities of the secret in effect now, and the private nodes we
+        // stay connected to; connections on their sync topics are Levin peers.
+        let net = xkr_network(self.cfg.network);
+        let mut renew = self.cfg.private.as_ref().map(|p| p.subscribe());
+        let private = renew.as_mut().map(|rx| {
+            let secret = rx.borrow_and_update().clone();
+            OwnPrivate {
+                topics: secret.topics(net),
+                secret,
+            }
+        });
+        let private_peers: Vec<PrivatePeer> = self
+            .cfg
+            .private_peers
+            .iter()
+            .map(|i| PrivatePeer {
+                key: i.sync_key,
+                topic: i.topics(net).sync,
+            })
+            .collect();
+        xkr_topics.extend(private.iter().map(|p| p.topics.sync.topic));
+        xkr_topics.extend(private_peers.iter().map(|p| p.topic.topic));
         let mut s = Session {
             p2p: &self.p2p,
             tracker: &mut self.tracker,
@@ -1754,11 +1904,15 @@ impl Supervisor {
             event_tx,
             announced: false,
             lookup_running: false,
+            private,
+            private_peers,
         };
         s.spawn_announce(self.cfg.mode);
         s.spawn_stripe_announces();
         s.spawn_hugin_announces();
         s.spawn_p2pool_announce();
+        s.spawn_private_announces();
+        s.dial_private_peers(Instant::now());
         let lookup = tokio::time::sleep(LOOKUP_EMPTY);
         tokio::pin!(lookup);
         let mut stripe_tick = tokio::time::interval(STRIPE_LOOKUP_INTERVAL);
@@ -1779,6 +1933,7 @@ impl Supervisor {
                 r = wanted.changed(), if wanted_open => Step::Wanted(r.is_ok()),
                 r = dht.changed(), if dht_open => Step::Dht(r.is_ok()),
                 _ = stripe_tick.tick() => Step::StripeTick,
+                ok = renewed(renew.as_mut()) => Step::Renewed(ok),
             };
             match step {
                 Step::Shutdown => {
@@ -1816,6 +1971,7 @@ impl Supervisor {
                     if let Some(h) = height {
                         s.find_stripe_peers(h);
                     }
+                    s.dial_private_peers(Instant::now());
                 }
                 Step::Dht(open) => {
                     dht_open = open;
@@ -1823,6 +1979,12 @@ impl Supervisor {
                     if let Some(d) = status {
                         report_dht(s.p2p, &d, &self.cfg, &mut self.port_hint_said);
                     }
+                }
+                Step::Renewed(false) => renew = None,
+                Step::Renewed(true) => {
+                    tracing::info!("private node invite renewed; restarting the Hyperswarm bridge");
+                    s.end_for_renewal(&mut host).await;
+                    return SessionEnd::Renewed;
                 }
             }
         }
@@ -1860,7 +2022,29 @@ struct Session<'a> {
     event_tx: mpsc::UnboundedSender<Event>,
     announced: bool,
     lookup_running: bool,
+    /// The private node's secret and topics (`--private`).
+    private: Option<OwnPrivate>,
+    /// The private nodes to stay connected to (`--private-peer`).
+    private_peers: Vec<PrivatePeer>,
 }
+
+/// The private node's secret of this session and its topics.
+#[derive(Debug)]
+struct OwnPrivate {
+    secret: PrivateSecret,
+    topics: PrivateTopics,
+}
+
+/// A private node to stay connected to: the key of its sync identity and the sync topic of its
+/// invite (whose topic key signs our `mid`).
+#[derive(Debug)]
+struct PrivatePeer {
+    key: Key,
+    topic: HuginTopic,
+}
+
+const PRIVATE_SYNC_LABEL: &str = "private sync";
+const PRIVATE_HUGIN_LABEL: &str = "private hugin";
 
 impl Session<'_> {
     fn spawn_announce(&self, mode: AnnounceMode) {
@@ -2056,6 +2240,84 @@ impl Session<'_> {
         });
     }
 
+    /// Announces the private node's identities (`--private`) in server mode, each with its topic
+    /// key and identity seed (`xkr_p2p_hyper::private`), retrying like the XKR topic: the sync
+    /// identity always, the Hugin identity with the relay on.
+    fn spawn_private_announces(&self) {
+        let Some(p) = &self.private else {
+            return;
+        };
+        let mut joins = vec![(
+            PRIVATE_SYNC_LABEL,
+            p.topics.sync.topic,
+            p.secret.sync_mid(&p.topics),
+        )];
+        if self.hugin.is_some() {
+            joins.push((
+                PRIVATE_HUGIN_LABEL,
+                p.topics.hugin.topic,
+                p.secret.hugin_mid(&p.topics),
+            ));
+        }
+        for (label, topic, mid) in joins {
+            let bridge = self.bridge.clone();
+            let events = self.event_tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    match bridge
+                        .announce(topic, AnnounceMode::Server, Some(mid.clone()))
+                        .await
+                    {
+                        Ok(ack) => {
+                            let _ = events.send(Event::PrivateAnnounced {
+                                label,
+                                key: ack.local_public_key(),
+                            });
+                            return;
+                        }
+                        Err(e) => {
+                            if bridge.error().is_some() || events.is_closed() {
+                                return;
+                            }
+                            tracing::warn!(topic = label, error = %e, "announcing a private topic failed; retrying");
+                            tokio::time::sleep(ANNOUNCE_RETRY).await;
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /// Dials every `--private-peer` that is not connected, being dialed, banned or backing off
+    /// ([`Tracker::private_dial_candidates`]); called at the start of a session, every
+    /// [`STRIPE_LOOKUP_INTERVAL`] and when a connection ends, so the node stays connected and
+    /// redials with the usual back-off.
+    fn dial_private_peers(&mut self, now: Instant) {
+        if self.private_peers.is_empty() {
+            return;
+        }
+        let keys: Vec<Key> = self.private_peers.iter().map(|p| p.key).collect();
+        for key in self.tracker.private_dial_candidates(&keys, now) {
+            let Some(topic) = self
+                .private_peers
+                .iter()
+                .find(|p| p.key == key)
+                .map(|p| p.topic.clone())
+            else {
+                continue;
+            };
+            tracing::debug!(peer = %short(&key), "dialing a private peer");
+            let bridge = self.bridge.clone();
+            let events = self.event_tx.clone();
+            tokio::spawn(async move {
+                let result = bridge
+                    .open_hugin(key, topic.topic, OpenFlags::NONE, &topic.mid())
+                    .await;
+                let _ = events.send(Event::Dialed { key, result });
+            });
+        }
+    }
+
     /// Hands a connection from a Hugin topic to the relay.
     fn start_hugin(&mut self, conn: HyperConn, role: Role) {
         let Some(h) = self.hugin else {
@@ -2102,7 +2364,7 @@ impl Session<'_> {
     }
 
     fn on_conn(&mut self, conn: HyperConn) {
-        let meta = ConnMeta::of(&conn);
+        let mut meta = ConnMeta::of(&conn);
         let conn_topic = conn.info().topic;
         if let Some(t) = conn_topic
             && !self.xkr_topics.contains(&t)
@@ -2113,6 +2375,13 @@ impl Session<'_> {
                 if p.conns.send(conn).is_err() {
                     tracing::debug!(peer = %short(&meta.key), "p2pool connection while p2pool is not running; closed");
                 }
+            } else if self
+                .private
+                .as_ref()
+                .is_some_and(|p| p.topics.hugin.topic == t)
+            {
+                // An app with the private node's invite.
+                self.start_hugin(conn, Role::Client);
             } else if let Some(role) = self.hugin.and_then(|h| h.role_of(&t)) {
                 self.start_hugin(conn, role);
             } else {
@@ -2121,6 +2390,10 @@ impl Session<'_> {
             }
             return;
         }
+        meta.private = self
+            .private
+            .as_ref()
+            .is_some_and(|p| conn_topic == Some(p.topics.sync.topic));
         match self.tracker.admit(meta, Instant::now()) {
             Admit::Reject(reason) => {
                 tracing::debug!(peer = %short(&meta.key), initiator = meta.initiator, ?reason, "Hyperswarm connection refused");
@@ -2286,6 +2559,17 @@ impl Session<'_> {
             Event::P2poolAnnounced(key) => {
                 tracing::info!(key = %key.map_or_default(hex::encode), "p2pool topic announced on the DHT");
             }
+            Event::PrivateAnnounced { label, key } => {
+                tracing::info!(topic = label, key = %key.map_or_default(hex::encode), "private topic announced on the DHT");
+                if label == PRIVATE_SYNC_LABEL
+                    && let Some(p) = &self.private
+                {
+                    tracing::info!(
+                        invite = %p.secret.invite(),
+                        "private node invite (console: invite)"
+                    );
+                }
+            }
             Event::Dropped { conn_id } => {
                 self.handles.remove(&conn_id);
                 if self.tracker.on_dropped(conn_id) {
@@ -2295,9 +2579,26 @@ impl Session<'_> {
                         "Hyperswarm peer gone"
                     );
                     self.dial_waiting_stripe_peers(now);
+                    self.dial_private_peers(now);
                 }
             }
         }
+    }
+
+    /// Ends the session for a new private secret: closes every connection and the bridge and
+    /// lets the workers leave the DHT, so no identity of the old secret stays reachable. The
+    /// supervisor starts the bridge again at once with the new secret.
+    async fn end_for_renewal(&mut self, host: &mut BareWorkers) {
+        let now = Instant::now();
+        for (conn_id, h) in self.handles.drain() {
+            self.tracker.closing_on_purpose(conn_id, now);
+            h.close(CloseReason::Normal);
+        }
+        for (_, h) in self.hugin_handles.drain() {
+            h.close(CloseReason::Normal);
+        }
+        self.bridge.close();
+        host.stop(SHUTDOWN_WORKERS_STOP).await;
     }
 
     async fn shutdown(&mut self, host: &mut BareWorkers) {
@@ -2308,6 +2609,10 @@ impl Session<'_> {
         let bridge = &self.bridge;
         let (xkr_topic, hugin) = (self.topic, self.hugin);
         let p2pool_topic = self.p2pool.map(|p| p.topic.topic);
+        let private_topics = self
+            .private
+            .as_ref()
+            .map(|p| [p.topics.sync.topic, p.topics.hugin.topic]);
         let stripe_topics = &self.stripe_topics;
         let step = crate::stopping::step("Hyperswarm announcements");
         let unannounced = tokio::time::timeout(SHUTDOWN_UNANNOUNCE, async {
@@ -2317,6 +2622,9 @@ impl Session<'_> {
             }
             if let Some(t) = p2pool_topic {
                 let _ = bridge.unannounce(t).await;
+            }
+            for t in private_topics.iter().flatten() {
+                let _ = bridge.unannounce(*t).await;
             }
             for j in hugin.map_or(&[][..], |h| h.topics.as_slice()) {
                 let _ = bridge.unannounce(j.topic.topic).await;
@@ -2374,6 +2682,7 @@ mod tests {
             initiator,
             handshake_hash: [hash; 64],
             ip: None,
+            private: false,
         }
     }
 
@@ -2613,6 +2922,66 @@ mod tests {
     /// Pending inbound connections never refuse an outbound one; beyond `MAX_PENDING_INBOUND`
     /// a new inbound connection closes the one pending longest (a replaced connection keeps
     /// its admission time).
+    /// A private node takes inbound connections only on its sync identity; its own dials
+    /// (lookups, Hyperswarm auto-dials, private peers) are admitted as before.
+    #[test]
+    fn a_private_node_admits_inbound_only_on_its_identity() {
+        let now = Instant::now();
+        let mut t = tracker([0xee; 32], 16);
+        t.invite_only = true;
+        assert_eq!(
+            t.admit(meta(1, numbered_key(1), false, 0), now),
+            Admit::Reject(RejectReason::NotInvited)
+        );
+        let invited = ConnMeta {
+            private: true,
+            ..meta(2, numbered_key(2), false, 0)
+        };
+        assert_eq!(t.admit(invited, now), Admit::Accept);
+        assert_eq!(
+            t.admit(meta(3, numbered_key(3), true, 0), now),
+            Admit::Accept
+        );
+        // the same inbound connection is fine on a node that is not private
+        let mut open = tracker([0xee; 32], 16);
+        assert_eq!(
+            open.admit(meta(1, numbered_key(1), false, 0), now),
+            Admit::Accept
+        );
+    }
+
+    /// Private peers are dialed whenever they are dialable, beyond the outbound target, and
+    /// back off after a failed dial.
+    #[test]
+    fn private_peers_are_redialed_with_back_off() {
+        let t0 = Instant::now();
+        let mut t = tracker([0xee; 32], 16);
+        let keys = [numbered_key(1), numbered_key(2), numbered_key(1)];
+        assert_eq!(
+            t.private_dial_candidates(&keys, t0),
+            [numbered_key(1), numbered_key(2)]
+        );
+        assert!(t.private_dial_candidates(&keys, t0).is_empty(), "dialing");
+        t.on_dial_result(numbered_key(1), false, t0);
+        t.on_dial_result(numbered_key(2), true, t0);
+        assert_eq!(
+            t.admit(meta(7, numbered_key(2), true, 0), t0),
+            Admit::Accept
+        );
+        assert!(
+            t.private_dial_candidates(&keys, t0).is_empty(),
+            "backing off, connected"
+        );
+        let later = t0 + dial_backoff(0);
+        assert_eq!(t.private_dial_candidates(&keys, later), [numbered_key(1)]);
+        // a dropped connection is dialed again (the first key is being dialed)
+        assert!(t.on_dropped(7));
+        assert_eq!(t.private_dial_candidates(&keys, later), [numbered_key(2)]);
+        // more private peers than the outbound target are all dialed
+        let many: Vec<Key> = (10..10 + OUT_TARGET + 2).map(numbered_key).collect();
+        assert_eq!(t.private_dial_candidates(&many, later).len(), many.len());
+    }
+
     #[test]
     fn pending_inbound_does_not_block_outbound() {
         let local: Key = [0xee; 32];
@@ -3211,6 +3580,58 @@ mod tests {
         assert_eq!(h.sync_slots, 1, "at least one sync slot");
         assert_eq!(h.queue_budget, 64 * 1024 * 1024);
         assert!(h.private_only);
+        assert!(!h.private_node);
+    }
+
+    /// `--private`: the public topics client-only (the XKR topics, the p2pool topic and the
+    /// Hugin node mesh, which follow `mode`), no public or address-based Hugin topic; `main`
+    /// loads the secret. `--private-peer` invites reach the configuration.
+    #[test]
+    fn private_config_from_the_command_line() {
+        let invite = PrivateSecret {
+            secret: [3; 32],
+            identity: [4; 32],
+        }
+        .invite();
+        let args =
+            Args::try_parse_from(["xkrd", "--private", "--private-peer", &invite.to_string()])
+                .expect("parse");
+        let cfg = HyperConfig::from_args(&args, Network::Mainnet, Path::new("/d"));
+        assert_eq!(cfg.mode, AnnounceMode::Client);
+        assert!(cfg.private.is_none(), "main loads the secret");
+        assert_eq!(cfg.private_peers, [invite]);
+        let h = cfg.hugin.expect("hugin");
+        assert!(h.private_only);
+        assert!(h.private_node);
+
+        let peer_only =
+            Args::try_parse_from(["xkrd", "--private-peer", &invite.to_string()]).expect("parse");
+        let cfg = HyperConfig::from_args(&peer_only, Network::Mainnet, Path::new("/d"));
+        assert_eq!(cfg.mode, AnnounceMode::Both);
+        assert_eq!(cfg.private_peers, [invite]);
+        assert!(!cfg.hugin.expect("hugin").private_node);
+    }
+
+    /// The secret file is created on the first start and read back; `renew` writes a new one,
+    /// changes the invite and reaches the transport's subscription.
+    #[test]
+    fn the_private_node_keeps_and_renews_its_secret() {
+        let dir = std::env::temp_dir().join(format!("xkrd-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let node = PrivateNode::load(&dir).expect("create");
+        assert!(dir.join(PRIVATE_FILE).exists());
+        let first = node.invite();
+        assert_eq!(PrivateNode::load(&dir).expect("read").invite(), first);
+        let mut rx = node.subscribe();
+        let second = node.renew().expect("renew");
+        assert_ne!(second, first);
+        assert_ne!(second.secret, first.secret);
+        assert_eq!(node.invite(), second);
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(rx.borrow_and_update().invite(), second);
+        assert_eq!(PrivateNode::load(&dir).expect("read").invite(), second);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -3290,6 +3711,7 @@ mod tests {
                 port_fixed: true,
                 firewalled: Some(true),
                 nat: HyperNat::Consistent,
+                private: false,
             }
         );
         let failed = hyper_net_status(&dht(dht_state::FAILED, true, nat::UNKNOWN, 0), true);
@@ -3400,14 +3822,26 @@ mod tests {
         );
         // the Hugin topics are distinct from ours, so `on_conn` can tell them apart
         for network in [Network::Mainnet, Network::Testnet] {
-            for j in hugin_topics(network, HUGIN_ADDRESS, &"0f".repeat(32), false) {
+            for j in hugin_topics(network, HUGIN_ADDRESS, &"0f".repeat(32), false, false) {
                 assert_ne!(j.topic.topic, blocks_topic(Network::Mainnet));
                 assert_ne!(j.topic.topic, blocks_topic(Network::Testnet));
             }
         }
         // the testnet relay has its own Hugin topics; mainnet keeps hugin-p2p 3.0's
-        let main = hugin_topics(Network::Mainnet, HUGIN_ADDRESS, &"0f".repeat(32), false);
-        let test = hugin_topics(Network::Testnet, HUGIN_ADDRESS, &"0f".repeat(32), false);
+        let main = hugin_topics(
+            Network::Mainnet,
+            HUGIN_ADDRESS,
+            &"0f".repeat(32),
+            false,
+            false,
+        );
+        let test = hugin_topics(
+            Network::Testnet,
+            HUGIN_ADDRESS,
+            &"0f".repeat(32),
+            false,
+            false,
+        );
         assert_eq!(main[1].topic, HuginTopic::public_nodes());
         for (m, t) in main.iter().zip(&test) {
             assert_eq!(m.label, t.label);
@@ -3420,7 +3854,13 @@ mod tests {
 
     #[test]
     fn hugin_topics_and_roles() {
-        let all = hugin_topics(Network::Mainnet, HUGIN_ADDRESS, &"0f".repeat(32), false);
+        let all = hugin_topics(
+            Network::Mainnet,
+            HUGIN_ADDRESS,
+            &"0f".repeat(32),
+            false,
+            false,
+        );
         let labels: Vec<_> = all
             .iter()
             .map(|j| (j.label, j.mode, j.role, j.after_sync))
@@ -3444,9 +3884,28 @@ mod tests {
             all.iter()
                 .all(|j| j.mid.topic_key == Some(j.topic.topic_key))
         );
-        let private = hugin_topics(Network::Mainnet, HUGIN_ADDRESS, &"0f".repeat(32), true);
+        let private = hugin_topics(
+            Network::Mainnet,
+            HUGIN_ADDRESS,
+            &"0f".repeat(32),
+            true,
+            false,
+        );
         assert_eq!(private.len(), 2);
         assert!(private.iter().all(|j| j.label != PUBLIC_LABEL));
+        // `--private`: only the node mesh, client-only (apps come through the invite)
+        let node = hugin_topics(
+            Network::Mainnet,
+            HUGIN_ADDRESS,
+            &"0f".repeat(32),
+            true,
+            true,
+        );
+        let labels: Vec<_> = node.iter().map(|j| (j.label, j.mode, j.role)).collect();
+        assert_eq!(
+            labels,
+            [("hugin node mesh", AnnounceMode::Client, Role::Node)]
+        );
     }
 
     /// The private-node DHT key equals hugin-node's for the same view key (vector from
@@ -3500,7 +3959,13 @@ mod tests {
         assert_ne!(mini.topic, t.topic);
         // never one of the node's other topics
         assert_ne!(t.topic, blocks_topic(Network::Mainnet));
-        for j in hugin_topics(Network::Mainnet, HUGIN_ADDRESS, &"0f".repeat(32), false) {
+        for j in hugin_topics(
+            Network::Mainnet,
+            HUGIN_ADDRESS,
+            &"0f".repeat(32),
+            false,
+            false,
+        ) {
             assert_ne!(j.topic.topic, t.topic);
         }
     }

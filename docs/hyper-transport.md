@@ -45,13 +45,15 @@ of the bridge.
 
 | topic | derivation | mode | purpose |
 |---|---|---|---|
-| `xkr/mainnet/blocks/v1` | `cn_fast_hash(name)` (`topic::xkr_blocks_topic`) | both | XKR peers find each other; Levin over HyperConn |
+| `xkr/mainnet/blocks/v1` | `cn_fast_hash(name)` (`topic::xkr_blocks_topic`) | both (`client` with `--hyper-client-only` or `--private`) | XKR peers find each other; Levin over HyperConn |
 | `xkr/testnet/blocks/v1` | same | both | testnet |
 | `xkr/<network>/stripe/<n>/<k>/v1` | `cn_fast_hash(name)` (`topic::xkr_stripe_topic`) | server (lookup to find) | holders of stripe `k` of `n` (stripe pruning; full nodes announce all of `n` = 4), see "Stripe topics" |
-| Hugin node mesh | `HuginTopic::node_mesh()` | both | hugin-node ↔ hugin-node relay mesh |
-| Hugin public nodes | `HuginTopic::public_nodes()` | server | Hugin apps find a public node |
-| Hugin private node | `HuginTopic::private_node(address)` | server | invited Hugin apps |
-| p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only`) | the built-in p2pool's sidechain P2P (on by default, `--no-p2pool`), see "The built-in p2pool" |
+| Hugin node mesh | `HuginTopic::node_mesh()` | both (`client` with `--private`) | hugin-node ↔ hugin-node relay mesh |
+| Hugin public nodes | `HuginTopic::public_nodes()` | server (not with `--hugin-private` or `--private`) | Hugin apps find a public node |
+| Hugin private node | `HuginTopic::private_node(address)` | server (not with `--private`) | invited Hugin apps |
+| p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only` or `--private`) | the built-in p2pool's sidechain P2P (on by default, `--no-p2pool`), see "The built-in p2pool" |
+| private sync | `PrivateTopics::of(secret).sync` (`xkr_p2p_hyper::private`) | server (`--private` only) | peers with the private node's invite; Levin, see "Private node" |
+| private Hugin | `PrivateTopics::of(secret).hugin` | server (`--private` only) | Hugin apps with the private node's invite, see "Private node" |
 
 Further XKR topics (e.g. separate `txs`/`sync` topics) are added by name with
 `topic::xkr_topic`, versioned (`/v1`) so a protocol change can move to a new topic without a
@@ -87,6 +89,8 @@ xkrd main ── hyper::run(cfg, P2pManager::handle(), shutdown)
 | `--hyper-bootstrap <host:port>` | public HyperDHT bootstrap nodes | repeatable; a local DHT for tests |
 | `--hyper-max-peers <n>` | 32 | hard cap on Hyperswarm peers; also the plain swarm's Hyperswarm `maxPeers` |
 | `--hyper-client-only` | off | announce mode `client`: look up and dial, never announce (no inbound Hyperswarm peers) |
+| `--private` | off | private node: public topics client-only, peers and Hugin apps only through the invite ("Private node") |
+| `--private-peer <invite>` | none | repeatable; stay connected to a private node ("Private node") |
 | `--no-hugin` | relay on | do not run the Hugin relay on the three Hugin topics ([`hugin-relay.md`](hugin-relay.md)); `--no-hyper` turns it off too |
 | `--hugin <address>` | saved, else the donation address | fee address of the relay's p2pool shares, saved in `<data dir>/hugin/identity.json` |
 | `--hugin-p2pool <host:port>` | `127.0.0.1:3333`, then the public p2pool nodes | p2pool stratum nodes for jobs and shares, repeatable, in order |
@@ -254,6 +258,9 @@ handshake starts, and counts against `--hyper-max-peers` from then on (`Admit::A
   further ones are refused and closed.
 - **One connection per key**, resolved as below; a replaced established connection counts as a
   new pending one.
+- **Private node.** With `--private` an inbound connection is admitted only if it came in on the
+  node's private sync identity (`RejectReason::NotInvited` otherwise); outbound connections are
+  admitted as above.
 
 The bridge's own Hyperswarm `maxPeers` is set high (65 535), so these rules, not the bridge,
 decide what xkrd keeps.
@@ -360,6 +367,61 @@ that has both.
   initiator). The p2pool handshake runs unchanged on it; these peers never appear in peer
   lists, are banned by DHT key, and do not go through the `Tracker` or count against
   `--hyper-max-peers`. Without a running p2pool a connection on the topic is closed.
+
+### Private node
+
+A private node (`--private`) still syncs from and relays to the public network, but takes
+Hyperswarm connections only from peers that hold its invite.
+
+- **What is client-only.** The XKR topics (blocks; no stripe topics are announced, as with
+  `--hyper-client-only`), the p2pool sidechain topic and the Hugin node mesh are joined in
+  mode `client`: the node looks up and dials, its node key never listens. The Hugin
+  public-node topic and the address-based Hugin private topic are not joined.
+- **What listens.** Two identities derived from the node's secret, each announced in mode
+  `server` like a Hugin topic (topic key + identity seed, so the bridge gives it its own DHT key
+  pair, signs that key as its `mid` and refuses every handshake whose `mid` does not verify):
+  the sync identity (connections go to the Levin P2P manager, like plain Hyperswarm peers) and
+  the Hugin identity (connections go to the Hugin relay as apps; announced only with the relay
+  on). `Session::on_conn` routes by the topic the connection arrived on; `Tracker::admit` admits
+  inbound Levin connections only on the sync identity.
+- **Secret.** `<data dir>/hyper-private.json`, `{ "secret": "<64 hex>", "identity": "<64
+  hex>" }`, mode 0600, created with random bytes from the operating system on the first
+  `--private` start. `secret` goes into the invite; `identity` stays on the node.
+- **Derivation** (`xkr_p2p_hyper::private`; `cn_fast_hash` of an ASCII domain and 32 bytes):
+
+  | value | derivation |
+  |---|---|
+  | sync topic key | `cn_fast_hash("xkr/private/sync/v1" \|\| secret)` |
+  | Hugin topic key | `cn_fast_hash("xkr/private/hugin/v1" \|\| secret)` |
+  | sync identity seed | `cn_fast_hash("xkr/private/sync-identity/v1" \|\| identity)` |
+  | Hugin identity seed | `cn_fast_hash("xkr/private/hugin-identity/v1" \|\| identity)` |
+
+  Each topic key is used like a Hugin topic key: base key pair
+  `crypto_sign_seed_keypair(topic key)`, DHT topic `hugin_topic_on(network, base public key)`
+  (the testnet domain on the testnet), `mid` = signature by the base key over
+  `"hugin/mid" || DHT public key`. The two topics have separate base keys because the bridge
+  ties one topic to one base key. The identity seeds give the DHT key pairs the node listens
+  with.
+- **Invite.** One line, `xkrinv1:` followed by 192 hex characters: the public key of the sync
+  identity, the public key of the Hugin identity and the secret, 32 bytes each. The node logs it
+  once the sync identity is announced (`private node invite (console: invite)`, info level), and
+  the console command `invite` prints it.
+- **Rotation.** `invite new` in the console writes a new secret and identity to the file and
+  restarts the bridge at once (no back-off): every connection closes, the workers leave the DHT
+  and the new identities are announced. Invites of the old secret no longer connect; peers that
+  hold the new invite reconnect.
+- **`--private-peer <invite>`** (repeatable, with or without `--private`): the node dials the
+  sync identity of each invite directly with the invite's sync topic key (its own `mid`, signed
+  by that key, on an identity the bridge derives from the node key and the topic), at the start
+  of every bridge session, every 15 s and whenever a connection ends, unless it is connected,
+  being dialed, banned or backing off (5 s doubling to 10 min after a failed dial or
+  handshake). These are Levin peers like any other and count against `--hyper-max-peers`.
+- **Status.** `/status` `hyper.private` is `true`; the console's `Hyperswarm:` line ends in
+  `, private node`.
+
+No frame or bridge change: the identities use the existing `Announce` and `Open` frames with
+the Hugin TLVs `0x11` (topic key) and `0x12` (identity seed), and `Opened` carries the topic
+(`docs/hyper-bridge-protocol.md` is unchanged).
 
 ### What comes later
 
@@ -662,12 +724,18 @@ needed.
   `Bridge::dht_status`), `tests/fake_worker.rs` (bridge failure as
   the supervisor sees it, the lookup cap), the unit tests of `src/bare/mod.rs` (key pair files,
   worker arguments incl. `--port-fixed` per worker, fixed ports past 65535 refused), the golden
-  vectors and property tests of `src/frame.rs` / `tests/prop_frame.rs` (`DhtStatus` included). `tests/loopback.rs` runs two real bridges on a local DHT and is ignored by
+  vectors and property tests of `src/frame.rs` / `tests/prop_frame.rs` (`DhtStatus` included),
+  `src/private.rs` (invite round trip and refusals, derivation, the secret file).
+  `tests/loopback.rs` runs two real bridges on a local DHT (including a private node's
+  identities with and without the invite's `mid`) and is ignored by
   default (it needs `node` for the DHT bootstrap script and `bridge/node_modules`):
   `cargo test -p xkr-p2p-hyper --test loopback -- --ignored --test-threads=1`.
 - `cargo test -p xkrd`: the Hyperswarm configuration (`one_bare_worker_for_every_topic_group`,
-  `port_reaches_the_worker`, the `DhtStatus` view and the `--port` hint) and the command line
-  (`port_flag`), the console's `Hyperswarm:` line and the display's hint; `cargo test -p xkr-rpc
+  `port_reaches_the_worker`, the `DhtStatus` view and the `--port` hint, the private node:
+  `private_config_from_the_command_line`, `the_private_node_keeps_and_renews_its_secret`,
+  `a_private_node_admits_inbound_only_on_its_identity`,
+  `private_peers_are_redialed_with_back_off`) and the command line (`port_flag`,
+  `private_flags`), the console's `Hyperswarm:` line, `invite` and the display's hint; `cargo test -p xkr-rpc
   --test endpoints -- status_hyper_object status_fields_for_loopback` for `/status` `hyper`.
 - `cd bridge && npm test` (Node.js 22 or later runs the same modules as Bare):
   `session.test.js` (two workers on a local DHT over in-memory streams; `--port-fixed` on the

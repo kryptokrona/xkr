@@ -515,6 +515,7 @@ async fn status_hyper_object() {
             "port_fixed": false,
             "firewalled": null,
             "nat": "unknown",
+            "private": false,
         }),
         "{v}"
     );
@@ -526,6 +527,7 @@ async fn status_hyper_object() {
             port_fixed: true,
             firewalled: Some(false),
             nat: xkr_rpc::HyperNat::Consistent,
+            private: true,
         }),
         ..xkr_rpc::NetStatus::default()
     }));
@@ -536,6 +538,7 @@ async fn status_hyper_object() {
     assert_eq!(h["port_fixed"], true);
     assert_eq!(h["firewalled"], false);
     assert_eq!(h["nat"], "consistent");
+    assert_eq!(h["private"], true);
 }
 
 /// `/status` `hugin.fee_address`, `hugin.p2pool.host`, `hyper.udp_port`, `hyper.firewalled`,
@@ -565,6 +568,7 @@ async fn status_fields_for_loopback() {
             port_fixed: true,
             firewalled: Some(false),
             nat: xkr_rpc::HyperNat::Consistent,
+            private: true,
         }),
         ..xkr_rpc::NetStatus::default()
     }));
@@ -620,7 +624,7 @@ async fn status_fields_for_loopback() {
         assert_eq!(h["clients"], 2);
         assert_eq!(
             v["hyper"],
-            json!({ "state": "ready", "port_fixed": true }),
+            json!({ "state": "ready", "port_fixed": true, "private": true }),
             "{v}"
         );
     }

@@ -316,9 +316,9 @@ pub async fn get_peers(State(s): State<Arc<RpcState>>) -> Response {
 }
 
 /// `/status`: xkr's own status for the desktop app. `hyper` is the Hyperswarm network's DHT node
-/// ([`crate::HyperNetStatus`]: `state`, `udp_port`, `port_fixed`, `firewalled`, `nat`), `null`
-/// with `--no-hyper`. `p2pool` is the built-in p2pool ([`crate::P2poolStatus`]), `null` while it
-/// is off. `hyper.udp_port`, `hyper.firewalled`, `hyper.nat`, `hugin.fee_address`,
+/// ([`crate::HyperNetStatus`]: `state`, `udp_port`, `port_fixed`, `firewalled`, `nat`,
+/// `private`), `null` with `--no-hyper`. `p2pool` is the built-in p2pool
+/// ([`crate::P2poolStatus`]), `null` while it is off. `hyper.udp_port`, `hyper.firewalled`, `hyper.nat`, `hugin.fee_address`,
 /// `hugin.p2pool.host`, `p2pool.payout_address`, `p2pool.stratum` and `p2pool.stratum_off` are
 /// part of the answer only for a client on a loopback address ([`from_loopback`]); other clients get the rest.
 #[allow(clippy::cast_precision_loss)]

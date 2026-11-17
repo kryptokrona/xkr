@@ -1,8 +1,8 @@
 //! Console commands on stdin while the node runs: C++ `DaemonCommandsHandler`
 //! (`src/daemon/daemon_commands_handler.cpp`) on `common::ConsoleHandler`
 //! (`src/common/console_handler.cpp`): `help`, `status`, `print_pl`, `set_log` and `exit` as
-//! there, `start_mining` / `stop_mining` as there (plus `start_mining p2pool`), and `height`
-//! and `fee-address`. While the start-up question about the fee address
+//! there, `start_mining` / `stop_mining` as there (plus `start_mining p2pool`), and `height`,
+//! `fee-address` and `invite`. While the start-up question about the fee address
 //! is open, an empty line keeps the address in effect. Started by `main` unless `--no-console` is given or stdin is not a
 //! terminal (`DaemonConfiguration::noConsole`, `dch.start_handling()` in `src/daemon/daemon.cpp`).
 
@@ -23,6 +23,7 @@ use xkr_types::Hash;
 
 use crate::cli::{check_filter, cpp_level_filter};
 use crate::fee::{self, DEFAULT_FEE_NAME, Fee, FeeAddress};
+use crate::hyper::PrivateNode;
 use crate::miner::{self, MineMode, MinerConfig, MinerControl};
 use crate::p2pool::LinkState;
 use crate::term::{self, Color, Style, Term};
@@ -72,6 +73,13 @@ const COMMANDS: &[(&str, &str, &str)] = &[
         "stop_mining: stops the built-in miner and waits for its threads",
     ),
     (
+        "invite",
+        "private node invite; invite new",
+        "invite [new]: the private node's invite (xkrd --private), for --private-peer on \
+         another node or a Hugin app; invite new writes a new secret and restarts the \
+         Hyperswarm bridge, and old invites stop working",
+    ),
+    (
         "help",
         "this list; help <command> for more",
         "help [command]: the command list, or one command in detail",
@@ -118,6 +126,10 @@ pub enum Command {
         threads: Option<usize>,
     },
     StopMining,
+    /// `invite`: show the private node's invite.
+    Invite,
+    /// `invite new`: a new secret and invite.
+    InviteNew,
     Exit,
 }
 
@@ -144,6 +156,10 @@ pub fn parse(line: &str) -> Result<Option<Command>, String> {
         }
         "start_mining" => start_mining_args(&args)?,
         "stop_mining" => Command::StopMining,
+        "invite" => match args.first() {
+            Some(&"new") => Command::InviteNew,
+            _ => Command::Invite,
+        },
         other => return Err(format!("Unknown command: {other} (type help)")),
     };
     Ok(Some(cmd))
@@ -261,6 +277,8 @@ pub struct NodeState {
     pub miner: Option<Arc<MinerControl>>,
     /// Whether the Hyperswarm transport runs (not `--no-hyper`).
     pub hyper: bool,
+    /// The private node's secret (`--private`).
+    pub private: Option<Arc<PrivateNode>>,
     pub version: String,
     /// Unix start time.
     pub start_time: u64,
@@ -514,11 +532,21 @@ fn p2pool_miners_text(p: &P2poolStatus) -> String {
 }
 
 /// `firewalled yes, UDP port 49737` (`, strict NAT` when the NAT changes the public port per
-/// destination, ` (--port)` for a fixed port); `starting` before the DHT is ready.
+/// destination, ` (--port)` for a fixed port, `, private node` with `--private`); `starting`
+/// before the DHT is ready.
 fn hyper_net_text(h: Option<HyperNetStatus>) -> String {
     let Some(h) = h else {
         return "starting".to_owned();
     };
+    let mut text = hyper_dht_text(h);
+    if h.private {
+        text.push_str(", private node");
+    }
+    text
+}
+
+/// The DHT part of [`hyper_net_text`].
+fn hyper_dht_text(h: HyperNetStatus) -> String {
     let port = h.udp_port.map_or_else(String::new, |p| {
         format!(
             "UDP port {p}{}",
@@ -891,6 +919,29 @@ fn stop_mining(node: &NodeState) -> String {
     }
 }
 
+/// `invite` and `invite new` (`renew`): the private node's invite on a line of its own, so it
+/// can be copied whole.
+fn invite(node: &NodeState, renew: bool, style: Style) -> String {
+    let Some(private) = &node.private else {
+        return "Not a private node (start xkrd with --private)\n".to_owned();
+    };
+    if !renew {
+        return format!(
+            "{}\n{}\n",
+            style.paint(Color::Dim, "Private node invite (for --private-peer):"),
+            private.invite()
+        );
+    }
+    match private.renew() {
+        Ok(invite) => format!(
+            "{}\n{invite}\n{}\n",
+            style.paint(Color::Green, "New private node invite:"),
+            style.paint(Color::Dim, "Old invites stop working; Hyperswarm restarts.")
+        ),
+        Err(e) => format!("Invite not changed: {e}\n"),
+    }
+}
+
 /// The console (C++ `DaemonCommandsHandler`).
 #[derive(Debug)]
 pub struct Console {
@@ -971,6 +1022,10 @@ impl Console {
                 },
                 Command::StopMining => match self.shared.node.get() {
                     Some(node) => stop_mining(node),
+                    None => self.shared.starting(),
+                },
+                Command::Invite | Command::InviteNew => match self.shared.node.get() {
+                    Some(node) => invite(node, cmd == Command::InviteNew, self.style),
                     None => self.shared.starting(),
                 },
                 Command::Exit => {
@@ -1167,6 +1222,9 @@ mod tests {
             );
         }
         assert_eq!(parse("stop_mining"), Ok(Some(Command::StopMining)));
+        assert_eq!(parse("invite"), Ok(Some(Command::Invite)));
+        assert_eq!(parse(" invite  new \n"), Ok(Some(Command::InviteNew)));
+        assert_eq!(parse("invite other"), Ok(Some(Command::Invite)));
         for name in [
             "fee-address",
             "fee_address",
@@ -1195,6 +1253,7 @@ mod tests {
              \x20 fee-address   show or set the fee address\n\
              \x20 start_mining  mine solo to an address, or via p2pool\n\
              \x20 stop_mining   stop the built-in miner\n\
+             \x20 invite        private node invite; invite new\n\
              \x20 help          this list; help <command> for more\n\
              \x20 exit          stop the node cleanly\n"
         );
@@ -1264,6 +1323,7 @@ mod tests {
                 port_fixed: false,
                 firewalled: Some(true),
                 nat: HyperNat::Consistent,
+                private: false,
             }),
             white_peers: 250,
             gray_peers: 1_000,
@@ -1492,6 +1552,7 @@ mod tests {
             port_fixed: true,
             firewalled: Some(false),
             nat: HyperNat::Consistent,
+            private: false,
         };
         assert_eq!(
             hyper_net_text(Some(ready)),
@@ -1524,6 +1585,20 @@ mod tests {
                 ..HyperNetStatus::default()
             })),
             "DHT not started (UDP port taken?)"
+        );
+        assert_eq!(
+            hyper_net_text(Some(HyperNetStatus {
+                private: true,
+                ..ready
+            })),
+            "firewalled no, UDP port 21890 (--port), private node"
+        );
+        assert_eq!(
+            hyper_net_text(Some(HyperNetStatus {
+                private: true,
+                ..HyperNetStatus::default()
+            })),
+            "starting, private node"
         );
         let mut s = sample_status();
         s.hyper_net = None;
@@ -1606,6 +1681,7 @@ mod tests {
             p2pool: None,
             miner: None,
             hyper: true,
+            private: None,
             version: "9.9.9".into(),
             start_time: unix_now(),
             db_path: tc.dir.join("chain.redb"),
@@ -1679,6 +1755,7 @@ mod tests {
             p2pool: None,
             miner: None,
             hyper: false,
+            private: None,
             version: "1".into(),
             start_time: 0,
             db_path: tc.dir.join("missing.redb"),
@@ -1758,6 +1835,7 @@ mod tests {
             p2pool: None,
             miner: None,
             hyper: false,
+            private: None,
             version: "2.0.0".into(),
             start_time: 0,
             db_path: tc.dir.join("chain.redb"),
@@ -1784,6 +1862,60 @@ mod tests {
         assert!(shutdown.is_cancelled());
     }
 
+    /// `invite` prints the private node's invite on a line of its own; `invite new` writes a
+    /// new one; a node without `--private` says so.
+    #[test]
+    fn invite_command() {
+        let tc = TestChain::new("invite");
+        let private = PrivateNode::load(&tc.dir).unwrap();
+        let first = private.invite().to_string();
+        let node = |private: Option<Arc<PrivateNode>>| {
+            let (_n, net) = watch::channel(Arc::new(NetStatus::default()));
+            let (_m, mining) = watch::channel(Arc::new(MiningStatus::default()));
+            NodeState {
+                chain: tc.chain.clone().unwrap(),
+                net,
+                mining,
+                hugin: None,
+                fee: None,
+                p2pool: None,
+                miner: None,
+                hyper: true,
+                private,
+                version: "1".into(),
+                start_time: 0,
+                db_path: tc.dir.join("chain.redb"),
+            }
+        };
+        let console = |state: NodeState| {
+            Console::new(
+                Arc::new(Shared::with_node(state)),
+                None,
+                ExitRequest::new(CancellationToken::new()),
+                Style::new(false),
+                "1",
+            )
+        };
+        let c = console(node(Some(private.clone())));
+        assert_eq!(
+            session(&c, "invite\n"),
+            format!("Private node invite (for --private-peer):\n{first}\n")
+        );
+        let out = session(&c, "invite new\n");
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3, "{out}");
+        assert_eq!(lines[0], "New private node invite:");
+        assert_ne!(lines[1], first);
+        assert_eq!(lines[1], private.invite().to_string());
+        assert!(lines[1].parse::<xkr_p2p_hyper::Invite>().is_ok());
+        assert_eq!(lines[2], "Old invites stop working; Hyperswarm restarts.");
+        let plain = console(node(None));
+        assert_eq!(
+            session(&plain, "invite\ninvite new\n"),
+            "Not a private node (start xkrd with --private)\n".repeat(2)
+        );
+    }
+
     /// A console on a fresh node whose fee address lives in `tc`'s directory.
     fn fee_console(tc: &TestChain, ask: bool) -> (Console, Arc<FeeAddress>) {
         let file = tc
@@ -1805,6 +1937,7 @@ mod tests {
             p2pool: None,
             miner: None,
             hyper: true,
+            private: None,
             version: "1".into(),
             start_time: 0,
             db_path: tc.dir.join("chain.redb"),
@@ -1908,6 +2041,7 @@ mod tests {
                 p2pool: None,
                 miner: None,
                 hyper: false,
+                private: None,
                 version: "1".into(),
                 start_time: 0,
                 db_path: tc2.dir.join("chain.redb"),

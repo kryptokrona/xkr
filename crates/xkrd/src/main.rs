@@ -834,6 +834,16 @@ async fn async_main(
         net: Some(status_rx.clone()),
         ..hyper::HyperConfig::from_args(&args, network, &data_dir)
     });
+    // `--private`: the secret file (created on the first start); a file that cannot be read
+    // stops the start.
+    let private_node = match hyper_cfg.as_mut().filter(|_| args.private) {
+        Some(cfg) => {
+            let node = hyper::PrivateNode::load(&data_dir)?;
+            cfg.private = Some(node.clone());
+            Some(node)
+        }
+        None => None,
+    };
     // The built-in p2pool (`--p2pool`): its settings now (a wrong flag stops the start), the
     // service itself once the node is synchronized (`crate::p2pool`).
     let p2pool_settings = if args.p2pool_enabled() {
@@ -945,6 +955,7 @@ async fn async_main(
         p2pool: p2pool_status.clone(),
         miner: Some(miner_control.clone()),
         hyper: !args.no_hyper,
+        private: private_node.clone(),
         version: VERSION.to_owned(),
         start_time,
         db_path: db_path.clone(),
@@ -1078,6 +1089,10 @@ async fn async_main(
         step.done_with("Bare workers started");
         task
     });
+    if private_node.is_some() {
+        ui.step("Private node")
+            .done_with("peers only by invite (console: invite)");
+    }
     if args.no_hyper && !args.no_hugin {
         ui.step("Hugin relay")
             .done_with("off: it needs the Hyperswarm transport (--no-hyper)");

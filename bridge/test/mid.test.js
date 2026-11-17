@@ -374,3 +374,62 @@ test('an identity removed during the handshake fails it instead of skipping veri
   const recv = await firstMessage(registry, (kp) => registry.delete(kp.publicKey))
   assert.throws(recv, (err) => err.code === 'HUGIN_MID_REJECTED')
 })
+
+// A private node (xkrd --private) announces identities like this one: a topic key and an
+// identity seed, server mode only, while its node key joins every other topic as a client.
+test('a server-only identity from a seed takes only peers with the mid of its topic key', async (t) => {
+  const testnet = await createTestnet(3, { host: '127.0.0.1' })
+  const managers = []
+  t.after(async () => {
+    for (const m of managers) await m.destroy()
+    await testnet.destroy()
+  })
+  const got = []
+  const make = (name) => {
+    const m = new SwarmManager({
+      keyPair: keyPairFromSeed(b4a.alloc(32, managers.length + 30)),
+      bootstrap: testnet.bootstrap,
+      onconnection: (socket, info) => {
+        socket.on('error', () => {})
+        got.push([name, info.topic ? hex(info.topic) : null])
+      }
+    })
+    managers.push(m)
+    return m
+  }
+  const opened = (socket) => new Promise((resolve) => {
+    socket.on('error', () => resolve(false))
+    socket.on('open', () => resolve(true))
+  })
+  const node = make('node')
+  const peer = make('peer')
+  const topicKey = b4a.alloc(32, 0x51)
+  const topic = huginTopic(keyPairFromSeed(topicKey).publicKey, 'testnet')
+  const identitySeed = b4a.alloc(32, 0x52)
+  const pub = await node.announce(topic, 1, { topicKey, identitySeed })
+  assert.ok(b4a.equals(pub, keyPairFromSeed(identitySeed).publicKey), 'the identity key comes from the seed')
+  await node.announce(b4a.alloc(32, 0x54), 2, null)
+
+  // a peer with the topic key dials the identity directly (no lookup, no announce)
+  const ok = peer.open(pub, topic, 0, { topicKey })
+  assert.ok(!b4a.equals(ok.identity.keyPair.publicKey, peer.keyPair.publicKey), 'the peer dials with its own identity')
+  assert.equal(await opened(ok.socket), true)
+  await waitFor(() => got.some((g) => g[0] === 'node' && g[1] === hex(topic)))
+
+  // the mid of another topic key is refused by the node
+  const otherKey = b4a.alloc(32, 0x53)
+  const other = huginTopic(keyPairFromSeed(otherKey).publicKey, 'testnet')
+  const bad = peer.open(pub, other, 0, { topicKey: otherKey })
+  assert.equal(await opened(bad.socket), false)
+  assert.ok(node.registry.recentlyRejected(bad.identity.keyPair.publicKey))
+
+  // so is a peer without a mid
+  const plain = peer.open(pub, null, 0, null)
+  assert.equal(await opened(plain.socket), false)
+  assert.ok(node.registry.recentlyRejected(peer.keyPair.publicKey))
+
+  // the node key joined its topic as a client only: it takes no connection
+  const main = peer.open(node.keyPair.publicKey, null, 0, null)
+  assert.equal(await opened(main.socket), false)
+  assert.equal(got.filter((g) => g[0] === 'node').length, 1, 'only the peer with the mid reached the node')
+})

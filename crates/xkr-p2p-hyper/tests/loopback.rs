@@ -15,7 +15,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use xkr_p2p_hyper::{
     AnnounceMode, BareConfig, BareWorkers, Bridge, BridgeConfig, BridgeError, CloseReason,
-    HuginTopic, OpenFlags, topic,
+    HuginTopic, OpenFlags, PrivateSecret, XkrNetwork, topic,
 };
 
 fn bridge_dir() -> PathBuf {
@@ -230,6 +230,121 @@ async fn hugin_identity_connects_with_mid() {
         Err(BridgeError::ConnClosed(_) | BridgeError::Timeout) => {}
         Err(e) => panic!("unexpected error {e}"),
     }
+    a.close();
+    b.close();
+    workers_a.stop(Duration::from_secs(5)).await;
+    workers_b.stop(Duration::from_secs(5)).await;
+}
+
+/// A refused dial: the handshake fails, so the dial ends with a Close (or times out).
+fn refused(result: &Result<xkr_p2p_hyper::HyperConn, BridgeError>, what: &str) {
+    match result {
+        Ok(_) => panic!("{what}: the connection must be refused"),
+        Err(BridgeError::ConnClosed(_) | BridgeError::Timeout) => {}
+        Err(e) => panic!("{what}: unexpected error {e}"),
+    }
+}
+
+/// A private node (`xkrd --private`): its sync and Hugin identities, announced in server mode
+/// with the topic keys and identity seeds of its secret, take a peer that dials them with the
+/// invite's `mid`; a peer without a `mid`, or with the `mid` of another secret, is refused, and
+/// the node key, which only joins topics as a client, takes nobody.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs node, bridge/node_modules and libbare-kit"]
+async fn private_identities_take_only_invite_holders() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    let (_testnet, bootstrap) = start_testnet().await;
+    let (a, mut workers_a) = start(&bootstrap, 1024 * 1024).await;
+    let (b, mut workers_b) = start(&bootstrap, 1024 * 1024).await;
+    let a_key = a.node_public_key().expect("node key");
+
+    let secret = PrivateSecret::generate();
+    let topics = secret.topics(XkrNetwork::Testnet);
+    let invite = secret.invite();
+    let sync = a
+        .announce(
+            topics.sync.topic,
+            AnnounceMode::Server,
+            Some(secret.sync_mid(&topics)),
+        )
+        .await
+        .expect("announce sync");
+    assert_eq!(sync.local_public_key(), Some(invite.sync_key));
+    let hugin = a
+        .announce(
+            topics.hugin.topic,
+            AnnounceMode::Server,
+            Some(secret.hugin_mid(&topics)),
+        )
+        .await
+        .expect("announce hugin");
+    assert_eq!(hugin.local_public_key(), Some(invite.hugin_key));
+    let public = topic::xkr_topic("xkr/test/private/v1");
+    a.announce(public, AnnounceMode::Client, None)
+        .await
+        .expect("announce public client-only");
+    let mut incoming = a.incoming().unwrap();
+
+    // the invite as a peer gets it: both topics derive from its secret
+    let parsed: xkr_p2p_hyper::Invite = invite.to_string().parse().expect("invite");
+    let theirs = parsed.topics(XkrNetwork::Testnet);
+    for (key, t) in [
+        (parsed.sync_key, &theirs.sync),
+        (parsed.hugin_key, &theirs.hugin),
+    ] {
+        let conn = b
+            .open_hugin(key, t.topic, OpenFlags::NONE, &t.mid())
+            .await
+            .expect("open with the invite's mid");
+        assert_eq!(conn.info().remote_public_key, key);
+        let inbound = tokio::time::timeout(Duration::from_secs(20), incoming.next())
+            .await
+            .expect("inbound timed out")
+            .unwrap()
+            .unwrap();
+        assert_eq!(inbound.info().topic, Some(t.topic));
+        assert!(!inbound.info().initiator);
+    }
+
+    // no mid
+    refused(
+        &b.open(invite.sync_key, None, OpenFlags::NONE).await,
+        "no mid",
+    );
+    // the mid of another secret
+    let other = PrivateSecret::generate().topics(XkrNetwork::Testnet);
+    refused(
+        &b.open_hugin(
+            invite.sync_key,
+            other.sync.topic,
+            OpenFlags::NONE,
+            &other.sync.mid(),
+        )
+        .await,
+        "another secret",
+    );
+    refused(
+        &b.open_hugin(
+            invite.hugin_key,
+            other.hugin.topic,
+            OpenFlags::NONE,
+            &other.hugin.mid(),
+        )
+        .await,
+        "another secret (hugin)",
+    );
+    // the node key joined its topic client-only: nobody can dial it
+    refused(
+        &b.open(a_key, Some(public), OpenFlags::NONE).await,
+        "node key",
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), incoming.next())
+            .await
+            .is_err(),
+        "no refused peer reached the node"
+    );
+
     a.close();
     b.close();
     workers_a.stop(Duration::from_secs(5)).await;

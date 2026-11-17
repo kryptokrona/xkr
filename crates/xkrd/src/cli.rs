@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use xkr_consensus::Network;
+use xkr_p2p_hyper::Invite;
 
 /// `--help` headings (the groups of the C++ `kryptokronad --help`, plus Hyperswarm and Hugin).
 const P2P: &str = "P2P (legacy Levin/TCP)";
@@ -27,7 +28,8 @@ const LOGGING: &str = "Logging and console";
 /// Shown after the flags in `--help`.
 const AFTER_HELP: &str = "Console commands (typed while the node runs in a terminal): help, \
                           status, height, print_pl, set_log <0-4>, fee-address [<address>], \
-                          start_mining <address>|p2pool [threads], stop_mining, exit. \
+                          start_mining <address>|p2pool [threads], stop_mining, invite [new], \
+                          exit. \
                           `xkrd db --help` lists the database tools.";
 
 /// Kryptokrona node.
@@ -153,6 +155,24 @@ pub struct Args {
     /// Only look up and dial Hyperswarm peers; do not announce (no incoming Hyperswarm peers).
     #[arg(long, help_heading = HYPER)]
     pub hyper_client_only: bool,
+
+    /// Private node: join every public Hyperswarm topic as a client only (the node still syncs
+    /// from and relays to the network) and accept Hyperswarm peers and Hugin apps only through
+    /// the node's invite (console `invite`; secret in `hyper-private.json` in the data
+    /// directory).
+    #[arg(long, conflicts_with = "no_hyper", help_heading = HYPER)]
+    pub private: bool,
+
+    /// Connect to a private node with its invite (`xkrinv1:...`) and stay connected, redialing
+    /// when the connection drops; repeatable. Works with or without --private.
+    #[arg(
+        long = "private-peer",
+        value_name = "INVITE",
+        value_parser = parse_invite,
+        conflicts_with = "no_hyper",
+        help_heading = HYPER
+    )]
+    pub private_peer: Vec<Invite>,
 
     // ------------------------------------------------------------------ RPC
     /// RPC listen address. The RPC has no authentication: with 0.0.0.0 anyone who can reach
@@ -569,6 +589,11 @@ pub fn parse_log_level(s: &str) -> Result<LogLevel, String> {
     Ok(LogLevel::Filter(s.to_owned()))
 }
 
+/// Parses `--private-peer`: a private node's invite.
+pub fn parse_invite(s: &str) -> Result<Invite, String> {
+    s.parse::<Invite>().map_err(|e| e.to_string())
+}
+
 /// Whether `s` is a tracing filter `EnvFilter` accepts.
 pub fn check_filter(s: &str) -> Result<(), String> {
     if s.is_empty() {
@@ -959,6 +984,48 @@ mod tests {
         );
         // `--hugin-pool` is gone
         assert!(Args::try_parse_from(["xkrd", "--hugin-pool", "self"]).is_err());
+    }
+
+    /// `--private` and `--private-peer <invite>` (repeatable, parsed); neither goes with
+    /// `--no-hyper`.
+    #[test]
+    fn private_flags() {
+        let plain = Args::try_parse_from(["xkrd"]).unwrap();
+        assert!(!plain.private);
+        assert!(plain.private_peer.is_empty());
+        let invite = |b: u8| {
+            xkr_p2p_hyper::PrivateSecret {
+                secret: [b; 32],
+                identity: [b + 1; 32],
+            }
+            .invite()
+        };
+        let (one, two) = (invite(1), invite(7));
+        let a = Args::try_parse_from([
+            "xkrd",
+            "--private",
+            "--private-peer",
+            &one.to_string(),
+            "--private-peer",
+            &two.to_string(),
+        ])
+        .unwrap();
+        assert!(a.private);
+        assert_eq!(a.private_peer, [one, two]);
+        let peer_only = Args::try_parse_from(["xkrd", "--private-peer", &one.to_string()]).unwrap();
+        assert!(!peer_only.private);
+        assert_eq!(peer_only.private_peer, [one]);
+        for bad in ["xkrinv1:00", "SEKRabc", ""] {
+            assert!(
+                Args::try_parse_from(["xkrd", "--private-peer", bad]).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(Args::try_parse_from(["xkrd", "--private", "--no-hyper"]).is_err());
+        assert!(
+            Args::try_parse_from(["xkrd", "--no-hyper", "--private-peer", &one.to_string()])
+                .is_err()
+        );
     }
 
     /// `--p2pool` / `--no-p2pool` (the later one wins; without either on for mainnet, off for

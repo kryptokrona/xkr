@@ -342,7 +342,8 @@ nothing. `crates/xkrd/src/hyper.rs`:
    topics; each gets its own DHT identity, the private one with hugin-node's view-key-derived
    seed, and the log prints the private invite
    (`Hugin private node invite invite=<address><key>`). On the testnet the topics are the
-   testnet ones (§14);
+   testnet ones (§14). An xkrd private node (`--private`) is different: it joins only the node
+   mesh, as a client, and serves apps through its own Hugin identity, below;
 6. routes connections by topic: XKR topic → Levin P2P manager (unchanged), Hugin topic → the
    relay as `Role::Node` (mesh) or `Role::Client` (public/private); Hugin connections are not
    XKR peers and do not count against `--hyper-max-peers`;
@@ -511,6 +512,20 @@ for a client on a loopback address; other clients get the rest.
 | `--hugin-queue-budget-mb <n>` | 256 | send budget of all app connections together, in MiB; new apps are paused at 80 % and resumed below 60 % |
 | `--hugin-max-clients-per-ip <n>` | 4 | app connections from one IP address or IPv6 /64, with 8 per /56 and 16 per /48 (0: none of these limits) |
 | `--hugin-private` | off | do not join the public-node topic |
+| `--private` | off | xkrd private node: node mesh client-only, no public-node and no address-based private topic; apps connect through the node's invite (below) |
+
+### xkrd private node (`--private`)
+
+With `--private` (`docs/hyper-transport.md`, "Private node") the relay serves Hugin apps only
+through the node's invite (`xkrinv1:` + hex of the sync key, the Hugin key and the secret; the
+console command `invite` prints it). The node joins the node mesh as a client only and does not
+join the public-node topic or the address-based private topic above. Apps connect to the Hugin
+identity of the invite: they derive the topic key
+`cn_fast_hash("xkr/private/hugin/v1" || secret)`, use it like a Hugin topic key (base key pair,
+topic, `mid`) and dial the invite's Hugin key directly; the relay treats them as apps
+(`Role::Client`, same limits). Apps need support for this invite to use it; without
+`--private` the address-based private topic and its invite work as before. `invite new` makes a
+new secret: earlier invites stop working.
 
 ## 12. Tests
 

@@ -16,6 +16,7 @@
 //! | [`bare`] | [`BareWorkers`]: Bare worker threads through bare-kit's C API (only unsafe code) |
 //! | [`conn`] | [`HyperConn`] and its close/peer-info types |
 //! | [`topic`] | XKR topics (`cn_fast_hash` of a name) and Hugin topics (hugin-node's derivation) |
+//! | [`private`] | private node (`xkrd --private`): secret file, derived topics and identities, invite |
 //!
 //! ```no_run
 //! # async fn demo() -> Result<(), xkr_p2p_hyper::BridgeError> {
@@ -43,6 +44,7 @@ pub mod bare;
 pub mod bridge;
 pub mod conn;
 pub mod frame;
+pub mod private;
 pub mod topic;
 pub mod transport;
 
@@ -53,4 +55,5 @@ pub use bridge::{
 };
 pub use conn::{CloseHandle, CloseInfo, CloseReason, ConnInfo, HyperConn};
 pub use frame::{Ack, DhtStatus, PeerInfo};
+pub use private::{Invite, InviteError, PrivateSecret, PrivateTopics};
 pub use topic::{HuginTopic, XkrNetwork};

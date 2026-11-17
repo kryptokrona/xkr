@@ -39,6 +39,9 @@ target/release/xkrd --help
   explorer needs the whole chain: not with `--prune`, and not on a pruned database.
 - `--no-hyper` runs the legacy TCP network only.
 - `--port <udp port>` for a node behind a strict firewall or NAT.
+- `--private` runs a private node: it syncs from the network as a client and takes peers and
+  Hugin apps only through its invite (console `invite`, `invite new` for a new one).
+  `--private-peer <invite>` keeps another node connected to it.
 - p2pool runs inside the node (`--no-p2pool` turns it off); `start_mining p2pool` in the console
   mines on it.
 

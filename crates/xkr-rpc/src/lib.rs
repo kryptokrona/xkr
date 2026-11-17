@@ -167,6 +167,8 @@ pub struct HyperNetStatus {
     /// ready).
     pub firewalled: Option<bool>,
     pub nat: HyperNat,
+    /// A private node (`--private`): public topics client-only, peers only through its invite.
+    pub private: bool,
 }
 
 /// Requests from the API (and the built-in miner) to the P2P layer.
