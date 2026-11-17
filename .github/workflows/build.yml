@@ -118,7 +118,7 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       # Tests that need bridge/node_modules are #[ignore]d, as in ci.yml.
       - name: test
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
       - name: build
         run: >-
           cargo build --locked --release

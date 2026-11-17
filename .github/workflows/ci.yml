@@ -48,7 +48,7 @@ jobs:
       # Tests that need bridge/node_modules are #[ignore]d and do not run here;
       # the testnet suite (testnet/suite.sh) needs Docker images and is not run in CI.
       - name: test
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
 
   # The Linux x86_64 release archive as build.yml packs it (packaging/scripts/package-release.sh),
   # so every push checks the packaging too.
