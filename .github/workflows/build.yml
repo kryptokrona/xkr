@@ -132,7 +132,9 @@ jobs:
           tar -C dist -xzf "dist/xkr-bridge-$XKR_VERSION.tar.gz"
           archive=$(packaging/scripts/package-release.sh --target "${{ matrix.target }}" \
             --version "$XKR_VERSION" --bin-dir target/release --bridge dist/bridge --out dist/release)
-          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+          # Relative to the workspace: the shell tools and the upload action (a Windows program,
+          # which does not know the POSIX form of a drive path) both resolve it.
+          echo "ARCHIVE=$(realpath --relative-to=. "$archive")" >> "$GITHUB_ENV"
       # The packed programs (also under their C++ names) start, the checksums inside the archive
       # match, and the pruned bridge loads its native addons on this platform under the bundled
       # layout.
