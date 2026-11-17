@@ -855,13 +855,15 @@ mod tests {
             .expect("the write ends");
         assert_eq!(r.unwrap_err().kind(), io::ErrorKind::TimedOut);
 
+        // A slow reader: every read comes well within the stall timeout, and the whole write
+        // takes several times longer than it, so progress has to restart the timer.
         let (a, mut b) = tokio::io::duplex(64);
-        let mut g = StallGuard::new(a, Duration::from_millis(100), None);
+        let mut g = StallGuard::new(a, Duration::from_millis(500), None);
         let reader = tokio::spawn(async move {
             let mut got = Vec::new();
             let mut buf = [0u8; 16];
             while got.len() < 1024 {
-                tokio::time::sleep(Duration::from_millis(5)).await;
+                tokio::time::sleep(Duration::from_millis(30)).await;
                 let n = b.read(&mut buf).await.unwrap();
                 got.extend_from_slice(&buf[..n]);
             }
