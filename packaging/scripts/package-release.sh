@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Packs one release archive for one target: the node, the wallet tools, the miner, copies of
-# them under the C++ program names, and the Hyperswarm bridge.
+# Packs one release archive for one target: the node, the wallet tools, the miner and the
+# Hyperswarm bridge.
 #
 #   packaging/scripts/package-release.sh --target <triple> --bridge <bridge dir> \
 #       [--version <version>] [--bin-dir <dir>] [--bare-kit <dir>] [--out <dir>]
@@ -14,21 +14,21 @@
 #
 #   xkr-<version>-<target>/
 #     xkrd                  node (Levin P2P, RPC, Hyperswarm through bridge/)
-#     xkr-wallet-api        REST wallet service       wallet-api           (same program)
-#     xkr-walletd           JSON-RPC wallet service   kryptokrona-service  (same program)
+#     xkr-wallet-api        REST wallet service
+#     xkr-walletd           JSON-RPC wallet service
 #     xkrwallet             terminal wallet
-#     xkr-miner             CPU miner                 miner                (same program)
+#     xkr-miner             CPU miner
 #     libbare-kit.so        the Bare runtime for xkrd (libbare-kit.dylib, bare-kit.dll)
 #     bridge/               src/, package.json, node_modules/ (this target's prebuilds only)
 #     docs/wallet-tools.md  moving from the C++ tools
 #     README.md, LICENSE
 #     SHA256SUMS            every other file in the directory
 #
-# On Windows every program ends in .exe. The old-name copies are plain copies (no links), so
-# the zip works everywhere. xkrd finds bridge/ next to itself and runs it on Bare worker threads
-# through libbare-kit, which the archive carries next to xkrd. On Linux
-# targets the run path of the packed xkrd is set to $ORIGIN:$ORIGIN/lib with patchelf when it is
-# installed (a release build without XKR_DEV_RPATH=1 has exactly that already); without
+# On Windows every program ends in .exe. There are no copies under the C++ program names
+# (docs/wallet-tools.md says how to keep those names). xkrd finds bridge/ next to itself and
+# runs it on Bare worker threads through libbare-kit, which the archive carries next to xkrd. On
+# Linux targets the run path of the packed xkrd is set to $ORIGIN:$ORIGIN/lib with patchelf when
+# it is installed (a release build without XKR_DEV_RPATH=1 has exactly that already); without
 # patchelf, a run path that names any other directory is reported. Prints the archive path.
 set -euo pipefail
 
@@ -65,17 +65,9 @@ if [[ -z "$bin_dir" ]]; then
   [[ -f "$base/$target/release/xkrd$exe" ]] && bin_dir="$base/$target/release"
 fi
 
-# Program name, then the C++ name it also ships under (empty: no copy).
-programs=(
-  "xkrd:"
-  "xkr-wallet-api:wallet-api"
-  "xkr-walletd:kryptokrona-service"
-  "xkrwallet:"
-  "xkr-miner:miner"
-)
+programs=(xkrd xkr-wallet-api xkr-walletd xkrwallet xkr-miner)
 missing=0
-for entry in "${programs[@]}"; do
-  bin=${entry%%:*}
+for bin in "${programs[@]}"; do
   [[ -f "$bin_dir/$bin$exe" ]] || { echo "missing $bin_dir/$bin$exe" >&2; missing=1; }
 done
 [[ $missing -eq 0 ]] || {
@@ -94,14 +86,9 @@ stage="$out/$name"
 rm -rf "$stage"
 mkdir -p "$stage/docs" "$stage/bridge"
 
-for entry in "${programs[@]}"; do
-  bin=${entry%%:*}
-  old=${entry#*:}
+for bin in "${programs[@]}"; do
   cp "$bin_dir/$bin$exe" "$stage/$bin$exe"
   chmod 755 "$stage/$bin$exe"
-  if [[ -n "$old" ]]; then
-    cp "$stage/$bin$exe" "$stage/$old$exe"
-  fi
 done
 
 # xkrd looks for its libraries only next to itself and in its lib/.

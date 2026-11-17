@@ -137,7 +137,7 @@ jobs:
           archive=${archive#"$PWD/"}
           test -f "$archive"
           echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
-      # The packed programs (also under their C++ names) start, the checksums inside the archive
+      # The packed programs start, the checksums inside the archive
       # match, and xkrd runs the pruned bridge on a Bare worker under the bundled layout (no
       # Node.js).
       - name: Smoke test
@@ -148,8 +148,7 @@ jobs:
             *) tar -C dist/smoke -xzf "$ARCHIVE" ;;
           esac
           dir=$(echo dist/smoke/xkr-*)
-          for bin in xkrd xkr-wallet-api wallet-api xkr-walletd kryptokrona-service xkrwallet \
-                     xkr-miner miner; do
+          for bin in xkrd xkr-wallet-api xkr-walletd xkrwallet xkr-miner; do
             "$dir/$bin" --version
           done
           (cd "$dir" && if command -v sha256sum >/dev/null; then sha256sum -c --quiet SHA256SUMS;
@@ -199,7 +198,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$XKR_VERSION" --draft --verify-tag --title "xkr $XKR_VERSION" \
-            --notes "One archive per target: xkrd, xkr-wallet-api (also as wallet-api), xkr-walletd (also as kryptokrona-service), xkrwallet, xkr-miner (also as miner), libbare-kit and the Hyperswarm bridge, which xkrd runs on Bare (no Node.js needed). Moving from the C++ tools: docs/wallet-tools.md. Verify with SHA256SUMS." \
+            --notes "One archive per target: xkrd, xkr-wallet-api, xkr-walletd, xkrwallet, xkr-miner, libbare-kit and the Hyperswarm bridge, which xkrd runs on Bare (no Node.js needed). Moving from the C++ tools: docs/wallet-tools.md. Verify with SHA256SUMS." \
             xkr-* SHA256SUMS
 
   tauri:

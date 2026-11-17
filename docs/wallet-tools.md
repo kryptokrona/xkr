@@ -7,17 +7,18 @@ you only replace the binary.
 
 ## 1. What is in the release
 
-| Rust program | Replaces | Copy in the archive under the old name |
-|---|---|---|
-| `xkr-wallet-api` | `wallet-api` (REST API) | `wallet-api` |
-| `xkr-walletd` | `kryptokrona-service` (walletd, JSON-RPC) | `kryptokrona-service` |
-| `xkrwallet` | `xkrwallet` and `xkrwallet-beta` (terminal wallets) | `xkrwallet` |
-| `xkr-miner` | `miner` | `miner` |
-| `xkrd` | `kryptokronad` (the node) | |
+| Rust program | Replaces |
+|---|---|
+| `xkr-wallet-api` | `wallet-api` (REST API) |
+| `xkr-walletd` | `kryptokrona-service` (walletd, JSON-RPC) |
+| `xkrwallet` | `xkrwallet` and `xkrwallet-beta` (terminal wallets) |
+| `xkr-miner` | `miner` |
+| `xkrd` | `kryptokronad` (the node) |
 
-The copies are the same programs. If your scripts, service files or containers start
-`wallet-api` or `kryptokrona-service`, they keep working when you put the new files in place of
-the old ones.
+If your scripts, service files or containers start `wallet-api`, `kryptokrona-service` or
+`miner`, put the new program in place of the old file under the old name, or point them at the
+new name. On Linux and macOS a link also works, for example
+`ln -s xkr-walletd kryptokrona-service`.
 
 ## 2. Switching an exchange or service
 
@@ -25,8 +26,8 @@ the old ones.
    `kryptokrona-service`). Both save the wallet when they stop.
 2. Make a copy of the wallet file. For `kryptokrona-service` this is the container file
    (`-w`/`--container-file`).
-3. Put the new binary in place of the old one (or use the copy with the old name from the
-   archive).
+3. Put the new binary in place of the old one (under the old name if your setup starts it by
+   that name).
 4. Start it with the same command line, the same config file and the same wallet file. Nothing
    in your code that calls the API needs to change.
 5. Wait until the wallet reports it is synced (`/status` for wallet-api, `getStatus` for
@@ -168,8 +169,8 @@ You can go back as long as the C++ tools can still send (before F + 28 800, sect
 
 - [ ] Run `xkrd` and point the wallet at it.
 - [ ] Back up the wallet file (and, later, `<container>.xkrstate`).
-- [ ] Replace `wallet-api` or `kryptokrona-service` with the Rust program (or its copy with the
-      old name), same flags, same file.
+- [ ] Replace `wallet-api` or `kryptokrona-service` with the Rust program (under the old name
+      if your setup needs it), same flags, same file.
 - [ ] Let the first start finish its scan; compare the balance with the one before the switch.
 - [ ] Make a small deposit to an `Xkr…` address and a small withdrawal.
 - [ ] Be on the Rust tools before fork 14 (mainnet F = 2 750 000).

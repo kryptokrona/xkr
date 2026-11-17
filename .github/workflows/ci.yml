@@ -90,8 +90,7 @@ jobs:
           mkdir -p dist/smoke
           tar -C dist/smoke -xzf "$ARCHIVE"
           dir=$(echo dist/smoke/xkr-*)
-          for bin in xkrd xkr-wallet-api wallet-api xkr-walletd kryptokrona-service xkrwallet \
-                     xkr-miner miner; do
+          for bin in xkrd xkr-wallet-api xkr-walletd xkrwallet xkr-miner; do
             "$dir/$bin" --version
           done
           (cd "$dir" && sha256sum -c --quiet SHA256SUMS)

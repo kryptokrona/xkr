@@ -4,7 +4,7 @@ How to produce each distributable piece of xkr, on your own machine and in CI.
 
 | artifact | what it is | local | CI (`.github/workflows/build.yml`) |
 |---|---|---|---|
-| `xkr-<version>-<target>.tar.gz` (`.zip` on Windows) | node, wallet tools, miner, copies under the C++ names and the bridge bundle for one target | `scripts/package-release.sh` | job `build`, one per target (`ci.yml` packs the Linux x86_64 one on every push) |
+| `xkr-<version>-<target>.tar.gz` (`.zip` on Windows) | node, wallet tools, miner and the bridge bundle for one target | `scripts/package-release.sh` | job `build`, one per target (`ci.yml` packs the Linux x86_64 one on every push) |
 | `xkr-bridge-<version>.tar.gz` | the Hyperswarm bridge with production `node_modules`, prebuilds for every platform; input of the `build` job, not a release file | `scripts/bundle-bridge.sh` | job `bridge` |
 | `SHA256SUMS` | SHA-256 of every per-target archive (each archive also holds its own `SHA256SUMS` of the files inside) | `sha256sum xkr-* > SHA256SUMS` | job `release`, tags only |
 | Tauri sample app (`.deb`, AppImage, `.app`, NSIS installer) | `tauri-sidecar/`: desktop app that runs xkrd as a sidecar | `tauri-sidecar/README.md` | job `tauri`, manual runs only |
@@ -70,25 +70,24 @@ for a local test when `bridge/node_modules` is installed (only `src/`, `package*
 ```
 xkr-<version>-<target>/
   xkrd                   node
-  xkr-wallet-api         REST wallet service      + copy wallet-api
-  xkr-walletd            JSON-RPC wallet service  + copy kryptokrona-service
+  xkr-wallet-api         REST wallet service
+  xkr-walletd            JSON-RPC wallet service
   xkrwallet              terminal wallet
-  xkr-miner              CPU miner                + copy miner
+  xkr-miner              CPU miner
   bridge/                Hyperswarm bridge (run by xkrd on Bare): src/, package.json, node_modules/
   docs/wallet-tools.md   moving from the C++ tools
   README.md, LICENSE
   SHA256SUMS             every other file (`sha256sum -c SHA256SUMS`)
 ```
 
-The copies under the C++ names are plain files (no links), so the zip works on Windows; every
-program ends in `.exe` there. There is no copy of `xkrd` under the C++ node's name: xkrd keeps
-its chain in its own database and data directory, so it is not a binary swap for the node.
+Every program ends in `.exe` on Windows. There are no copies under the C++ program names;
+`docs/wallet-tools.md` tells users who start the tools by those names how to keep them.
 
 Quick check of an unpacked archive:
 
 ```sh
 cd dist && tar -xzf xkr-1.0.0-$target.tar.gz && cd xkr-1.0.0-$target
-for b in xkrd xkr-wallet-api wallet-api xkr-walletd kryptokrona-service xkrwallet xkr-miner miner; do
+for b in xkrd xkr-wallet-api xkr-walletd xkrwallet xkr-miner; do
     ./$b --version
 done
 sha256sum -c --quiet SHA256SUMS
@@ -105,7 +104,7 @@ workflow"; tick "tauri" to also build the sample app):
 2. `build` (five native runners): clippy with `-D warnings`, `cargo test --workspace`,
    the release build of `xkrd`, `xkr-wallet-api`, `xkr-walletd`, `xkr-wallet-cli` and
    `xkr-miner`, `package-release.sh`, then a smoke test of the unpacked archive (every
-   program and copy answers `--version`, the archive's `SHA256SUMS` matches, the bridge's
+   program answers `--version`, the archive's `SHA256SUMS` matches, the bridge's
    addons and modules load on a Bare worker: `xkrd bridge-check`). Artifact `xkr-<target>`.
 3. `release` (tag pushes only): `SHA256SUMS` over the per-target archives (the bridge bundle
    is left out: every archive carries its own `bridge/`), all of it as the `release-<version>`
