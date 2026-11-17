@@ -824,7 +824,10 @@ async fn async_main(
         None
     };
     if args.mine_p2pool && p2pool_settings.is_none() {
-        return Err("--mine-p2pool needs the built-in p2pool (--p2pool)".into());
+        return Err(
+            "--mine-p2pool needs the built-in p2pool (not with --no-p2pool; testnet: --p2pool)"
+                .into(),
+        );
     }
     // The built-in miner reaches the running p2pool through this link.
     let pool_link = p2pool_settings
@@ -1112,7 +1115,11 @@ async fn async_main(
             notice = true;
             ask = fee.should_ask();
         } else {
-            tracing::warn!("{}", fee::donation_notice(pays.0, pays.1));
+            tracing::warn!(
+                "{}. {}",
+                fee::donation_notice(pays.0, pays.1),
+                fee::HOW_TO_CHANGE
+            );
         }
     }
     ui.startup.ready(ui.started.elapsed());
@@ -1128,6 +1135,11 @@ async fn async_main(
                     .print(&format!("  {}", style.paint(term::Color::Bold, line)));
             }
             fee.ask();
+        } else {
+            ui.term.print(&format!(
+                "  {}",
+                style.paint(term::Color::Dim, fee::HOW_TO_CHANGE)
+            ));
         }
     }
     // The block / sync lines or the live panel (not with `--log-json`).

@@ -51,7 +51,7 @@ of the bridge.
 | Hugin node mesh | `HuginTopic::node_mesh()` | both | hugin-node ↔ hugin-node relay mesh |
 | Hugin public nodes | `HuginTopic::public_nodes()` | server | Hugin apps find a public node |
 | Hugin private node | `HuginTopic::private_node(address)` | server | invited Hugin apps |
-| p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only`) | the built-in p2pool's sidechain P2P (`--p2pool`), see "The built-in p2pool" |
+| p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only`) | the built-in p2pool's sidechain P2P (on by default, `--no-p2pool`), see "The built-in p2pool" |
 
 Further XKR topics (e.g. separate `txs`/`sync` topics) are added by name with
 `topic::xkr_topic`, versioned (`/v1`) so a protocol change can move to a new topic without a

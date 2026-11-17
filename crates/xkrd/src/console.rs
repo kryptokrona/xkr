@@ -63,8 +63,8 @@ const COMMANDS: &[(&str, &str, &str)] = &[
         "start_mining",
         "mine solo to an address, or via p2pool",
         "start_mining <address>|p2pool [threads]: the built-in miner, solo to the address (blocks \
-         pay it), or via the built-in p2pool (--p2pool; shares pay the node's p2pool payout \
-         address, see fee-address). Threads: half the cores by default",
+         pay it), or via the built-in p2pool (off with --no-p2pool; shares pay the node's \
+         p2pool payout address, see fee-address). Threads: half the cores by default",
     ),
     (
         "stop_mining",
@@ -823,7 +823,7 @@ fn start_mining(
         }
         MineChoice::P2pool => {
             let Some(link) = control.pool() else {
-                return "p2pool is off: start xkrd with --p2pool to mine via p2pool\n".to_owned();
+                return "p2pool is off: start xkrd without --no-p2pool (testnet: with --p2pool) to mine via p2pool\n".to_owned();
             };
             let waiting = match link.state() {
                 LinkState::Waiting => true,

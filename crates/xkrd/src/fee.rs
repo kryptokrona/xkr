@@ -239,6 +239,9 @@ pub fn donation_notice(hugin: bool, p2pool: bool) -> String {
 /// The question under the notice, in lines of at most 60 columns.
 pub const QUESTION: [&str; 1] = ["Change it? Type fee-address <address>, or Enter to keep."];
 
+/// Under the notice once the question was answered, and after the notice without a terminal.
+pub const HOW_TO_CHANGE: &str = "Change it: fee-address <address>, or start with --hugin <address>";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +323,7 @@ mod tests {
             Path::new("/d/hugin/identity.json")
         );
         assert!(QUESTION.iter().all(|l| l.chars().count() <= 58));
+        assert!(HOW_TO_CHANGE.chars().count() <= 70);
     }
 
     /// Flag > saved > default; `set` and `keep` are saved and reach subscribers; the question

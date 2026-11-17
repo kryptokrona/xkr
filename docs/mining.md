@@ -94,7 +94,7 @@ For the desktop app (node and miner run as one sidecar) and the testnet. Two mod
 
 * **solo** (`--mine <address>`, console `start_mining <address> [threads]`, the default): blocks
   paid to that address, as described below.
-* **p2pool** (`--mine-p2pool` with `--p2pool`, console `start_mining p2pool [threads]`): the
+* **p2pool** (`--mine-p2pool` with the built-in p2pool running, console `start_mining p2pool [threads]`): the
   miner takes the built-in p2pool's current template in process (no stratum connection) and
   hands its results to the same share path as a stratum miner of the node: a result at the
   sidechain difficulty goes into the sidechain and to the peers ("Share found" line), one at
@@ -104,8 +104,8 @@ For the desktop app (node and miner run as one sidecar) and the testnet. Two mod
   to change it. The job target is the stratum template target (the easier of the two
   difficulties), the extra nonce a fixed value outside the stratum range in use, one share per
   template (the next job comes with the template p2pool builds on its new tip). While p2pool
-  waits for the node to synchronize the miner waits too; `start_mining p2pool` refuses without
-  `--p2pool` or when p2pool failed.
+  waits for the node to synchronize the miner waits too; `start_mining p2pool` refuses with
+  `--no-p2pool` (on the testnet: without `--p2pool`) or when p2pool failed.
 
 The console's `stop_mining` stops the miner (its threads are joined); `start_mining` refuses
 while one runs. Threads default to half of the available cores in both.
@@ -185,11 +185,12 @@ xkr-miner --daemon-host 127.0.0.1 --daemon-rpc-port 11898 --address SEKR…
   (the miner's hashing threads on a fixed job) and `cargo run --release -p xkr-crypto --example
   cn_hashrate` (`cn_slow_hash` against `CnHasher` with software and hardware AES).
 
-## Built-in p2pool: `xkrd --p2pool`
+## Built-in p2pool
 
 xkrd runs the Kryptokrona p2pool itself (crate `xkr-p2pool`, the same shares, sidechain rules
-and P2P protocol as the C++ p2pool, so both share one sidechain). Off by default for now;
-`--p2pool` turns it on, `--no-p2pool` off (the later flag wins).
+and P2P protocol as the C++ p2pool, so both share one sidechain). On by default on mainnet;
+`--no-p2pool` turns it off, `--p2pool` on (the later flag wins). The testnet needs `--p2pool`
+and its own sidechain (`--p2pool-config`).
 
 * **When it runs.** The start-up step `p2pool` shows the sidechain, the stratum address and the
   payout (`sidechain default · stratum 127.0.0.1:3333 · payout nilsjr (donation)`). p2pool
@@ -268,7 +269,7 @@ replaces the list), and moves back to the local node when it is reachable again.
 p2pool builds every block with the wallet it was started with (`--wallet`) and pays its
 sidechain shares to that wallet; the stratum login only names the user. The Hugin shares
 therefore pay the wallet of the p2pool node that receives them: to have them paid to your fee
-address, run the built-in p2pool (`--p2pool`, which pays the fee address and which the relay
+address, run the built-in p2pool (on by default, which pays the fee address and which the relay
 then uses directly) or your local C++ p2pool with `--wallet <fee address>`. A submitted share is a sidechain
 share only when it meets the sidechain difficulty (rarely, at difficulty 1000) and a main-chain
 block when it meets the network difficulty (every share on the testnet).

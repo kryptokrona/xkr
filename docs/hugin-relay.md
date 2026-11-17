@@ -333,9 +333,10 @@ nothing. `crates/xkrd/src/hyper.rs`:
 4. submits the share of an accepted post or registration to p2pool under the fee address
    (§13) when it also meets p2pool's target. Without a fee address nothing is submitted (the
    relay checks every share itself either way). When no p2pool node can be reached the relay keeps running (it stores,
-   gossips, syncs, and answers `job_pending`), and xkrd says once
-   `no p2pool reachable — Hugin shares are not submitted` (a warning) and shows the p2pool
-   connection in `status`;
+   gossips, syncs, and answers `job_pending`), and xkrd logs once (info level; the normal
+   state while the node syncs and the built-in p2pool has not started)
+   `no p2pool reachable — Hugin shares are not submitted` and shows the p2pool connection in
+   `status`;
 5. announces, with their `mid`s, the node mesh (both), public nodes (server; not with
    `--hugin-private`, and only once the node is synchronized) and private node (server)
    topics; each gets its own DHT identity, the private one with hugin-node's view-key-derived
@@ -616,11 +617,12 @@ operator answered; mode 0600, written atomically). A hugin-node `config.json` im
   prefixes); integrated addresses are refused. A bad `--hugin` stops the start with an error.
 * While the default donation is in effect, the start-up shows under the "Hugin relay" step
   `You are donating your hugin node fee to nilsjr`, and, until the operator has answered once,
-  asks `Change it? Type fee-address <address>, or press Enter to keep.` The console stays free:
+  asks `Change it? Type fee-address <address>, or Enter to keep.` The console stays free:
   Enter keeps the donation (saved, not asked again), `fee-address <address>` sets an address,
-  any other command drops the question (asked again at the next start). Without a terminal
-  (`--no-console`, `--log-json`, a service) there is no question, only the notice as one
-  warning line.
+  any other command drops the question (asked again at the next start). Once answered, the
+  notice is followed by `Change it: fee-address <address>, or start with --hugin <address>`.
+  Without a terminal (`--no-console`, `--log-json`, a service) there is no question, only the
+  notice and that line as one warning line.
 * Console: `fee-address` (also `fee_address`, `hugin-address`, `hugin_address`) shows the
   address in effect (and "donation to nilsjr" for the default); `fee-address <address>` checks
   it, saves it and applies it at once: the p2pool client logs in again with the new address

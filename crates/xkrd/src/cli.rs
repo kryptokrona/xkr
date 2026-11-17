@@ -16,8 +16,9 @@ const MINING: &str = "Mining";
 const P2POOL: &str = "P2Pool (built-in)";
 const HUGIN: &str = "Hugin relay";
 
-/// Whether the built-in p2pool runs without `--p2pool` / `--no-p2pool` ([`Args::p2pool_enabled`]).
-pub const P2POOL_DEFAULT: bool = false;
+/// Whether the built-in p2pool runs on mainnet without `--p2pool` / `--no-p2pool`
+/// ([`Args::p2pool_enabled`]). The testnet needs `--p2pool` (and its own sidechain).
+pub const P2POOL_DEFAULT: bool = true;
 /// Whether the built-in p2pool also uses TCP to other p2pool nodes (C++ nodes) when neither
 /// `--p2pool-tcp` nor `--no-p2pool-tcp` is given. Hyperswarm is always used.
 pub const P2POOL_TCP_DEFAULT: bool = true;
@@ -262,8 +263,8 @@ pub struct Args {
     #[arg(long, value_name = "ADDRESS", help_heading = MINING)]
     pub mine: Option<String>,
 
-    /// Mine with the built-in CPU miner via the built-in p2pool (needs --p2pool; starts once
-    /// p2pool runs). Shares pay the node's p2pool payout address, the fee address
+    /// Mine with the built-in CPU miner via the built-in p2pool (on unless --no-p2pool; starts
+    /// once p2pool runs). Shares pay the node's p2pool payout address, the fee address
     /// (`--hugin`, console `fee-address`). Console: `start_mining p2pool`.
     #[arg(long, conflicts_with = "mine", help_heading = MINING)]
     pub mine_p2pool: bool,
@@ -276,11 +277,12 @@ pub struct Args {
     /// Run the built-in p2pool (`docs/mining.md`, "Built-in p2pool"): the Kryptokrona sidechain,
     /// a stratum server for local miners and the sidechain P2P network (outgoing TCP to other
     /// p2pool nodes and Hyperswarm). It starts once the node is synchronized and pays every share
-    /// to the node's fee address (`--hugin`, console `fee-address`). Off by default for now.
+    /// to the node's fee address (`--hugin`, console `fee-address`). On by default on mainnet;
+    /// the testnet needs this flag.
     #[arg(long, overrides_with_all = ["p2pool", "no_p2pool"], help_heading = P2POOL)]
     pub p2pool: bool,
 
-    /// Do not run the built-in p2pool (the default for now).
+    /// Do not run the built-in p2pool.
     #[arg(long, overrides_with_all = ["p2pool", "no_p2pool"], help_heading = P2POOL)]
     pub no_p2pool: bool,
 
@@ -485,10 +487,11 @@ impl Args {
     }
 
     /// Whether the built-in p2pool runs: `--p2pool` or `--no-p2pool` (the later one on the
-    /// command line wins), else [`P2POOL_DEFAULT`].
+    /// command line wins), else [`P2POOL_DEFAULT`] on mainnet and off on the testnet.
     #[must_use]
     pub fn p2pool_enabled(&self) -> bool {
-        p2pool_choice(self.p2pool, self.no_p2pool, P2POOL_DEFAULT)
+        let default = P2POOL_DEFAULT && matches!(self.network, NetworkArg::Mainnet);
+        p2pool_choice(self.p2pool, self.no_p2pool, default)
     }
 
     /// Whether the built-in p2pool uses TCP besides Hyperswarm: the flag given last, else
@@ -920,12 +923,18 @@ mod tests {
         assert!(Args::try_parse_from(["xkrd", "--hugin-pool", "self"]).is_err());
     }
 
-    /// `--p2pool` / `--no-p2pool` (the later one wins, off without either) and the p2pool
-    /// settings with their C++ defaults.
+    /// `--p2pool` / `--no-p2pool` (the later one wins; without either on for mainnet, off for
+    /// the testnet) and the p2pool settings with their C++ defaults.
     #[test]
     fn p2pool_flags() {
         let plain = Args::try_parse_from(["xkrd"]).unwrap();
         assert_eq!(plain.p2pool_enabled(), P2POOL_DEFAULT);
+        assert!(plain.p2pool_enabled());
+        let testnet = Args::try_parse_from(["xkrd", "--network", "testnet"]).unwrap();
+        assert!(!testnet.p2pool_enabled());
+        let testnet_on =
+            Args::try_parse_from(["xkrd", "--network", "testnet", "--p2pool"]).unwrap();
+        assert!(testnet_on.p2pool_enabled());
         assert_eq!(plain.p2pool_tcp_enabled(), P2POOL_TCP_DEFAULT);
         let hyper_only = Args::try_parse_from(["xkrd", "--p2pool-tcp", "--no-p2pool-tcp"]).unwrap();
         assert!(!hyper_only.p2pool_tcp_enabled());

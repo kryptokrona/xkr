@@ -831,8 +831,9 @@ async fn follow_fee(
     }
 }
 
-/// Keeps the p2pool connection in the status, and says once per outage that no p2pool node is
-/// reachable.
+/// Keeps the p2pool connection in the status, and logs (info) once per outage that no p2pool
+/// node is reachable: the built-in p2pool starts only once the node is synchronized, so this is
+/// the normal state while syncing; `status` and `/status` show the connection.
 async fn follow_p2pool(
     mut pool_rx: watch::Receiver<PoolStatus>,
     stats: Arc<HuginStats>,
@@ -847,10 +848,10 @@ async fn follow_p2pool(
         });
         if s.unreachable && !warned {
             warned = true;
-            tracing::warn!("{NO_P2POOL}");
+            tracing::info!("{NO_P2POOL}");
         } else if s.connected && warned {
             warned = false;
-            tracing::warn!(pool = %s.pool.as_deref().unwrap_or("?"), "p2pool reached: Hugin shares are submitted again");
+            tracing::info!(pool = %s.pool.as_deref().unwrap_or("?"), "p2pool reached: Hugin shares are submitted again");
         } else if s.connected {
             tracing::info!(pool = %s.pool.as_deref().unwrap_or("?"), "Hugin relay logged in to p2pool");
         }
