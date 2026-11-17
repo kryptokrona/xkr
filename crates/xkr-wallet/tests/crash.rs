@@ -3,7 +3,8 @@
 //! more address per round); once it reported its first save, the parent kills it
 //! (`Child::kill`, `SIGKILL` on Unix) after a random delay, opens the wallet and checks that it
 //! holds one of the saved states. Three children run side by side, on wallets of both formats,
-//! until 50 kills are done (or about a minute passed).
+//! until 50 kills are done or the time budget is spent (a slow machine still gets a few kills
+//! per lane).
 //!
 //! Set `XKR_SKIP_KILL_TEST=1` to skip.
 
@@ -91,8 +92,13 @@ fn files(dir: &Path) -> Vec<String> {
 const KILLS: usize = 50;
 /// Children running side by side.
 const LANES: usize = 3;
-/// Time after which no new child is started.
+/// Time after which no new child is started, once a lane has `MIN_KILLS`.
 const BUDGET: Duration = Duration::from_secs(120);
+/// Kills every lane does however slow the machine; a lane short of them keeps going after
+/// `BUDGET`, up to `HARD_LIMIT`.
+const MIN_KILLS: usize = 3;
+/// Time after which no new child is started whatever a lane has done.
+const HARD_LIMIT: Duration = Duration::from_secs(600);
 
 /// A new wallet of `format` at `path`, saved.
 fn new_wallet(rt: &tokio::runtime::Runtime, path: &Path, format: FileFormat) {
@@ -140,7 +146,9 @@ fn lane(
     let mut rng = xkr_crypto::os_rng();
     let mut count = 1;
     let mut kills = 0;
-    while done.load(Ordering::SeqCst) < KILLS && start.elapsed() < BUDGET {
+    while done.load(Ordering::SeqCst) < KILLS
+        && (start.elapsed() < BUDGET || (kills < MIN_KILLS && start.elapsed() < HARD_LIMIT))
+    {
         let mut child = Command::new(exe)
             .args([
                 "save_loop_child",
@@ -223,6 +231,6 @@ fn killed_saves_leave_a_wallet_that_opens() {
         "{total} kills ({kills:?} per lane) in {:.1} s",
         start.elapsed().as_secs_f64()
     );
-    // at least a few kills of each format however slow the machine; normally `KILLS`
-    assert!(kills.iter().all(|k| *k >= 3), "{kills:?}");
+    // at least `MIN_KILLS` of each format however slow the machine; normally `KILLS`
+    assert!(kills.iter().all(|k| *k >= MIN_KILLS), "{kills:?}");
 }
