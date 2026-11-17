@@ -1308,8 +1308,10 @@ fn close_with_handles_left_leaves_a_clean_file() {
 
 /// The test above detects a missing close: a copy of the file taken while the store is open
 /// (what a process that exits without closing leaves behind) is checked on open, and keeps
-/// every committed block.
+/// every committed block. Unix only: Windows does not let another handle read the open,
+/// locked database file.
 #[test]
+#[cfg(unix)]
 fn a_file_left_open_is_checked_on_open() {
     let tmp = TempDb::new();
     let copy = TempDb::new();

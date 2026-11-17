@@ -52,8 +52,14 @@ pub fn keys() -> WalletKeys {
 }
 
 /// Waits (at most 20 s) until `done` holds.
-pub async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+pub async fn wait_until(what: &str, done: impl FnMut() -> bool) {
+    wait_until_within(what, Duration::from_secs(20), done).await;
+}
+
+/// [`wait_until`] with its own deadline, for waits whose polls are slow themselves (opening
+/// an encrypted wallet file runs its key derivation every time).
+pub async fn wait_until_within(what: &str, timeout: Duration, mut done: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + timeout;
     while !done() {
         assert!(
             tokio::time::Instant::now() < deadline,

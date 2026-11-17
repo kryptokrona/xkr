@@ -296,26 +296,61 @@ impl AppError {
         }
     }
 
-    /// An `errno` of `std::generic_category()`, with the system's text for it (C++
-    /// `strerror`).
+    /// The `strerror` text of the errno values the file layer reports, as the C++ service
+    /// renders them on Linux (glibc); the same on every platform.
+    fn strerror(errno: i32) -> Option<&'static str> {
+        Some(match errno {
+            1 => "Operation not permitted",
+            2 => "No such file or directory",
+            5 => "Input/output error",
+            13 => "Permission denied",
+            17 => "File exists",
+            20 => "Not a directory",
+            21 => "Is a directory",
+            24 => "Too many open files",
+            28 => "No space left on device",
+            30 => "Read-only file system",
+            _ => return None,
+        })
+    }
+
+    /// An `errno` of `std::generic_category()` with its `strerror` text ([`Self::strerror`],
+    /// else the system's text for the number).
     #[must_use]
     pub fn system(errno: i32) -> Self {
-        let text = std::io::Error::from_raw_os_error(errno).to_string();
-        // Rust appends " (os error N)" to strerror's text.
-        let message = text
-            .rsplit_once(" (os error ")
-            .map_or(text.as_str(), |(m, _)| m)
-            .to_owned();
+        let message = Self::strerror(errno).map_or_else(
+            || {
+                let text = std::io::Error::from_raw_os_error(errno).to_string();
+                // Rust appends " (os error N)" to strerror's text.
+                text.rsplit_once(" (os error ")
+                    .map_or(text.as_str(), |(m, _)| m)
+                    .to_owned()
+            },
+            str::to_owned,
+        );
         Self {
             code: errno,
             message,
         }
     }
 
-    /// The error of a failed file operation (`std::system_error` from the file layer).
+    /// The error of a failed file operation (`std::system_error` from the file layer): the
+    /// errno of its kind on every platform, else the system's own errno (Unix).
     #[must_use]
     pub fn io(e: &std::io::Error) -> Self {
-        e.raw_os_error().map_or_else(
+        use std::io::ErrorKind as K;
+        let errno = match e.kind() {
+            K::NotFound => Some(2),
+            K::PermissionDenied => Some(13),
+            K::AlreadyExists => Some(17),
+            K::NotADirectory => Some(20),
+            K::IsADirectory => Some(21),
+            K::StorageFull => Some(28),
+            K::ReadOnlyFilesystem => Some(30),
+            _ if cfg!(unix) => e.raw_os_error(),
+            _ => None,
+        };
+        errno.map_or_else(
             || Self::wallet(WalletCode::InternalWalletError),
             Self::system,
         )
@@ -466,11 +501,24 @@ mod tests {
     }
 
     #[test]
-    fn errno_codes_use_the_system_text() {
+    fn errno_codes_use_the_cpp_text_on_every_platform() {
         let e = AppError::system(17);
-        assert_eq!(e.code, 17);
+        assert_eq!((e.code, e.message.as_str()), (17, "File exists"));
+        let e = AppError::io(&std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        assert_eq!((e.code, e.message.as_str()), (17, "File exists"));
+        let e = AppError::io(&std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            (2, "No such file or directory")
+        );
+        // an errno without a fixed text: the system's, without Rust's suffix
+        let e = AppError::system(97);
+        assert_eq!(e.code, 97);
         assert!(!e.message.contains("os error"), "{}", e.message);
         assert!(!e.message.is_empty());
+        // no errno at all
+        let e = AppError::io(&std::io::Error::other("x"));
+        assert_eq!(e.code, WalletCode::InternalWalletError as i32);
     }
 
     #[test]

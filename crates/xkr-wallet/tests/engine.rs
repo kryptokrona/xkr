@@ -8,7 +8,10 @@ mod common;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use common::{Mock, config, hash_of, keys, payment, wait_for_block, wait_until, wallet_path};
+use common::{
+    Mock, config, hash_of, keys, payment, wait_for_block, wait_until, wait_until_within,
+    wallet_path,
+};
 use xkr_consensus::Network;
 use xkr_types::{Hash, KeyImage, Transaction, TxInput, TxOutputTarget};
 use xkr_wallet::{
@@ -1088,7 +1091,10 @@ async fn autosave_after_transactions_and_blocks() {
     }));
     let tip = mock.mine_to(&me.address(), 1_000, 0);
     wait_for_block(&w, tip).await;
-    wait_until("the saved transaction", || on_disk(transactions) == 1).await;
+    wait_until_within("the saved transaction", Duration::from_secs(120), || {
+        on_disk(transactions) == 1
+    })
+    .await;
     // blocks without a transaction: only after `after_blocks` of them
     w.set_autosave(Some(xkr_wallet::AutosaveConfig {
         interval: Duration::from_secs(3600),
@@ -1109,7 +1115,10 @@ async fn autosave_after_transactions_and_blocks() {
     }
     let tip = mock.mine();
     wait_for_block(&w, tip).await;
-    wait_until("the saved blocks", || on_disk(height) >= saved_height + 5).await;
+    wait_until_within("the saved blocks", Duration::from_secs(120), || {
+        on_disk(height) >= saved_height + 5
+    })
+    .await;
     // off: nothing is written any more
     w.set_autosave(None);
     tokio::time::sleep(Duration::from_millis(300)).await;

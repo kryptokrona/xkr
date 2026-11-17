@@ -1139,7 +1139,10 @@ fn placeholder_matching() {
         &mut b
     ));
     assert_eq!(b.firm("<hex:1>"), Some("ff".repeat(32).as_str()));
-    assert_eq!(substitute("/w/a.wallet", &mut b, w), "/tmp/x/a.wallet");
+    assert_eq!(
+        substitute("/w/a.wallet", &mut b, w),
+        w.join("a.wallet").to_string_lossy()
+    );
     assert!(has_placeholder(&serde_json::json!({"a": ["x <tx:1>"]})));
     assert!(has_placeholder(
         &serde_json::json!({"a": ["x <timestamp>"]})
