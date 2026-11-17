@@ -123,7 +123,8 @@ fn load_runtime() -> Result<RuntimeSource, String> {
     Ok(RuntimeSource::NotNeeded)
 }
 
-#[cfg(test)]
+// The candidates and the message name Unix paths and sonames.
+#[cfg(all(test, unix))]
 mod tests {
     use std::cell::RefCell;
 

@@ -63,10 +63,12 @@ pub async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// Waits until the wallet has processed the block with `hash`.
+/// Waits until the wallet has processed the block with `hash` and its view of the node's
+/// network height (polled separately, used for the unlock checks) has reached it too.
 pub async fn wait_for_block<T: Transport + 'static>(wallet: &Wallet<T>, hash: Hash) {
     wait_until("the wallet to reach the tip", || {
-        wallet.status().last_block_hash == Some(hash)
+        let s = wallet.status();
+        s.last_block_hash == Some(hash) && s.network_block_count >= s.wallet_block_count
     })
     .await;
 }
