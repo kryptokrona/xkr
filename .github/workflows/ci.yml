@@ -31,11 +31,21 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.21.0"
+      # libbare-kit (scripts/build-bare-kit.sh), cached by the script that pins bare-kit.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/bare-kit/lib
+          key: bare-kit-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-bare-kit.sh') }}
+      - name: libbare-kit
+        run: scripts/build-bare-kit.sh
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      # Tests that need `node` and bridge/node_modules are #[ignore]d and do not run here;
+      # Tests that need bridge/node_modules are #[ignore]d and do not run here;
       # the testnet suite (testnet/suite.sh) needs Docker images and is not run in CI.
       - name: test
         run: cargo test --locked --workspace
@@ -54,13 +64,20 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.21.0"
+      # libbare-kit (scripts/build-bare-kit.sh), cached by the script that pins bare-kit.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/bare-kit/lib
+          key: bare-kit-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-bare-kit.sh') }}
+      - name: libbare-kit
+        run: scripts/build-bare-kit.sh
       - name: Build
         run: >-
           cargo build --locked --release
           -p xkrd -p xkr-wallet-api -p xkr-walletd -p xkr-wallet-cli -p xkr-miner
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24.21.0"
       - name: Package
         run: |
           packaging/scripts/bundle-bridge.sh --out dist/bridge

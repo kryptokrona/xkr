@@ -33,7 +33,7 @@ env:
 
 jobs:
   bridge:
-    name: bridge sidecar bundle
+    name: bridge bundle
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,18 +97,25 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.target }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # libbare-kit (scripts/build-bare-kit.sh), cached by the script that pins bare-kit.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/bare-kit/lib
+          key: bare-kit-${{ matrix.target }}-${{ hashFiles('scripts/build-bare-kit.sh') }}
+      - name: libbare-kit
+        run: scripts/build-bare-kit.sh
       - name: clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      # Tests that need node and bridge/node_modules are #[ignore]d, as in ci.yml.
+      # Tests that need bridge/node_modules are #[ignore]d, as in ci.yml.
       - name: test
         run: cargo test --locked --workspace
       - name: build
         run: >-
           cargo build --locked --release
           -p xkrd -p xkr-wallet-api -p xkr-walletd -p xkr-wallet-cli -p xkr-miner
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: xkr-bridge
@@ -232,8 +239,7 @@ jobs:
         with:
           name: xkr-${{ matrix.target }}
           path: dist
-      # xkrd and the bridge come from this run's release archive; the Node runtime is the
-      # official build installed by setup-node.
+      # xkrd, libbare-kit and the bridge come from this run's release archive.
       - name: Prepare sidecars
         run: |
           case "$(echo dist/xkr-*)" in
@@ -241,10 +247,8 @@ jobs:
             *) tar -C dist -xzf "$(echo dist/xkr-*.tar.gz)" ;;
           esac
           pkg=$(find dist -maxdepth 1 -type d -name 'xkr-*' | head -n1)
-          node_path=$(node -p process.execPath)
-          if command -v cygpath >/dev/null; then node_path=$(cygpath -u "$node_path"); fi
           packaging/tauri-sidecar/scripts/prepare-sidecars.sh --target "${{ matrix.target }}" \
-            --xkrd-dir "$pkg" --bridge-dir "$pkg/bridge" --node "$node_path"
+            --xkrd-dir "$pkg" --bridge-dir "$pkg/bridge"
       - name: Build
         working-directory: packaging/tauri-sidecar/src-tauri
         run: cargo tauri build --bundles "${{ matrix.bundles }}"

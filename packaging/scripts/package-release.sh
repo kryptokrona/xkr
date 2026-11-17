@@ -3,12 +3,13 @@
 # them under the C++ program names, and the Hyperswarm bridge.
 #
 #   packaging/scripts/package-release.sh --target <triple> --bridge <bridge dir> \
-#       [--version <version>] [--bin-dir <dir>] [--out <dir>]
+#       [--version <version>] [--bin-dir <dir>] [--bare-kit <dir>] [--out <dir>]
 #
 # --version defaults to the workspace version in Cargo.toml. --bin-dir defaults to
 # target/<target>/release when xkrd is there, else target/release (both under $CARGO_TARGET_DIR
 # when set). --bridge is a bundle from bundle-bridge.sh or a bridge/ checkout with its
-# node_modules installed. The archive is <out>/xkr-<version>-<target>.tar.gz (.zip for Windows
+# node_modules installed. --bare-kit is the directory with libbare-kit (default: $LIBBARE_DIR,
+# else target/bare-kit/lib from scripts/build-bare-kit.sh). The archive is <out>/xkr-<version>-<target>.tar.gz (.zip for Windows
 # targets; --out defaults to dist/) and holds one directory:
 #
 #   xkr-<version>-<target>/
@@ -17,6 +18,7 @@
 #     xkr-walletd           JSON-RPC wallet service   kryptokrona-service  (same program)
 #     xkrwallet             terminal wallet
 #     xkr-miner             CPU miner                 miner                (same program)
+#     libbare-kit.so        the Bare runtime for xkrd (libbare-kit.dylib, bare-kit.dll)
 #     bridge/               src/, package.json, node_modules/ (this target's prebuilds only)
 #     docs/wallet-tools.md  moving from the C++ tools
 #     README.md, LICENSE
@@ -24,22 +26,22 @@
 #
 # On Windows every program ends in .exe. The old-name copies are plain copies (no links), so
 # the zip works everywhere. xkrd finds bridge/ next to itself and runs it on Bare worker threads
-# through libbare-kit, which it loads from its own directory or its lib/ (this script does not
-# copy the library yet; see packaging/README.md). On Linux targets the run path of the packed
-# xkrd is set to $ORIGIN:$ORIGIN/lib with patchelf when it is installed (a release build without
-# XKR_DEV_RPATH=1 has exactly that already); without patchelf, a run path that names any other
-# directory is reported. Prints the archive path.
+# through libbare-kit, which the archive carries next to xkrd. On Linux
+# targets the run path of the packed xkrd is set to $ORIGIN:$ORIGIN/lib with patchelf when it is
+# installed (a release build without XKR_DEV_RPATH=1 has exactly that already); without
+# patchelf, a run path that names any other directory is reported. Prints the archive path.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
-target="" version="" bridge="" bin_dir="" out="$repo/dist"
+target="" version="" bridge="" bin_dir="" bare_kit="" out="$repo/dist"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) target=${2:?}; shift 2 ;;
     --version) version=${2:?}; shift 2 ;;
     --bridge) bridge=${2:?}; shift 2 ;;
     --bin-dir) bin_dir=${2:?}; shift 2 ;;
+    --bare-kit) bare_kit=${2:?}; shift 2 ;;
     --out) out=${2:?}; shift 2 ;;
     -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -103,6 +105,15 @@ for entry in "${programs[@]}"; do
 done
 
 # xkrd looks for its libraries only next to itself and in its lib/.
+bare_kit=${bare_kit:-${LIBBARE_DIR:-$repo/target/bare-kit/lib}}
+case "$target" in
+  *windows*) libbare=bare-kit.dll ;;
+  *apple*) libbare=libbare-kit.dylib ;;
+  *) libbare=libbare-kit.so ;;
+esac
+[[ -f "$bare_kit/$libbare" ]] || {
+  echo "$bare_kit/$libbare is missing (scripts/build-bare-kit.sh)" >&2; exit 2; }
+cp "$bare_kit/$libbare" "$stage/$libbare"
 if [[ "$target" == *linux* ]]; then
   if command -v patchelf >/dev/null 2>&1; then
     # shellcheck disable=SC2016 # $ORIGIN is for the loader, not the shell

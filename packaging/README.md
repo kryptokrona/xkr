@@ -25,45 +25,18 @@ the same `node_modules` works everywhere. `scripts/prune-prebuilds.sh` drops the
 platforms' prebuilds from a copy (about 40 MB down to about 7 MB).
 
 xkrd finds the bridge as `bridge/` next to its executable (or `--hyper-bridge-dir`,
-`$XKR_BRIDGE_DIR`). The release archives use that layout. They do not include `libbare-kit`
-yet (see below), which every `xkrd` loads at start. The Tauri sample ships the bridge and
-libbare-kit as resources and puts its `lib/` on xkrd's library search path
-(`tauri-sidecar/README.md`).
+`$XKR_BRIDGE_DIR`). The release archives use that layout and carry `libbare-kit` next to
+`xkrd`. The Tauri sample ships the bridge and libbare-kit as resources and puts its `lib/` on
+xkrd's library search path (`tauri-sidecar/README.md`).
 
-### libbare-kit and what CI still has to do
+### libbare-kit
 
 xkrd links bare-kit's C library (`libbare-kit`), which `scripts/build-bare-kit.sh` builds into
-`target/bare-kit/lib`; `.cargo/config.toml` sets `LIBBARE_DIR` to it, and cargo downloads
-nothing. xkrd gets two run-time search paths: the build's `LIBBARE_DIR` and its own directory
-(`$ORIGIN` on Linux, `@executable_path` on macOS), so a `libbare-kit` next to `xkrd` is found.
-A package is `xkrd`, `libbare-kit` next to it, and the usual `bridge/` bundle, which already
-holds the `.bare` prebuilds of `sodium-native` and `udx-native`:
-
-```sh
-scripts/build-bare-kit.sh
-cargo build -j 3 --release -p xkrd
-cp -a target/bare-kit/lib/libbare-kit.so* target/release/
-target/release/xkrd --hyper-bridge-dir dist/bridge ...
-```
-
-The workflows and `package-release.sh` are not changed yet: as they are, clippy, `cargo test
---workspace` and the release build of `xkrd` stop at the missing `libbare-kit`. CI has to:
-
-1. build `libbare-kit` on every runner (`scripts/build-bare-kit.sh`; its `--docker` mode is for
-   NixOS and is not needed on the GitHub runners; Node.js, npm and git are there) and cache
-   `target/bare-kit/lib` by the pinned bare-kit commit;
-2. set `LIBBARE_DIR` to that directory (absolute) for clippy, tests and the release build,
-   unless the job runs from the repository root, where `.cargo/config.toml` already does it;
-3. ship `libbare-kit` next to `xkrd` in each archive: `libbare-kit.so` on Linux,
-   `libbare-kit.dylib` on macOS (install name `@rpath/libbare-kit.dylib`, which the script
-   sets), `bare-kit.dll` on Windows; add it to the archive's `SHA256SUMS` and to the smoke test
-   (`xkrd --version` must start);
-4. in `build.yml`, job `tauri`, step "Prepare sidecars": drop the `node_path` lines and the
-   `--node "$node_path"` argument (`prepare-sidecars.sh` no longer bundles a Node runtime and
-   refuses `--node`), and pass `--bare-kit-dir` until the archive carries libbare-kit; rename
-   the job `bridge` from "bridge sidecar bundle" to "bridge bundle";
-5. the archive smoke test may keep loading the bridge's addons with `node` (that checks the
-   `.node` prebuilds only); a check that the `.bare` prebuilds load needs a Bare runtime.
+`target/bare-kit/lib`; `.cargo/config.toml` sets `LIBBARE_DIR` to it. A release build of xkrd
+searches its own directory (`$ORIGIN:$ORIGIN/lib` on Linux, `@executable_path` on macOS), so
+`package-release.sh` copies the library next to `xkrd` (`--bare-kit <dir>`, default
+`$LIBBARE_DIR` or `target/bare-kit/lib`). Both workflows build it on every runner and cache
+`target/bare-kit/lib` by the script that pins bare-kit.
 
 ## Local
 
@@ -71,7 +44,8 @@ All commands from the repository root. Builds are heavy; on a shared machine lim
 main README says (`-j 3`).
 
 ```sh
-# 1. binaries
+# 1. libbare-kit and the binaries
+scripts/build-bare-kit.sh
 cargo build --release -p xkrd -p xkr-wallet-api -p xkr-walletd -p xkr-wallet-cli -p xkr-miner
 
 # 2. bridge bundle (needs Node.js 22+ and npm; uses `sfw npm ci` when sfw is on PATH)
