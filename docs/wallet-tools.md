@@ -91,13 +91,14 @@ away.
 ## 5. Fork 14: the deadline for the C++ wallets
 
 At fork 14 the network moves to transaction version 2 (view tags, smaller ring signatures). The
-heights for mainnet are provisional:
+heights for mainnet:
 
 | Block | What changes |
 |---|---|
-| F = 3 000 000 | fork 14; blocks are version 7 from F + 1 |
+| 2 700 000 | fork 13; blocks are version 6 from 2 700 001, transactions unchanged |
+| F = 2 750 000 | fork 14; blocks are version 7 from F + 1 |
 | F + 1 to F + 28 800 (30 days) | grace window: version 1 and version 2 transactions are both valid |
-| from 3 028 801 | only version 2 transactions are valid |
+| from 2 778 801 | only version 2 transactions are valid |
 
 What this means for each setup:
 
@@ -171,7 +172,7 @@ You can go back as long as the C++ tools can still send (before F + 28 800, sect
       old name), same flags, same file.
 - [ ] Let the first start finish its scan; compare the balance with the one before the switch.
 - [ ] Make a small deposit to an `Xkr…` address and a small withdrawal.
-- [ ] Be on the Rust tools before fork 14 (mainnet F = 3 000 000, provisional).
+- [ ] Be on the Rust tools before fork 14 (mainnet F = 2 750 000).
 
 ## 10. How this is tested
 

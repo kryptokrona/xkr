@@ -39,7 +39,7 @@ Everything comes from one storage snapshot plus the pool, mirroring `Core::getBl
 1. `height = top + 1`, `difficulty = getDifficultyForNextBlock()`, major version of the height
    from the fork table (6 after fork 13, 7 after fork 14), previous hash = top. Minor version:
    the supported fork index of the schedule (`ForkSchedule::template_minor_version`: 13, or 14
-   once fork 14 is scheduled, as on mainnet at 3 000 000 and on a testnet with
+   once fork 14 is scheduled, as on mainnet at 2 750 000 and on a testnet with
    `--fork14-height`; 14 signals forks 13 and 14) instead of the C++ 0, to signal fork
    readiness (`docs/forks.md`; consensus and the C++ upgrade manager ignore it, p2pool
    overwrites it with 16).

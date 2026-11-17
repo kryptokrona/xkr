@@ -90,13 +90,15 @@ mod tests {
         assert_eq!(
             mainnet,
             ForkHeights {
-                fork13: 0,
-                fork14: 3_000_000
+                fork13: 2_700_000,
+                fork14: 2_750_000
             }
         );
         assert_eq!(mainnet.network_major_version(2_100_000), 5);
-        assert_eq!(mainnet.network_major_version(3_000_000), 5);
-        assert_eq!(mainnet.network_major_version(3_000_001), 7);
+        assert_eq!(mainnet.network_major_version(2_700_000), 5);
+        assert_eq!(mainnet.network_major_version(2_700_001), 6);
+        assert_eq!(mainnet.network_major_version(2_750_000), 6);
+        assert_eq!(mainnet.network_major_version(2_750_001), 7);
 
         let both = ForkHeights {
             fork13: 100,

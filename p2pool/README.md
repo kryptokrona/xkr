@@ -36,7 +36,7 @@ received blob, so patched and unpatched nodes share a sidechain until `F13`.
 Fork heights (a fork at `F` governs blocks `F + 1, ...`, as in xkrd and the C++ patch):
 
 * release builds: `-DXKR_FORK13_HEIGHT=<h>` / `-DXKR_FORK14_HEIGHT=<h>` (Docker build arguments
-  `XKR_FORK13_HEIGHT` / `XKR_FORK14_HEIGHT`, or `CXX_DEFS`); defaults 0 (fork 13 not scheduled) and 3 000 000 (fork 14);
+  `XKR_FORK13_HEIGHT` / `XKR_FORK14_HEIGHT`, or `CXX_DEFS`); defaults 2 700 000 (fork 13) and 2 750 000 (fork 14), the mainnet heights of xkrd;
 * testnet: the environment variables `XKR_FORK13_HEIGHT` / `XKR_FORK14_HEIGHT`, honoured only
   when the daemon's `get_info` reports `"testnet": true` (Kryptokrona addresses carry no
   network, so p2pool cannot tell otherwise). They must equal xkrd's `--fork13-height` /

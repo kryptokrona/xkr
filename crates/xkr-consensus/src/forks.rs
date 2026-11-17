@@ -26,13 +26,13 @@
 //! proof of work (CN-Turtle-Lite v2), difficulty (LWMA-3) and reward of version 5. Only the
 //! version changes, so a node that does not know version 6 (C++ v1.2.2 and older:
 //! `serializeBlockHeader` throws "Wrong major version" for `majorVersion > 5`) stops at height
-//! `F`. Mainnet height: not scheduled ([`FORK_13_HEIGHT_MAINNET`]); testnet:
+//! `F`. Mainnet height: 2 700 000 ([`FORK_13_HEIGHT_MAINNET`]); testnet:
 //! set at run time (`xkrd --fork13-height`, [`NetworkParams::with_fork13_height`]).
 //!
 //! **Fork 14** (`docs/tx-v2.md`): block major version 7 and transaction version 2
 //! (view tags, single-key CLSAG). Version 1 stays valid for [`Fork14Params::grace_blocks`]
 //! blocks after the fork, then only version 2. Scheduled on mainnet at
-//! [`FORK_14_HEIGHT_MAINNET`] (3 000 000, provisional); on testnet it is set at run time
+//! [`FORK_14_HEIGHT_MAINNET`] (2 750 000); on testnet it is set at run time
 //! ([`NetworkParams::with_fork14_height`]). It is only part of [`ForkSchedule::forks`] once a
 //! height is set. [`SUPPORTED_FORK_INDEX`] (13) is the baseline; a schedule with fork 14 set
 //! supports and signals 14 ([`ForkSchedule::supported_index`],
@@ -44,15 +44,16 @@ use crate::params::{
     NetworkParams, TRANSACTION_VERSION_1, TRANSACTION_VERSION_2,
 };
 
-/// Fork 13 on mainnet: **not scheduled yet**. The height is set once the C++ v1.2 release is out
-/// at least two weeks before it and p2pool is updated (see `docs/forks.md`).
-pub const FORK_13_HEIGHT_MAINNET: Option<u32> = None;
+/// Fork 13 on mainnet: height **2 700 000**, set on 2026-11-17 (block 2 700 001 is the first
+/// version-6 block). C++ nodes need the v1.2 release with this height, p2pool its patches
+/// (`docs/forks.md` §6).
+pub const FORK_13_HEIGHT_MAINNET: Option<u32> = Some(2_700_000);
 /// Fork 13 on testnet by default: not scheduled; `xkrd --fork13-height <h>` sets it.
 pub const FORK_13_HEIGHT_TESTNET: Option<u32> = None;
-/// Fork 14 (transaction version 2) on mainnet: height **3 000 000**, set on 2026-11-13 as a
-/// provisional height that leaves ample time to roll the new node out (the open
-/// questions of `docs/tx-v2.md` may still move it before the C++ side is released).
-pub const FORK_14_HEIGHT_MAINNET: Option<u32> = Some(3_000_000);
+/// Fork 14 (transaction version 2) on mainnet: height **2 750 000**, set on 2026-11-17 (block
+/// 2 750 001 is the first version-7 block; version-1 transactions stay valid for
+/// [`FORK_14_PARAMS_MAINNET`]`.grace_blocks` more blocks).
+pub const FORK_14_HEIGHT_MAINNET: Option<u32> = Some(2_750_000);
 /// Fork 14 on testnet by default: not scheduled; set at run time
 /// ([`NetworkParams::with_fork14_height`]).
 pub const FORK_14_HEIGHT_TESTNET: Option<u32> = None;
@@ -111,7 +112,7 @@ pub const FORK_14: u8 = 14;
 
 /// The highest fork index this software supports on a schedule without fork 14 (C++
 /// `SOFTWARE_SUPPORTED_FORK_INDEX` of a fork-13 build; [`crate::params::SOFTWARE_SUPPORTED_FORK_INDEX`]
-/// keeps the C++ v1.2.2 value 12). Once fork 14 is scheduled (mainnet 3 000 000, testnet
+/// keeps the C++ v1.2.2 value 12). Once fork 14 is scheduled (mainnet 2 750 000, testnet
 /// `--fork14-height`) the schedule supports 14: [`ForkSchedule::supported_index`].
 pub const SUPPORTED_FORK_INDEX: u8 = FORK_13;
 
@@ -648,8 +649,11 @@ mod tests {
     }
 
     /// Mainnet without fork 14 (the table before it was scheduled).
-    fn mainnet_without_fork_14() -> ForkSchedule {
-        MAINNET.with_fork14_height(None).forks()
+    fn mainnet_without_forks_13_and_14() -> ForkSchedule {
+        MAINNET
+            .with_fork13_height(None)
+            .with_fork14_height(None)
+            .forks()
     }
 
     #[test]
@@ -685,42 +689,54 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_fork_14_at_3_000_000() {
+    fn mainnet_fork_13_at_2_700_000_and_fork_14_at_2_750_000() {
         let s = MAINNET.forks();
-        assert_eq!(s.fork13_height(), None);
-        assert_eq!(s.fork14_height(), Some(3_000_000));
+        assert_eq!(s.fork13_height(), Some(2_700_000));
+        assert_eq!(s.fork14_height(), Some(2_750_000));
         let mut heights = FORK_HEIGHTS.to_vec();
-        heights.push(3_000_000);
+        heights.extend([2_700_000, 2_750_000]);
         assert_eq!(s.upgrade_heights(), heights);
         assert_eq!(s.supported_index(), FORK_14);
-        assert_eq!(s.supported_height(), 3_000_000);
+        assert_eq!(s.supported_height(), 2_750_000);
         assert_eq!(s.template_minor_version(5), FORK_14);
-        // below the fork everything is as before
-        for h in [2_617_000, 2_999_999, 3_000_000] {
+        // below fork 13 everything is as before
+        for h in [2_617_000, 2_699_999, 2_700_000] {
             assert_eq!(s.block_major_version_for(h), 5);
             assert_eq!(s.tx_versions_at(h), TxVersions::V1);
             assert_eq!(s.coinbase_tx_version(h), 1);
             assert!(!s.is_tx_v2_active(h));
         }
-        assert_eq!(s.fork_at(3_000_000).map(|f| f.index), Some(12));
-        assert_eq!(s.next_fork(2_617_000).map(|f| f.index), Some(FORK_14));
-        assert_eq!(s.next_fork(3_000_000).map(|f| f.index), Some(FORK_14));
-        // fork 13 is still the first block-version fork to signal for (not scheduled)
+        assert_eq!(s.fork_at(2_700_000).map(|f| f.index), Some(12));
+        assert_eq!(s.next_fork(2_617_000).map(|f| f.index), Some(FORK_13));
+        assert_eq!(s.next_fork(2_700_000).map(|f| f.index), Some(FORK_13));
         assert_eq!(s.signal_target(2_617_000).map(|f| f.index), Some(FORK_13));
-        // from 3 000 001: major 7, v2 coinbase, both versions for the grace, then v2 only
-        assert_eq!(s.block_major_version_for(3_000_001), 7);
-        assert_eq!(s.fork_at(3_000_001).map(|f| f.index), Some(FORK_14));
-        assert_eq!(s.coinbase_tx_version(3_000_001), 2);
-        assert_eq!(s.tx_versions_at(3_000_001), TxVersions::V1_V2);
-        assert_eq!(s.tx_versions_at(3_028_800), TxVersions::V1_V2);
-        assert_eq!(s.tx_versions_at(3_028_801), TxVersions::V2);
-        assert_eq!(s.next_fork(3_000_001), None);
-        assert_eq!(s.upgrade_height(7), Some(3_000_000));
+        assert_eq!(s.upgrade_height(6), Some(2_700_000));
+        // fork 13: major 6, version-1 transactions only
+        for h in [2_700_001, 2_749_999, 2_750_000] {
+            assert_eq!(s.block_major_version_for(h), 6);
+            assert_eq!(s.tx_versions_at(h), TxVersions::V1);
+            assert_eq!(s.coinbase_tx_version(h), 1);
+            assert!(!s.is_tx_v2_active(h));
+        }
+        assert_eq!(s.fork_at(2_700_001).map(|f| f.index), Some(FORK_13));
+        assert_eq!(s.next_fork(2_700_001).map(|f| f.index), Some(FORK_14));
+        assert_eq!(s.next_fork(2_750_000).map(|f| f.index), Some(FORK_14));
+        assert_eq!(s.signal_target(2_700_001).map(|f| f.index), Some(FORK_14));
+        // from 2 750 001: major 7, v2 coinbase, both versions for the grace, then v2 only
+        assert_eq!(s.block_major_version_for(2_750_001), 7);
+        assert_eq!(s.fork_at(2_750_001).map(|f| f.index), Some(FORK_14));
+        assert_eq!(s.coinbase_tx_version(2_750_001), 2);
+        assert_eq!(s.tx_versions_at(2_750_001), TxVersions::V1_V2);
+        assert_eq!(s.tx_versions_at(2_778_800), TxVersions::V1_V2);
+        assert_eq!(s.tx_versions_at(2_778_801), TxVersions::V2);
+        assert_eq!(s.next_fork(2_750_001), None);
+        assert_eq!(s.signal_target(2_750_001), None);
+        assert_eq!(s.upgrade_height(7), Some(2_750_000));
     }
 
     #[test]
-    fn mainnet_is_unchanged_while_fork_13_is_not_scheduled() {
-        let s = mainnet_without_fork_14();
+    fn mainnet_is_unchanged_without_forks_13_and_14() {
+        let s = mainnet_without_forks_13_and_14();
         assert_eq!(s.fork13_height(), None);
         assert_eq!(s.upgrade_heights(), FORK_HEIGHTS.to_vec());
         assert_eq!(s.supported_index(), SUPPORTED_FORK_INDEX);
@@ -772,7 +788,7 @@ mod tests {
 
     #[test]
     fn fork_14_is_absent_until_scheduled() {
-        let s = mainnet_without_fork_14();
+        let s = mainnet_without_forks_13_and_14();
         assert_eq!(s.fork14_height(), None);
         assert_eq!(s.forks().len(), FORK_COUNT);
         assert_eq!(s.fork(FORK_14), None);

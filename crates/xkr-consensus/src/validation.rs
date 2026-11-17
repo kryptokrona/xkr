@@ -1072,9 +1072,9 @@ mod tests {
         let mut v0 = v2.clone();
         v0.prefix.version = 0;
 
-        // Mainnet: fork 14 at 3 000 000 with 28 800 blocks of grace.
+        // Mainnet: fork 14 at 2 750 000 with 28 800 blocks of grace.
         let mainnet = MAINNET.forks();
-        for h in [0, 2_617_000, 3_000_000] {
+        for h in [0, 2_617_000, 2_700_001, 2_750_000] {
             assert_eq!(check_transaction_version(&mainnet, h, &v1), Ok(()));
             assert_eq!(check_transaction_version(&mainnet, h, &v0), Ok(()));
             assert_eq!(
@@ -1082,11 +1082,11 @@ mod tests {
                 Err(TxError::WrongTransactionVersion)
             );
         }
-        for h in [3_000_001, 3_028_800] {
+        for h in [2_750_001, 2_778_800] {
             assert_eq!(check_transaction_version(&mainnet, h, &v1), Ok(()));
             assert_eq!(check_transaction_version(&mainnet, h, &v2), Ok(()));
         }
-        for h in [3_028_801, u64::from(u32::MAX)] {
+        for h in [2_778_801, u64::from(u32::MAX)] {
             assert_eq!(
                 check_transaction_version(&mainnet, h, &v1),
                 Err(TxError::WrongTransactionVersion)

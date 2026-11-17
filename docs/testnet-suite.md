@@ -796,9 +796,9 @@ Nothing below is automated beyond the suite; each item is a yes/no before the re
 
 ### (a) Fork 13 on mainnet ("flag day", block major version 6)
 
-1. **Height.** `F13` lies at least two weeks after the release date: 2 weeks
-   at 90 s = 13 440 blocks; about one month (~28 800 blocks) leaves room. `F13` must be below
-   the fork-14 height 3 000 000 (xkrd warns at start-up otherwise).
+1. **Height.** `F13` = 2 700 000 (`FORK_13_HEIGHT_MAINNET`, set on 2026-11-17 about 80 days
+   ahead; two weeks at 90 s = 13 440 blocks is the minimum after the release date). It lies
+   below the fork-14 height 2 750 000 (xkrd warns at start-up otherwise).
 2. **C++ v1.2.** Built from `testnet/patches/0001-fork13-testnet.patch` turned into a fixed
    mainnet height: the 14th `FORK_HEIGHTS` entry and `UPGRADE_HEIGHT_V6 = F13`,
    `SOFTWARE_SUPPORTED_FORK_INDEX = 13`, no environment override in mainnet builds. Its mainnet
@@ -832,7 +832,7 @@ Nothing below is automated beyond the suite; each item is a yes/no before the re
    with both binaries at least two weeks before `F13`.
 7. The **mainnet dry run** (c) near the height.
 
-### (b) Fork 14 on mainnet (provisional height 3 000 000, tx version 2)
+### (b) Fork 14 on mainnet (height 2 750 000, tx version 2)
 
 1. **Suite green including `31-fork14`**, also once with the mainnet grace ratio in mind (e.g.
    `GRACE=200 F14=400` to exercise a longer grace) and with `MIXIN_V2` at the mainnet ring size.
@@ -846,7 +846,7 @@ Nothing below is automated beyond the suite; each item is a yes/no before the re
    (not SKIP: the image must be built), with the release's patches.
 4. **Grace period**: 28 800 blocks (30 days) of v1 after `F14`
    (`FORK_14_PARAMS_MAINNET.grace_blocks`), announced with the height.
-5. Fork 13 has happened (or is scheduled below 3 000 000) and C++ nodes are retired or ported:
+5. Fork 13 has happened (2 700 000) and C++ nodes are retired or ported:
    no C++ node can follow fork 14.
 6. Notified as in (a)6, with the tx-v2 wire changes.
 

@@ -18,7 +18,7 @@
 #                      version 13, "" the unpatched p2pool for the negative check of 32-p2pool:
 #                      IMAGE=xkr-p2pool:unpatched p2pool/build.sh --build-arg PATCHES=)
 #   XKR_FORK13_HEIGHT  compiled-in fork heights (-DXKR_FORK13_HEIGHT / -DXKR_FORK14_HEIGHT;
-#   XKR_FORK14_HEIGHT  empty = the patches' defaults 0 = not scheduled / 3 000 000) for a
+#   XKR_FORK14_HEIGHT  empty = the patches' defaults 2 700 000 / 2 750 000, the mainnet heights) for a
 #                      release with fixed heights. Testnet nodes need no rebuild: the patched
 #                      p2pool reads the environment variables of the same names at start-up when
 #                      the daemon's get_info reports "testnet": true (README.md)

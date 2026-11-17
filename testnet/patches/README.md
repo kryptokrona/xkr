@@ -38,7 +38,8 @@ difficulty and reward.
 * `cryptonote_serialization.cpp`: `serializeBlockHeader` accepts major 6 (the unpatched node
   throws "Wrong major version" here, which is why it stops at the fork).
 * `rpc_server.cpp`: `/getinfo` `upgrade_heights` / `supported_height` show the run-time height
-  (the 14th entry is left out while fork 13 is not scheduled, like xkrd).
+  (the 14th entry is left out while fork 13 is not scheduled; xkrd's mainnet build has it at
+  2 700 000).
 
 Height convention (same as `xkr-consensus` and the C++ `UpgradeManager`): with fork height `F`,
 block `F` is the last v5 block and `F + 1` the first v6 block.

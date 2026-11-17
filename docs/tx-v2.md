@@ -2,9 +2,9 @@
 
 Status: implemented, scheduled, with RPC, test wallet and testnet scenario; written 2026-11-13.
 **Scheduled on
-mainnet at height 3 000 000** (`FORK_14_HEIGHT_MAINNET`, provisional height, set on
-2026-11-13): block 3 000 001 is the first v7 block, version 1 is valid until 3 028 800. Below
-3 000 000 every rule is exactly that of fork 13. Testnet: not scheduled by default,
+mainnet at height 2 750 000** (`FORK_14_HEIGHT_MAINNET`, set on 2026-11-17): block 2 750 001 is
+the first v7 block, version 1 is valid until 2 778 800. Below 2 750 000 every rule is exactly
+that of fork 13 (2 700 000). Testnet: not scheduled by default,
 `xkrd --network testnet --fork14-height F [--fork14-grace N]` (`docs/forks.md` §5,
 `testnet/fork14-scenario.sh`). Fork table: `docs/forks.md`; RPC for wallets and explorers: §9
 below.
@@ -149,7 +149,7 @@ transaction cannot be spent by a version-2 one and vice versa (tests in `xkr-con
 
 ## 5. Consensus rules (fork 14)
 
-Fork table entry (`ForkSchedule::fork14_entry`, index 14): height `F` (mainnet 3 000 000,
+Fork table entry (`ForkSchedule::fork14_entry`, index 14): height `F` (mainnet 2 750 000,
 testnet `--fork14-height`; `None` = not scheduled),
 block major version **7**, minor signal 14, `tx_versions` 1..=2, rules `MAJOR_VERSION |
 TX_VERSION_2 | VIEW_TAGS | CLSAG`. It appears in `ForkSchedule::forks()` (and so in
@@ -317,7 +317,7 @@ numbers; `null` where a field does not apply. Every secret and random scalar is
 
 ## 8. Parameters
 
-1. **Fork-14 height**: 3 000 000 on mainnet (provisional). Signalling follows the schedule
+1. **Fork-14 height**: 2 750 000 on mainnet (fork 13 at 2 700 000). Signalling follows the schedule
    (`ForkSchedule::supported_index` = 14 wherever fork 14 is scheduled, so mainnet xkrd
    templates write minor 14). Wallets (§9), p2pool (version-2 coinbase with tagged outputs,
    block v7) and explorers need a release that knows version 2 before that height.
