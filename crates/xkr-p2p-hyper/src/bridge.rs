@@ -1590,11 +1590,10 @@ impl Bridge {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn found_bridge_directories_must_be_owned_like_the_executable() {
         use std::os::unix::fs::PermissionsExt as _;

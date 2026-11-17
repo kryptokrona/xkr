@@ -2,8 +2,11 @@
 //! garbage is banned, one connection per IP (localhost exempt), and the peer file is read at
 //! start and written at stop.
 //!
-//! The tests connect from 127.0.0.3 to 127.0.0.5 (Linux routes all of 127.0.0.0/8 to the
-//! loopback interface); only 127.0.0.1 counts as localhost, which is never banned.
+//! The tests connect from 127.0.0.3 to 127.0.0.5, so they run on Linux only (Linux routes all
+//! of 127.0.0.0/8 to the loopback interface); only 127.0.0.1 counts as localhost, which is
+//! never banned.
+
+#![cfg(target_os = "linux")]
 
 use std::collections::HashSet;
 use std::net::SocketAddr;
