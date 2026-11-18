@@ -51,7 +51,7 @@ of the bridge.
 | Hugin node mesh | `HuginTopic::node_mesh()` | both (`client` with `--private`) | hugin-node ↔ hugin-node relay mesh |
 | Hugin public nodes | `HuginTopic::public_nodes()` | server (not with `--hugin-private` or `--private`) | Hugin apps find a public node |
 | Hugin private node | `HuginTopic::private_node(address)` | server (not with `--private`) | invited Hugin apps |
-| p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only` or `--private`) | the built-in p2pool's sidechain P2P (on by default, `--no-p2pool`), see "The built-in p2pool" |
+| p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only` or `--private`) | the built-in p2pool's sidechain P2P (on by default on mainnet, `--no-p2pool`, `--node --p2pool`), see "The built-in p2pool" |
 | private sync | `PrivateTopics::of(secret).sync` (`xkr_p2p_hyper::private`) | server (`--private` only) | peers with the private node's invite; Levin, see "Private node" |
 | private Hugin | `PrivateTopics::of(secret).hugin` | server (`--private` only) | Hugin apps with the private node's invite, see "Private node" |
 
@@ -91,8 +91,9 @@ xkrd main ── hyper::run(cfg, P2pManager::handle(), shutdown)
 | `--hyper-client-only` | off | announce mode `client`: look up and dial, never announce (no inbound Hyperswarm peers) |
 | `--private` | off | private node: public topics client-only, peers and Hugin apps only through the invite ("Private node") |
 | `--private-peer <invite>` | none | repeatable; stay connected to a private node ("Private node") |
-| `--no-hugin` | relay on | do not run the Hugin relay on the three Hugin topics ([`hugin-relay.md`](hugin-relay.md)); `--no-hyper` turns it off too |
-| `--hugin <address>` | saved, else the donation address | fee address of the relay's p2pool shares, saved in `<data dir>/hugin/identity.json` |
+| `--node`, `--hugin`, `--p2pool` | none: node, Hugin relay and p2pool (testnet: no p2pool) | mode flags: only the ones named run (`--node --hugin`, `--node --p2pool`, ...); for now each needs `--node`, `--hugin` also the Hyperswarm transport |
+| `--no-hugin` | relay on | do not run the Hugin relay on the three Hugin topics ([`hugin-relay.md`](hugin-relay.md)); `--no-hyper` turns it off too; not with mode flags |
+| `--hugin-payout <address>` | saved, else the donation address | fee address of the relay's p2pool shares, saved in `<data dir>/hugin/identity.json` |
 | `--hugin-p2pool <host:port>` | `127.0.0.1:3333`, then the public p2pool nodes | p2pool stratum nodes for jobs and shares, repeatable, in order |
 | `--hugin-share-difficulty <n>` | 200 | app difficulty of the jobs handed to Hugin apps; the p2pool login asks for `max(1000, n)` |
 | `--hugin-max-clients <n>` | 200 | Hugin app connections |
@@ -321,7 +322,7 @@ The supervisor holds the JS side as the `BareWorkers` of the session.
 ### The Hugin relay
 
 Every xkrd with the Hyperswarm transport is also a hugin-node relay unless `--no-hugin` is given
-(protocol and design in [`hugin-relay.md`](hugin-relay.md)). `hyper.rs` loads the Hugin identity
+or mode flags without `--hugin` (protocol and design in [`hugin-relay.md`](hugin-relay.md)). `hyper.rs` loads the Hugin identity
 (`<data dir>/hugin/identity.json`), starts an `xkr_hugin::Relay` (message pool in
 `<data dir>/hugin/messages.jsonl`, p2pool client) once, and in every bridge session announces
 the node-mesh (both), public-node (server, unless `--hugin-private`; only once the node is
@@ -341,7 +342,8 @@ instance and identity ("Sharding" below), so they use the same UDP port.
 
 ### The built-in p2pool
 
-With `--p2pool` (`docs/mining.md`, "Built-in p2pool") the node also carries the p2pool
+With p2pool on (plain `xkrd` on mainnet, or `--node --p2pool`; `docs/mining.md`, "Built-in
+p2pool") the node also carries the p2pool
 sidechain's P2P protocol on the Hyperswarm network, next to its outgoing TCP connections to
 other p2pool nodes; a share received on either transport is broadcast on both, so
 Hyperswarm-only xkrd nodes and TCP-only C++ p2pool nodes share one sidechain through any node

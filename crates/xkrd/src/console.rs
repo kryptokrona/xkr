@@ -64,8 +64,8 @@ const COMMANDS: &[(&str, &str, &str)] = &[
         "start_mining",
         "mine solo to an address, or via p2pool",
         "start_mining <address>|p2pool [threads]: the built-in miner, solo to the address (blocks \
-         pay it), or via the built-in p2pool (off with --no-p2pool; shares pay the node's \
-         p2pool payout address, see fee-address). Threads: half the cores by default",
+         pay it), or via the built-in p2pool (needs p2pool on, see xkrd --help; shares pay \
+         the node's p2pool payout address, see fee-address). Threads: half the cores by default",
     ),
     (
         "stop_mining",
@@ -271,7 +271,7 @@ pub struct NodeState {
     pub hugin: Option<Arc<HuginStats>>,
     /// The fee address handle, `None` with the relay and p2pool off.
     pub fee: Option<Arc<FeeAddress>>,
-    /// The built-in p2pool's status, `None` without `--p2pool`.
+    /// The built-in p2pool's status, `None` with p2pool off.
     pub p2pool: Option<watch::Receiver<Arc<P2poolStatus>>>,
     /// Starts and stops the built-in miner (`start_mining`, `stop_mining`).
     pub miner: Option<Arc<MinerControl>>,
@@ -313,7 +313,7 @@ pub struct Status {
     pub pruning: PruningSeed,
     pub mining: MiningStatus,
     pub hugin: Option<HuginStatsSnapshot>,
-    /// The built-in p2pool, `None` without `--p2pool`.
+    /// The built-in p2pool, `None` with p2pool off.
     pub p2pool: Option<P2poolStatus>,
 }
 
@@ -851,7 +851,7 @@ fn start_mining(
         }
         MineChoice::P2pool => {
             let Some(link) = control.pool() else {
-                return "p2pool is off: start xkrd without --no-p2pool (testnet: with --p2pool) to mine via p2pool\n".to_owned();
+                return "p2pool is off: start xkrd with --node --hugin --p2pool (mainnet: no mode flags) to mine via p2pool\n".to_owned();
             };
             let waiting = match link.state() {
                 LinkState::Waiting => true,

@@ -37,7 +37,7 @@
 //!   outbound connections fill the outbound target, it asks the P2P manager to rotate out a
 //!   peer without the stripe ([`P2pHandle::rotate_hyper_for_stripe`]) and dials the holders
 //!   once a slot frees. Connections on stripe topics are ordinary Levin peers.
-//! * **Hugin relay** (on by default, `--no-hugin`; `docs/hugin-relay.md`): the node also joins
+//! * **Hugin relay** (`--hugin`, default on; `docs/hugin-relay.md`): the node also joins
 //!   hugin-node's three topics (node mesh, public nodes, private node; the testnet has its own)
 //!   with Hugin `mid`s, each on its own DHT identity, and hands every connection on them to an
 //!   `xkr_hugin::Relay` instead of the Levin P2P manager. The relay, its message pool and its
@@ -45,9 +45,10 @@
 //!   [`xkr_hugin::P2poolSource`]); the shares go there under the operator's fee address
 //!   ([`crate::fee`]). Until the node is synchronized apps get no jobs and the public-node
 //!   topic is not announced.
-//! * **Built-in p2pool** (`--p2pool`, `crate::p2pool`): once p2pool runs the node joins the
-//!   sidechain's topic ([`p2pool_topic`]) on its own identity and hands every connection on it
-//!   to the p2pool P2P server ([`P2poolTopic::conns`]).
+//! * **Built-in p2pool** (`--p2pool`, on mainnet also without mode flags; `crate::p2pool`):
+//!   once p2pool runs the node joins the sidechain's topic ([`p2pool_topic`]) on its own
+//!   identity and hands every connection on it to the p2pool P2P server
+//!   ([`P2poolTopic::conns`]).
 //! * **Private node** (`--private`, [`PrivateNode`]; `docs/hyper-transport.md`, "Private
 //!   node"): every public topic is joined client-only, the address-based Hugin private topic
 //!   is not joined, and the node listens only on two identities derived from its secret
@@ -252,13 +253,13 @@ pub struct HyperConfig {
     pub mode: AnnounceMode,
     /// Hard cap on Hyperswarm peers (`--hyper-max-peers`).
     pub max_peers: usize,
-    /// The Hugin relay and its settings (`None` with `--no-hugin`).
+    /// The Hugin relay and its settings (`None` with the relay off, `Args::hugin_enabled`).
     pub hugin: Option<HuginSettings>,
     /// Counters of the Hugin relay (all zero with the relay off); for `/status`.
     pub hugin_stats: Arc<HuginStats>,
     /// The P2P status, whose sync state gates the relay's jobs (set by `main`).
     pub net: Option<watch::Receiver<Arc<NetStatus>>>,
-    /// The built-in p2pool's sidechain topic (set by `main` with `--p2pool`).
+    /// The built-in p2pool's sidechain topic (set by `main` with p2pool on).
     pub p2pool: Option<P2poolTopic>,
     /// The private node's secret (set by `main` with `--private`).
     pub private: Option<Arc<PrivateNode>>,
@@ -319,7 +320,9 @@ impl HyperConfig {
                 AnnounceMode::Both
             },
             max_peers,
-            hugin: (!args.no_hugin).then(|| HuginSettings::from_args(args, data_dir)),
+            hugin: args
+                .hugin_enabled()
+                .then(|| HuginSettings::from_args(args, data_dir)),
             hugin_stats: Arc::new(HuginStats::default()),
             net: None,
             p2pool: None,
@@ -546,7 +549,7 @@ fn short(key: &Key) -> String {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Hugin relay (on by default, `--no-hugin`; crate `xkr-hugin`)
+// Hugin relay (`--hugin`, on without mode flags, `--no-hugin`; crate `xkr-hugin`)
 
 /// Subdirectory of the data directory with the Hugin identity and message pool.
 pub const HUGIN_DIR: &str = "hugin";
@@ -566,7 +569,7 @@ pub struct HuginSettings {
     pub sync_slots: usize,
     /// `--hugin-queue-budget-mb` in bytes (`RelayConfig::queue_budget`).
     pub queue_budget: usize,
-    /// p2pool stratum nodes in order (`--hugin-p2pool`, used as given; else, with `--p2pool`,
+    /// p2pool stratum nodes in order (`--hugin-p2pool`, used as given; else, with p2pool on,
     /// the built-in p2pool's stratum address and the public ones,
     /// [`crate::p2pool::relay_nodes`]; else the local one and the public ones,
     /// [`default_p2pool_nodes`]).
@@ -2009,7 +2012,7 @@ struct Session<'a> {
     p2p: &'a P2pHandle,
     tracker: &'a mut Tracker,
     hugin: Option<&'a HuginRuntime>,
-    /// The built-in p2pool's sidechain topic (`--p2pool`).
+    /// The built-in p2pool's sidechain topic (p2pool on).
     p2pool: Option<&'a P2poolTopic>,
     /// `Both`, or `Client` with `--hyper-client-only` (also for the p2pool topic).
     mode: AnnounceMode,
@@ -3991,11 +3994,11 @@ mod tests {
         }
     }
 
-    /// With `--p2pool` the relay uses the built-in stratum server, as given or on loopback
+    /// With p2pool on the relay uses the built-in stratum server, as given or on loopback
     /// when it listens on every interface, then the public nodes; `--hugin-p2pool` still wins.
     #[test]
     fn relay_uses_the_built_in_p2pool() {
-        let args = Args::try_parse_from(["xkrd", "--p2pool"]).expect("parse");
+        let args = Args::try_parse_from(["xkrd", "--node", "--hugin", "--p2pool"]).expect("parse");
         let h = HyperConfig::from_args(&args, Network::Mainnet, Path::new("/d"))
             .hugin
             .expect("hugin");
@@ -4004,15 +4007,21 @@ mod tests {
             h.p2pool_nodes.len(),
             1 + xkr_hugin::p2pool::PUBLIC_P2POOL_NODES.len()
         );
-        let args = Args::try_parse_from(["xkrd", "--p2pool", "--p2pool-stratum", "0.0.0.0:3400"])
-            .expect("parse");
+        let args =
+            Args::try_parse_from(["xkrd", "--p2pool-stratum", "0.0.0.0:3400"]).expect("parse");
         let h = HyperConfig::from_args(&args, Network::Mainnet, Path::new("/d"))
             .hugin
             .expect("hugin");
         assert_eq!(h.p2pool_nodes[0], "127.0.0.1:3400");
-        let args =
-            Args::try_parse_from(["xkrd", "--p2pool", "--hugin-p2pool", "pool.example:3333"])
-                .expect("parse");
+        let args = Args::try_parse_from([
+            "xkrd",
+            "--node",
+            "--hugin",
+            "--p2pool",
+            "--hugin-p2pool",
+            "pool.example:3333",
+        ])
+        .expect("parse");
         let h = HyperConfig::from_args(&args, Network::Mainnet, Path::new("/d"))
             .hugin
             .expect("hugin");

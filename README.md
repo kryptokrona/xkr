@@ -33,6 +33,11 @@ target/release/xkrd --network testnet     # testnet
 target/release/xkrd --help
 ```
 
+Modes: plain `xkrd` runs the node, the Hugin relay and p2pool (on the testnet the node and the
+relay). `--node`, `--hugin` and `--p2pool` run only the ones named, for example
+`xkrd --node --p2pool`; `--no-hugin` and `--no-p2pool` leave one out of plain `xkrd`. For now
+every mode needs `--node` (Hugin or p2pool on a remote node comes later).
+
 - `--fast-sync` skips proof of work up to the last checkpoint.
 - `--prune` keeps 25 % of the old ring signatures (about 45 % less disk space).
 - `--explorer` answers the block explorer methods (`f_*`, C++ `--enable-blockexplorer`). An
@@ -42,15 +47,16 @@ target/release/xkrd --help
 - `--private` runs a private node: it syncs from the network as a client and takes peers and
   Hugin apps only through its invite (console `invite`, `invite new` for a new one).
   `--private-peer <invite>` keeps another node connected to it.
-- p2pool runs inside the node (`--no-p2pool` turns it off); `start_mining p2pool` in the console
-  mines on it.
+- p2pool runs inside the node (`--no-p2pool` turns it off, `--node --p2pool` without the relay);
+  `start_mining p2pool` in the console mines on it.
 
 ### Hugin relay
 
-The Hugin relay is on by default (`--no-hugin` turns it off). It stores encrypted Hugin
-messages for up to 24 hours for the apps. Apps pay with mining shares, which go to the node's
-fee address. The default is a donation to nilsjr; set your own with `--hugin <address>` or
-`fee-address <address>` in the console. Details: `docs/hugin-relay.md`.
+The Hugin relay is on by default (`--no-hugin` turns it off, `--node --hugin` runs it without
+p2pool). It stores encrypted Hugin messages for up to 24 hours for the apps. Apps pay with
+mining shares, which go to the node's fee address. The default is a donation to nilsjr; set
+your own with `--hugin-payout <address>` or `fee-address <address>` in the console. Details:
+`docs/hugin-relay.md`.
 
 ## Docs
 

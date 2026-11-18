@@ -8,8 +8,8 @@
 //! * in a terminal, a console thread (`xkr-console`) reading commands from stdin
 //!   (`crate::console`) and a task printing the block and sync lines or the live panel
 //!   (`crate::display`);
-//! * with `--p2pool`, the built-in p2pool's tasks on the runtime (`crate::p2pool`; its CPU work
-//!   on blocking threads), started once the node is synchronized;
+//! * with p2pool on (`cli::Components`), the built-in p2pool's tasks on the runtime
+//!   (`crate::p2pool`; its CPU work on blocking threads), started once the node is synchronized;
 //! * while stopping, the shutdown steps (`crate::stopping`).
 
 mod bridge_check;
@@ -246,7 +246,7 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
     }
     if args.hugin_relay {
         tracing::debug!(
-            "--hugin-relay: the Hugin relay is on by default (--no-hugin turns it off)"
+            "--hugin-relay: the Hugin relay is on without mode flags (--no-hugin turns it off)"
         );
     }
 
@@ -285,6 +285,21 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
     runtime.spawn(stop_on_signals(ui.exit.clone()));
     ui.startup.begin();
 
+    // What runs (`--node`, `--hugin`, `--p2pool`; none: all three). Flags that do not go
+    // together, and modes without the node (they need a remote node), stop the start here.
+    let step = ui.step("Mode");
+    let checked = args
+        .checked_components()
+        .and_then(|c| c.not_available().map_or(Ok(c), Err));
+    let components = match checked {
+        Ok(c) => c,
+        Err(e) => {
+            step.fail(e.clone());
+            return fail_start(&ui, Opened::Nothing, e.into());
+        }
+    };
+    step.done_with(components.label());
+
     let step = ui.step("Verification");
     if let Err(e) = rayon::ThreadPoolBuilder::new()
         .num_threads(verify_threads)
@@ -302,6 +317,7 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
         verify_threads,
         io_threads,
         fast_sync = args.fast_sync,
+        mode = %components.label(),
         "starting xkrd"
     );
     if ui.shutdown.is_cancelled() {
@@ -841,8 +857,8 @@ async fn async_main(
         }
         None => None,
     };
-    // The built-in p2pool (`--p2pool`): its settings now (a wrong flag stops the start), the
-    // service itself once the node is synchronized (`crate::p2pool`).
+    // The built-in p2pool (`Args::p2pool_enabled`): its settings now (a wrong flag stops the
+    // start), the service itself once the node is synchronized (`crate::p2pool`).
     let p2pool_settings = if args.p2pool_enabled() {
         let mut s = p2pool::P2poolSettings::from_args(&args, network, &data_dir)?;
         // A stratum address in use does not stop p2pool (it runs without its stratum server,
@@ -857,12 +873,6 @@ async fn async_main(
     } else {
         None
     };
-    if args.mine_p2pool && p2pool_settings.is_none() {
-        return Err(
-            "--mine-p2pool needs the built-in p2pool (not with --no-p2pool; testnet: --p2pool)"
-                .into(),
-        );
-    }
     // The built-in miner reaches the running p2pool through this link.
     let pool_link = p2pool_settings
         .as_ref()
@@ -889,7 +899,7 @@ async fn async_main(
         match fee::FeeAddress::load(
             &fee::identity_file(&data_dir),
             network,
-            args.hugin.as_deref(),
+            args.hugin_payout.as_deref(),
         ) {
             Ok(f) => {
                 if let Some(h) = hyper_cfg.as_mut().and_then(|c| c.hugin.as_mut()) {
@@ -897,8 +907,9 @@ async fn async_main(
                 }
                 fee_handle = Some(f);
             }
-            // `--hugin <address>` that is not one: the operator has to fix the command line.
-            Err(e) if e.starts_with("--hugin") => return Err(e.into()),
+            // `--hugin-payout <address>` that is not one: the operator has to fix the command
+            // line.
+            Err(e) if e.starts_with("--hugin-payout") => return Err(e.into()),
             Err(e) => {
                 if let Some(cfg) = hyper_cfg.as_mut().filter(|c| c.hugin.is_some()) {
                     tracing::error!(error = %e, "Hugin relay disabled");
@@ -1090,7 +1101,7 @@ async fn async_main(
         ui.step("Private node")
             .done_with("peers only by invite (console: invite)");
     }
-    if args.no_hyper && !args.no_hugin {
+    if args.no_hyper && !args.no_hugin && !args.mode_given() {
         ui.step("Hugin relay")
             .done_with("off: it needs the Hyperswarm transport (--no-hyper)");
     } else if let Some(e) = hugin_failed {

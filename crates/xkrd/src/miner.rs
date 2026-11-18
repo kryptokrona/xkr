@@ -16,7 +16,7 @@
 //!   same path as `submitblock` (P2P manager -> chain thread -> relay with hop 0). At trivial
 //!   difficulty it waits [`MIN_BLOCK_SPACING`] between blocks so testnet blocks stay spaced
 //!   out.
-//! * **p2pool** (`--p2pool` running): the built-in p2pool's current template, in process
+//! * **p2pool** (the built-in p2pool running): the built-in p2pool's current template, in process
 //!   ([`PoolLink`]), as the stratum server hands it to a miner: paid to the node's p2pool
 //!   payout address (the fee address, as the Hugin relay's shares). The job target is the
 //!   stratum template target (C++ `StratumServer::on_block`); a result at the main-chain
@@ -614,7 +614,7 @@ pub struct MinerControl {
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
     shutdown: CancellationToken,
-    /// The built-in p2pool, `None` without `--p2pool`.
+    /// The built-in p2pool, `None` with p2pool off.
     pool: Option<PoolLink>,
     running: Mutex<Option<Running>>,
 }
@@ -641,7 +641,7 @@ impl MinerControl {
         }
     }
 
-    /// The built-in p2pool's link, `None` without `--p2pool`.
+    /// The built-in p2pool's link, `None` with p2pool off.
     #[must_use]
     pub const fn pool(&self) -> Option<&PoolLink> {
         self.pool.as_ref()

@@ -1,6 +1,7 @@
-//! The built-in p2pool (`xkrd --p2pool`, `docs/mining.md` "Built-in p2pool"): the sidechain,
-//! block template, stratum server and P2P server of `xkr-p2pool`, fed from the node's own chain
-//! instead of the daemon RPC the C++ p2pool polls (`p2pool::p2pool`, `src/p2pool.cpp`).
+//! The built-in p2pool (`xkrd --node --p2pool`, on mainnet also without mode flags;
+//! `docs/mining.md` "Built-in p2pool"): the sidechain, block template, stratum server and P2P
+//! server of `xkr-p2pool`, fed from the node's own chain instead of the daemon RPC the C++
+//! p2pool polls (`p2pool::p2pool`, `src/p2pool.cpp`).
 //!
 //! * **Start**: once the node is synchronized (the P2P status: `synced` and not downloading, as
 //!   the built-in miner and the Hugin relay wait), so templates are never built on an old tip.
