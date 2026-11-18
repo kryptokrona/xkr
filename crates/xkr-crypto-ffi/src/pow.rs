@@ -167,7 +167,7 @@ fn search_slice(
         }
         hashes += 1;
         local[offset..offset + 4].copy_from_slice(&nonce.to_le_bytes());
-        let hash = xkr_crypto::cn_turtle_lite_slow_hash_v2(&local);
+        let hash = xkr_crypto::cn_turtle_lite_slow_hash_v2_reused(&local);
         let mut tail = [0u8; 8];
         tail.copy_from_slice(&hash.0[24..]);
         if u64::from_le_bytes(tail) <= target {

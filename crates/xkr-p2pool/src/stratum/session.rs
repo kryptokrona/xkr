@@ -10,7 +10,7 @@ use serde_json::Value;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use xkr_crypto::cn_turtle_lite_slow_hash_v2;
+use xkr_crypto::cn_turtle_lite_slow_hash_v2_reused;
 use xkr_stratum::messages::SubmitParams;
 use xkr_types::Hash;
 
@@ -529,7 +529,7 @@ async fn check_share(inner: &Arc<Inner>, ip: IpAddr, share: Share) -> (ShareResu
             let off = hb.nonce_offset;
             blob.get_mut(off..off.checked_add(4)?)?
                 .copy_from_slice(&nonce.to_le_bytes());
-            Some(cn_turtle_lite_slow_hash_v2(&blob))
+            Some(cn_turtle_lite_slow_hash_v2_reused(&blob))
         })
         .await;
         let pow = match pow {
