@@ -195,8 +195,8 @@ With the mode flags `--node`, `--hugin` and `--p2pool` only the ones named run:
 `xkrd --node --p2pool` is the node and p2pool without the relay, `xkrd --node --hugin --p2pool`
 all three. `--no-p2pool` with mode flags is an error. The testnet runs p2pool only with
 `--p2pool` among the mode flags (`--network testnet --node --p2pool`) and needs its own
-sidechain (`--p2pool-config`). p2pool without the node (`xkrd --p2pool` on a remote node) is
-not available yet: for now it stops the start with `not available yet`.
+sidechain (`--p2pool-config`). `xkrd --p2pool` alone runs p2pool without the node: the main
+chain comes from public xkrd nodes over Hyperswarm ("p2pool without the node" below).
 
 * **When it runs.** The start-up step `p2pool` shows the sidechain, the stratum address and the
   payout (`sidechain default · stratum 127.0.0.1:3333 · payout nilsjr (donation)`). p2pool
@@ -242,6 +242,47 @@ not available yet: for now it stops the start with `not available yet`.
   `payout_address` and `stratum` only for local clients). With `--log-level info` the log has
   the `p2pool: …` lines (`consensus id`, `new tip`, `share added`, `share found`,
   `block found`, `peer … rejected`, `synchronized`).
+
+### p2pool without the node: `xkrd --p2pool`
+
+No database, no sync, no Levin P2P: xkrd keeps up to three connections to public xkrd nodes on
+the Hyperswarm clients topic (`xkr/<network>/clients/v1`, `docs/hyper-transport.md`, "Clients
+topic") and builds its templates from them. The data directory holds only `p2pool/` (the peer
+list), `hugin/identity.json` (the payout address) and `hyper-keypair.json`. It needs the
+Hyperswarm transport (not with `--no-hyper`); node flags such as `--prune`, `--fast-sync` or
+`--mine <address>` stop the start (`--mine-p2pool` works, on the same templates).
+
+```
+  ✔ Mode               p2pool (remote chain)
+  ✔ RPC server         127.0.0.1:11898, /status and /info
+  ✔ Hyperswarm         Bare workers started
+  ✔ Remote nodes       2.3 s  3 nodes, height 2 641 203
+  ✔ p2pool             sidechain default · stratum 127.0.0.1:3333 · payout …
+```
+
+* **Nodes.** xkrd looks the clients topic up and dials what it finds (it never announces the
+  topic), up to three nodes with different keys. A node that closes the connection, does not
+  answer a `getinfo` after a minute without news, or cannot be dialed is replaced by another
+  one; it is dialed again after a back-off (5 s doubling to 10 min).
+* **Tip.** The main-chain tip is the highest one that at least two connected (synchronized)
+  nodes have or build on; with one node, its tip. Before a new tip is used, xkrd reads the
+  headers since the previous one (the newest four at most) and checks that each names the one
+  before as its previous block, and that each block hashes to its header's id and meets its
+  header's difficulty with its proof of work (one hash per block, about every 90 s). Nodes
+  whose blocks fail this, or whose stable state hash (in the hello) differs from the one built
+  into xkrd or, above that list, from the one most connected nodes name, are dropped and not
+  dialed for an hour.
+* **Templates and blocks.** Miner data comes from a node at the chosen tip, the PPLNS headers
+  from the same node. A block found by p2pool goes to every connected node (`submitblock`).
+* **Synchronized** means: at least one connected node answers and is synchronized, and a node
+  confirmed the tip less than three minutes ago. p2pool starts, and the built-in miner mines,
+  only then; a tip older than that pauses both.
+* **Status.** The RPC port answers `/status` (`mode`, `chain: "remote"`, `height`,
+  `top_block_hash`, `synced`, `remote { nodes [{ key, height, synced, on_tip }], height, hash,
+  synced, tip_age }`, `hyper`, `mining`, `p2pool`; `remote.nodes` and the p2pool payout only for
+  local clients) and `/info` (`height`, `synced`, `remote_nodes`, `mode`); the C++ routes are
+  not served without the node. There is no console in this mode; Ctrl-C stops it (p2pool,
+  miner, remote nodes, Hyperswarm, RPC server).
 
 ## External p2pool
 

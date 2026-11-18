@@ -62,6 +62,8 @@
 //!   node announces it in server mode once synchronized (not in client mode), and with
 //!   `--private` only the private clients topic of its invite; connections on either go to the
 //!   [`ClientsServer`] (the `xkr-hyper-rpc` protocol), not the Tracker or the Levin P2P manager.
+//!   Without the node (`xkrd --p2pool`) this transport does not run: `crate::remote::run_hyper`
+//!   starts the bridge with only the p2pool topic and dials the clients topic as a client.
 //!
 //! Contract with `crate::p2p` (owned by the P2P side): `P2pManager::handle() -> P2pHandle`,
 //! `P2pHandle: Clone + Send + Sync + 'static`,
@@ -365,7 +367,7 @@ impl HyperConfig {
 
     /// Starts the Bare workers and connects to them. The future owns what it needs, so it does
     /// not borrow the configuration across the start.
-    fn start_bridge(
+    pub(crate) fn start_bridge(
         &self,
     ) -> impl Future<Output = Result<(Bridge, BareWorkers), BridgeError>> + Send + 'static {
         let config = self.bridge.clone();

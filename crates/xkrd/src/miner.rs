@@ -176,7 +176,8 @@ enum PoolStep {
 #[derive(Debug)]
 pub struct ChainJobSource {
     cfg: MinerConfig,
-    chain: Arc<Chain>,
+    /// The node's chain (solo); `None` without the node (p2pool only).
+    chain: Option<Arc<Chain>>,
     commands: mpsc::UnboundedSender<RpcCommand>,
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
@@ -191,11 +192,11 @@ pub struct ChainJobSource {
 }
 
 impl ChainJobSource {
-    /// A source mining in `cfg.mode` on `chain`.
+    /// A source mining in `cfg.mode` on `chain` (solo needs it).
     #[must_use]
     pub fn new(
         cfg: MinerConfig,
-        chain: Arc<Chain>,
+        chain: Option<Arc<Chain>>,
         commands: mpsc::UnboundedSender<RpcCommand>,
         net: watch::Receiver<Arc<NetStatus>>,
         status: watch::Sender<Arc<MiningStatus>>,
@@ -247,7 +248,7 @@ impl ChainJobSource {
         match &self.current {
             None => true,
             Some(c) => {
-                c.prev_hash() != Some(self.chain.tip().hash)
+                c.prev_hash() != self.chain.as_ref().map(|chain| chain.tip().hash)
                     || c.built.elapsed() >= REFRESH_INTERVAL
             }
         }
@@ -264,7 +265,10 @@ impl ChainJobSource {
         let MineMode::Solo { miner, .. } = &self.cfg.mode else {
             return Err("not mining solo".to_owned());
         };
-        let template = self.chain.block_template(miner, &[]).map_err(|e| {
+        let Some(chain) = &self.chain else {
+            return Err("solo mining needs the node".to_owned());
+        };
+        let template = chain.block_template(miner, &[]).map_err(|e| {
             // A miner thread that outlives the stop sees the closed database.
             if matches!(&e, xkr_chain::TemplateError::Chain(c) if c.is_closed()) {
                 tracing::debug!(error = %e, "no block template, the node is stopping");
@@ -369,7 +373,10 @@ impl ChainJobSource {
 
     /// Same path as `submitblock`: P2P manager -> chain thread -> relay.
     async fn submit_raw(&self, block: RawBlock) -> Result<AddBlockResult, String> {
-        xkr_rpc::submit_mined_block(&self.chain, &self.commands, block).await
+        let Some(chain) = &self.chain else {
+            return Err("solo mining needs the node".to_owned());
+        };
+        xkr_rpc::submit_mined_block(chain, &self.commands, block).await
     }
 
     /// A solo block found: it goes to the chain.
@@ -536,7 +543,7 @@ impl JobSource for ChainJobSource {
 /// Starts the miner. Returns the controller thread (it stops the hashing threads on exit).
 pub fn spawn(
     cfg: MinerConfig,
-    chain: Arc<Chain>,
+    chain: Option<Arc<Chain>>,
     commands: mpsc::UnboundedSender<RpcCommand>,
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
@@ -609,7 +616,8 @@ struct Running {
 /// `stop_mining`). At most one miner runs; its stop is a child of the node's shutdown.
 #[derive(Debug)]
 pub struct MinerControl {
-    chain: Arc<Chain>,
+    /// The node's chain (solo); `None` without the node.
+    chain: Option<Arc<Chain>>,
     commands: mpsc::UnboundedSender<RpcCommand>,
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
@@ -623,7 +631,7 @@ impl MinerControl {
     /// No miner yet.
     #[must_use]
     pub fn new(
-        chain: Arc<Chain>,
+        chain: Option<Arc<Chain>>,
         commands: mpsc::UnboundedSender<RpcCommand>,
         net: watch::Receiver<Arc<NetStatus>>,
         status: watch::Sender<Arc<MiningStatus>>,

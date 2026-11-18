@@ -93,7 +93,7 @@ xkrd main ── hyper::run(cfg, P2pManager::handle(), shutdown)
 | `--hyper-client-only` | off | announce mode `client`: look up and dial, never announce (no inbound Hyperswarm peers) |
 | `--private` | off | private node: public topics client-only, peers and Hugin apps only through the invite ("Private node") |
 | `--private-peer <invite>` | none | repeatable; stay connected to a private node ("Private node") |
-| `--node`, `--hugin`, `--p2pool` | none: node, Hugin relay and p2pool (testnet: no p2pool) | mode flags: only the ones named run (`--node --hugin`, `--node --p2pool`, ...); for now each needs `--node`, `--hugin` also the Hyperswarm transport |
+| `--node`, `--hugin`, `--p2pool` | none: node, Hugin relay and p2pool (testnet: no p2pool) | mode flags: only the ones named run (`--node --hugin`, `--node --p2pool`, ...); `--p2pool` alone runs p2pool on remote nodes ("Clients topic", client role); `--hugin` needs `--node` for now and the Hyperswarm transport |
 | `--no-hugin` | relay on | do not run the Hugin relay on the three Hugin topics ([`hugin-relay.md`](hugin-relay.md)); `--no-hyper` turns it off too; not with mode flags |
 | `--hugin-payout <address>` | saved, else the donation address | fee address of the relay's p2pool shares, saved in `<data dir>/hugin/identity.json` |
 | `--hugin-p2pool <host:port>` | `127.0.0.1:3333`, then the public p2pool nodes | p2pool stratum nodes for jobs and shares, repeatable, in order |
@@ -436,10 +436,11 @@ the Hugin TLVs `0x11` (topic key) and `0x12` (identity seed), and `Opened` carri
 
 ### Clients topic
 
-Programs without the chain (the chainless xkrd modes `--p2pool`, `--hugin` without `--node`;
-later wallet tools on a `wallets` topic of their own with the same framing) use a node with the
-chain over Hyperswarm. Code: `crates/xkr-hyper-rpc` (protocol, server driver, client),
-`crates/xkrd/src/clients.rs` (the node's server).
+Programs without the chain (the chainless xkrd modes `--p2pool`, later `--hugin` without
+`--node`; later wallet tools on a `wallets` topic of their own with the same framing) use a node
+with the chain over Hyperswarm. Code: `crates/xkr-hyper-rpc` (protocol, server driver, client),
+`crates/xkrd/src/clients.rs` (the node's server), `crates/xkrd/src/remote.rs` (xkrd as a
+client, "Client role" below).
 
 - **Topic.** Name `xkr/<mainnet|testnet>/clients/v1`; topic key `cn_fast_hash(name)`
   (`topic::xkr_topic`); used like a Hugin topic key (base key pair from it, DHT topic
@@ -516,8 +517,42 @@ closes the connection. Unknown object keys are ignored.
 Service `node` answers these `/json_rpc` methods, through the node's dispatcher in-process:
 `get_miner_data`, `get_block_headers_range`, `getblockheaderbyheight`, `getblockheaderbyhash`,
 `submitblock` (`["<block blob hex>"]`), `getinfo` (the `/getinfo` answer) and `getstatehash`
-(`{"span":k}` or `{"height":h}`). Service `stratum` negotiates, but its calls answer `-32003`
-for now.
+(`{"span":k}` or `{"height":h}`), and one method of its own, `get_block_blob`
+(`{"height":h}` -> `{"height":h,"hash":"<64 hex>","blob":"<hex>"}`: the main-chain block at
+`h` as stored, header, parent block, miner transaction and transaction hashes, without the
+transactions), from which a client computes the block's id and proof of work. Service
+`stratum` negotiates, but its calls answer `-32003` for now.
+
+#### Client role: `xkrd --p2pool` without the node
+
+Code: `crates/xkrd/src/remote.rs` (`RemoteNodes`, `run_hyper`, `BridgeDialer`). Without the
+node xkrd starts the Bare workers without the blocks, stripe and Hugin topics and without the
+Levin P2P manager. It announces only the built-in p2pool's sidechain topic (once p2pool runs;
+client mode with `--hyper-client-only`), and uses the clients topic as a client:
+
+- **Finding nodes.** A lookup of `xkr/<network>/clients/v1` every 30 s while fewer than three
+  nodes are connected (every 10 s with none); each found key is dialed with
+  `Bridge::open_hugin(key, topic, mid)` on the topic's derived identity, never announced. Hello
+  `{"v":1,"network":…,"service":"node","client":"xkrd/<version>"}`. At most three nodes, with
+  different keys. A failed dial or a closed connection backs off 5 s doubling to 10 min.
+- **Keeping them.** The `tip` pushes move the tip; a node that sent nothing for a minute is asked
+  `getinfo`, one that answers nothing for three minutes is dropped.
+- **State hashes.** A hello whose `state_span`/`state_hash` differs from the list built into
+  xkrd (`xkr_chain::state`), or, for a span above that list, from what more than half of the
+  connected nodes naming that span say (at least two), drops that node; it is not dialed for an
+  hour.
+- **Tip.** The highest tip that at least two synchronized nodes have or build on (a node above
+  it is asked `getblockheaderbyheight` at that height); with one node, its tip. Before a new tip
+  is used: `get_block_headers_range` from the previous checked block (at most the newest four
+  blocks) to the tip must link by `prev_hash`, and every new block (`get_block_blob`) must hash
+  to its header's `hash`, carry its `prev_hash` and `timestamp`, and meet its header's
+  `difficulty` with its proof of work (merge-mining tag included). The nodes on a tip that
+  fails are dropped and not dialed for an hour.
+- **Use.** `get_miner_data` and the PPLNS headers from a node at the tip; a block found by
+  p2pool goes to every connected node with `submitblock`. Synchronized: a node answers and is
+  synchronized, and the tip was confirmed (push, answer) less than three minutes ago.
+- **Status.** `/status` `remote` and the start-up step `Remote nodes` (`3 nodes, height …`;
+  `docs/mining.md`, "p2pool without the node").
 
 Rust clients use `xkr_hyper_rpc::Client::connect(stream, Hello::new(network, service, agent))`,
 then `call(method, params)`, `tips()` (a watch channel with the tip of the hello, then every

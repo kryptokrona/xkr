@@ -445,7 +445,7 @@ fn hugin_json(stats: &xkr_hugin::HuginStats, local: bool) -> Value {
 
 /// `/status` `p2pool` ([`crate::P2poolStatus`], field names as there); without `local`,
 /// `payout_address`, `stratum` and `stratum_off` are left out.
-fn p2pool_json(status: &crate::P2poolStatus, local: bool) -> Value {
+pub(crate) fn p2pool_json(status: &crate::P2poolStatus, local: bool) -> Value {
     let mut v = serde_json::to_value(status).unwrap_or(Value::Null);
     if !local && let Some(o) = v.as_object_mut() {
         o.remove("payout_address");
@@ -457,7 +457,7 @@ fn p2pool_json(status: &crate::P2poolStatus, local: bool) -> Value {
 
 /// `/status` `hyper` ([`crate::HyperNetStatus`], `null` without the Hyperswarm network);
 /// without `local`, `udp_port`, `firewalled` and `nat` are left out.
-fn hyper_json(hyper: Option<crate::HyperNetStatus>, local: bool) -> Value {
+pub(crate) fn hyper_json(hyper: Option<crate::HyperNetStatus>, local: bool) -> Value {
     let mut v = serde_json::to_value(hyper).unwrap_or(Value::Null);
     if !local && let Some(o) = v.as_object_mut() {
         for key in ["udp_port", "firewalled", "nat"] {
@@ -470,7 +470,7 @@ fn hyper_json(hyper: Option<crate::HyperNetStatus>, local: bool) -> Value {
 /// Whether the request came from a loopback address: the connection's remote address
 /// (`ConnectInfo`, set by [`crate::serve`]) or a `MockConnectInfo` layer in tests. A request
 /// without either does not count as one.
-fn from_loopback(ext: &Extensions) -> bool {
+pub(crate) fn from_loopback(ext: &Extensions) -> bool {
     ext.get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0)
         .or_else(|| ext.get::<MockConnectInfo<SocketAddr>>().map(|c| c.0))

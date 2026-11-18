@@ -11,6 +11,11 @@
 //! * with p2pool on (`cli::Components`), the built-in p2pool's tasks on the runtime
 //!   (`crate::p2pool`; its CPU work on blocking threads), started once the node is synchronized;
 //! * while stopping, the shutdown steps (`crate::stopping`).
+//!
+//! Without the node (`xkrd --p2pool`, [`run_remote`]) there is no database, chain thread,
+//! transaction pool or Levin P2P: the Hyperswarm transport with the p2pool sidechain topic and
+//! the clients topic as a client, the remote nodes (`crate::remote`), p2pool, and an RPC server
+//! with `/status` and `/info` only.
 
 mod bridge_check;
 mod chain_worker;
@@ -26,6 +31,7 @@ mod miner;
 mod p2p;
 mod p2pool;
 mod peerstore;
+mod remote;
 mod rng;
 mod stopping;
 mod term;
@@ -237,8 +243,15 @@ fn console_hint(style: term::Style) -> String {
     )
 }
 
-fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
+fn run(args: Args, mut ui: Ui) -> Result<(), Box<dyn Error>> {
     let network: Network = args.network.into();
+    // Without the node there is no chain for the console to answer from.
+    if args
+        .checked_components()
+        .is_ok_and(|c| !c.node && c.not_available().is_none())
+    {
+        ui.console = false;
+    }
     if !args.log_json {
         ui.term.print(&term::header(ui.term.style()));
     }
@@ -287,7 +300,7 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
     ui.startup.begin();
 
     // What runs (`--node`, `--hugin`, `--p2pool`; none: all three). Flags that do not go
-    // together, and modes without the node (they need a remote node), stop the start here.
+    // together, and the Hugin relay without the node (not there yet), stop the start here.
     let step = ui.step("Mode");
     let checked = args
         .checked_components()
@@ -299,6 +312,10 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
             return fail_start(&ui, Opened::Nothing, e.into());
         }
     };
+    if !components.node {
+        step.done_with(format!("{} (remote chain)", components.label()));
+        return run_remote(args, ui, network, data_dir, components, runtime);
+    }
     step.done_with(components.label());
 
     let step = ui.step("Verification");
@@ -884,7 +901,7 @@ async fn async_main(
         _ => None,
     };
     let miner_control = Arc::new(miner::MinerControl::new(
-        chain.clone(),
+        Some(chain.clone()),
         cmd_tx.clone(),
         status_rx.clone(),
         mining_tx,
@@ -1154,8 +1171,7 @@ async fn async_main(
             }
             step.done_with(p2pool::step_detail(&settings, &fee.get()));
             let node = p2pool::P2poolNode {
-                chain: chain.clone(),
-                commands,
+                source: p2pool::LocalChain::new(chain.clone(), commands),
                 net: status_rx_p2pool,
                 fee: fee.subscribe(),
                 status,
@@ -1267,6 +1283,267 @@ async fn async_main(
             Ok(Ok(Err(_))) => step.fail("a mining thread panicked"),
             Ok(Err(e)) => step.fail(e.to_string()),
             Err(_) => step.timed_out(MINER_STOP),
+        }
+    }
+    Ok(())
+}
+
+/// How long the "Remote nodes" start-up step waits for a main-chain tip from remote nodes
+/// (the search goes on after it).
+const REMOTE_WAIT: Duration = Duration::from_secs(60);
+/// How long the remote nodes get to close their connections.
+const REMOTE_STOP: Duration = Duration::from_secs(5);
+
+/// xkrd without the node (`xkrd --p2pool`): [`async_main_remote`] on the runtime, then the
+/// runtime and bare-kit stop steps. Nothing to close on disk besides p2pool's peer list.
+fn run_remote(
+    args: Args,
+    ui: Ui,
+    network: Network,
+    data_dir: PathBuf,
+    components: cli::Components,
+    runtime: tokio::runtime::Runtime,
+) -> Result<(), Box<dyn Error>> {
+    tracing::info!(
+        version = VERSION,
+        ?network,
+        data_dir = %data_dir.display(),
+        mode = %components.label(),
+        "starting xkrd without the node (main chain from remote nodes)"
+    );
+    let started = ui.started;
+    let startup = ui.startup.clone();
+    let result = runtime.block_on(async_main_remote(args, network, data_dir, components, ui));
+    startup.abort();
+    let step = stopping::step("remaining tasks");
+    let at = Instant::now();
+    runtime.shutdown_timeout(RUNTIME_STOP);
+    if at.elapsed() >= RUNTIME_STOP {
+        step.timed_out(RUNTIME_STOP);
+    } else {
+        step.done();
+    }
+    if !xkr_p2p_hyper::bare::teardown(BARE_TEARDOWN) {
+        tracing::warn!("bare-kit did not finish tearing down in time");
+    }
+    if let Some(r) = stopping::reporter() {
+        r.end(None, started.elapsed().as_secs());
+    }
+    tracing::info!("xkrd stopped");
+    result
+}
+
+/// The tasks without the node: the RPC server (`/status`, `/info`), the Hyperswarm transport
+/// (`remote::run_hyper`), the remote nodes, the built-in miner (`--mine-p2pool`) and p2pool;
+/// until the stop, then their stop steps.
+async fn async_main_remote(
+    args: Args,
+    network: Network,
+    data_dir: PathBuf,
+    components: cli::Components,
+    ui: Ui,
+) -> Result<(), Box<dyn Error>> {
+    let params = network.params();
+    let start_time = unix_now();
+    let shutdown = ui.shutdown.clone();
+
+    let mut settings = p2pool::P2poolSettings::from_args(&args, network, &data_dir)?;
+    let _ = settings.check_stratum();
+    // The payout address (`<data dir>/hugin/identity.json`, shared with the Hugin relay).
+    let fee = fee::FeeAddress::load(
+        &fee::identity_file(&data_dir),
+        network,
+        args.hugin_payout.as_deref(),
+    )?;
+
+    // The Hyperswarm side: the bridge for the dialer, the DHT state for `/status`, the p2pool
+    // sidechain topic.
+    let (bridge_tx, bridge_rx) = watch::channel(None);
+    let (dht_tx, dht_rx) = watch::channel(None);
+    let (conns_tx, conns_rx) = mpsc::unbounded_channel();
+    let (ready_tx, ready_rx) = watch::channel(false);
+    let hyper_side = remote::RemoteHyper {
+        cfg: hyper::HyperConfig::from_args(&args, network, &data_dir),
+        p2pool: Some(hyper::P2poolTopic {
+            topic: hyper::p2pool_topic(network, &settings.consensus_id),
+            conns: conns_tx,
+            ready: ready_rx,
+        }),
+        bridge: bridge_tx,
+        dht: dht_tx,
+    };
+    let remote = remote::RemoteNodes::new(remote::RemoteConfig::new(network, VERSION));
+    let dialer: Arc<dyn remote::Dialer> = Arc::new(remote::BridgeDialer::new(bridge_rx, network));
+
+    // The built-in miner mines p2pool templates only (solo needs the node); no P2P manager
+    // takes commands.
+    let (mining_tx, mining_rx) = watch::channel(Arc::new(xkr_rpc::MiningStatus::default()));
+    let pool_link = p2pool::PoolLink::default();
+    let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+    let miner_control = Arc::new(miner::MinerControl::new(
+        None,
+        cmd_tx,
+        remote.net_status(),
+        mining_tx,
+        shutdown.clone(),
+        Some(pool_link.clone()),
+    ));
+    let (p2pool_status_tx, p2pool_status) =
+        watch::channel(Arc::new(xkr_rpc::P2poolStatus::default()));
+    if shutdown.is_cancelled() {
+        ui.startup.abort();
+        return Ok(());
+    }
+
+    let rpc_port = args.rpc_bind_port.unwrap_or(params.rpc_port);
+    let rpc_bind = SocketAddr::new(args.rpc_bind_ip, rpc_port);
+    let step = ui.step("RPC server");
+    let rpc_task = if rpc_port == 0 {
+        step.done_with("off");
+        None
+    } else {
+        let state = Arc::new(xkr_rpc::RemoteState {
+            network,
+            mode: components.label(),
+            remote: remote.subscribe_status(),
+            p2pool: Some(p2pool_status),
+            hyper: dht_rx,
+            mining: mining_rx,
+            info: NodeInfo {
+                version: VERSION.to_owned(),
+                start_time,
+                data_dir: if args.rpc_bind_ip.is_loopback() {
+                    data_dir.clone()
+                } else {
+                    PathBuf::new()
+                },
+                db_path: PathBuf::new(),
+                fee_address: String::new(),
+                fee_amount: 0,
+            },
+        });
+        let cfg = rpc_config(&args, rpc_port);
+        let token = shutdown.clone();
+        let task = tokio::spawn(async move {
+            if let Err(e) = xkr_rpc::serve_remote(cfg, state, token.clone().cancelled_owned()).await
+            {
+                tracing::error!(error = %e, "RPC server failed");
+                token.cancel();
+            }
+        });
+        step.done_with(format!("{rpc_bind}, /status and /info"));
+        Some(task)
+    };
+
+    let step = ui.step("Hyperswarm");
+    let hyper_task = tokio::spawn(remote::run_hyper(hyper_side, shutdown.clone()));
+    step.done_with("Bare workers started");
+
+    let remote_stop = CancellationToken::new();
+    let remote_task = {
+        let (remote, cancel) = (remote.clone(), remote_stop.clone());
+        tokio::spawn(async move { remote.run(&*dialer, &cancel).await })
+    };
+    let step = ui.step("Remote nodes");
+    match remote.wait_first(REMOTE_WAIT, &shutdown).await {
+        Some(status) => step.done_with(remote::step_detail(&status)),
+        None if shutdown.is_cancelled() => step.fail("stopped"),
+        None => step.done_with("none yet, still looking"),
+    }
+
+    if args.mine_p2pool {
+        let step = ui.step("Miner");
+        let threads = args
+            .mine_threads
+            .unwrap_or_else(miner::default_threads)
+            .max(1);
+        let mode = miner::MineMode::P2pool(pool_link.clone());
+        let detail = format!("{threads} threads · {}", mode.name());
+        let lines = miner::p2pool_payout_lines(&fee.get());
+        if args.log_json {
+            tracing::info!("{}", lines.join(" "));
+        } else {
+            for line in &lines {
+                step.handle().note(line);
+            }
+        }
+        match miner_control.start(miner::MinerConfig { mode, threads }) {
+            Ok(()) => step.done_with(detail),
+            Err(e) => step.fail(e),
+        }
+    }
+
+    let step = ui.step("p2pool");
+    if let Some(reason) = &settings.stratum_off {
+        if args.log_json {
+            tracing::warn!(reason, "p2pool: stratum off, running without it");
+        } else {
+            step.handle()
+                .note(&p2pool::stratum_off_line(ui.term.style(), reason));
+        }
+    }
+    step.done_with(p2pool::step_detail(&settings, &fee.get()));
+    let p2pool_stop = CancellationToken::new();
+    let node = p2pool::P2poolNode {
+        source: Arc::new(remote.clone()),
+        net: remote.net_status(),
+        fee: fee.subscribe(),
+        status: p2pool_status_tx,
+        hyper: Some(p2pool::HyperLink {
+            conns: conns_rx,
+            ready: ready_tx,
+        }),
+        term: (!args.log_json).then(|| ui.term.clone()),
+        link: pool_link,
+    };
+    let p2pool_task = tokio::spawn(p2pool::run(settings, node, p2pool_stop.clone()));
+    if fee.get().donation {
+        tracing::warn!(
+            "{}. {}",
+            fee::donation_notice(false, true),
+            fee::HOW_TO_CHANGE
+        );
+    }
+    ui.startup.ready(ui.started.elapsed());
+
+    shutdown.cancelled().await;
+
+    p2pool_stop.cancel();
+    if tokio::time::timeout(P2POOL_STOP, p2pool_task)
+        .await
+        .is_err()
+    {
+        stopping::step("p2pool").timed_out(P2POOL_STOP);
+    }
+    if let Some(thread) = miner_control.take_thread() {
+        let step = stopping::step("miner");
+        let join = tokio::task::spawn_blocking(move || thread.join());
+        match tokio::time::timeout(MINER_STOP, join).await {
+            Ok(Ok(Ok(()))) => step.done_with("threads joined"),
+            Ok(Ok(Err(_))) => step.fail("a mining thread panicked"),
+            Ok(Err(e)) => step.fail(e.to_string()),
+            Err(_) => step.timed_out(MINER_STOP),
+        }
+    }
+    let step = stopping::step("Remote nodes");
+    let nodes = remote.status().nodes.len();
+    remote_stop.cancel();
+    match tokio::time::timeout(REMOTE_STOP, remote_task).await {
+        Ok(_) => step.done_with(format!("{nodes} connections closed")),
+        Err(_) => step.timed_out(REMOTE_STOP),
+    }
+    // Unannounce, let the Bare workers leave the DHT (bounded inside).
+    let step = stopping::step("Hyperswarm transport");
+    match tokio::time::timeout(HYPER_STOP, hyper_task).await {
+        Ok(_) => step.done(),
+        Err(_) => step.timed_out(HYPER_STOP),
+    }
+    if let Some(task) = rpc_task {
+        let step = stopping::step("RPC server");
+        match tokio::time::timeout(RPC_STOP, task).await {
+            Ok(Ok(())) => step.done_with(format!("{rpc_bind} closed")),
+            Ok(Err(e)) => step.fail(e.to_string()),
+            Err(_) => step.timed_out(RPC_STOP),
         }
     }
     Ok(())

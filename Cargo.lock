@@ -2456,6 +2456,7 @@ dependencies = [
  "clap",
  "futures",
  "hex",
+ "rand_core 0.9.3",
  "rayon",
  "serde_json",
  "tokio",

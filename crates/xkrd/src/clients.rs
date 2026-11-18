@@ -42,8 +42,8 @@ use crate::hyper::{self, Key};
 pub const DEFAULT_MAX_CLIENTS: usize = xkr_hugin::relay::DEFAULT_MAX_CLIENTS;
 
 /// The JSON-RPC methods of service `node`. `getinfo` is `/json_rpc` `get_info` (the `/getinfo`
-/// answer).
-pub const NODE_METHODS: [&str; 7] = [
+/// answer); `get_block_blob` is served here only ([`block_blob`]).
+pub const NODE_METHODS: [&str; 8] = [
     "get_miner_data",
     "get_block_headers_range",
     "getblockheaderbyheight",
@@ -51,7 +51,13 @@ pub const NODE_METHODS: [&str; 7] = [
     "submitblock",
     "getinfo",
     "getstatehash",
+    GET_BLOCK_BLOB,
 ];
+
+/// `get_block_blob {"height": h}` -> `{"height", "hash", "blob"}`: the main-chain block at `h`
+/// as stored (header, parent block, miner transaction and transaction hashes; no
+/// transactions), hex. A client hashes it to check the block's id and proof of work.
+pub const GET_BLOCK_BLOB: &str = "get_block_blob";
 
 /// Client connections from one IP address (IPv6: one /64).
 pub const MAX_CLIENTS_PER_IP: usize = 8;
@@ -301,21 +307,26 @@ impl ClientsServer {
 
     /// A `tip` push for every new main-chain tip from now on.
     fn tip_pushes(&self) -> BoxStream<'static, Push> {
-        let tips = self.rpc.chain.subscribe_tip();
-        let net = self.rpc.net.clone();
-        futures::stream::unfold((tips, net), |(mut tips, net)| async move {
-            tips.changed().await.ok()?;
-            let tip = *tips.borrow_and_update();
-            let synced = hyper::synced_now(&net.borrow());
-            let push = Push::tip(&Tip {
-                height: tip.height,
-                hash: tip.hash.to_string(),
-                synced,
-            });
-            Some((push, (tips, net)))
-        })
-        .boxed()
+        tip_pushes(&self.rpc)
     }
+}
+
+/// A `tip` push for every new main-chain tip of `rpc`'s chain from now on.
+pub(crate) fn tip_pushes(rpc: &RpcState) -> BoxStream<'static, Push> {
+    let tips = rpc.chain.subscribe_tip();
+    let net = rpc.net.clone();
+    futures::stream::unfold((tips, net), |(mut tips, net)| async move {
+        tips.changed().await.ok()?;
+        let tip = *tips.borrow_and_update();
+        let synced = hyper::synced_now(&net.borrow());
+        let push = Push::tip(&Tip {
+            height: tip.height,
+            hash: tip.hash.to_string(),
+            synced,
+        });
+        Some((push, (tips, net)))
+    })
+    .boxed()
 }
 
 /// Service `node`: [`NODE_METHODS`] through the node's JSON-RPC dispatcher.
@@ -340,19 +351,53 @@ impl Handler for NodeHandler {
                 .acquire_owned()
                 .await
                 .map_err(|_| RpcError::new(code::INTERNAL, "the node is stopping"))?;
-            let name = if method == "getinfo" {
-                "get_info".to_owned()
-            } else {
-                method
-            };
-            let outcome = tokio::task::spawn_blocking(move || xkr_rpc::call(&rpc, &name, &params))
+            let outcome = tokio::task::spawn_blocking(move || node_call(&rpc, &method, &params))
                 .await
                 .map_err(|e| RpcError::new(code::INTERNAL, e.to_string()))?;
             stats.served_calls.fetch_add(1, Ordering::Relaxed);
-            outcome.map_err(|e| RpcError::new(e.code, e.message))
+            outcome
         }
         .boxed()
     }
+}
+
+/// One call of service `node` (an allowlisted method) on the node's RPC state; blocks on
+/// storage reads.
+pub(crate) fn node_call(rpc: &RpcState, method: &str, params: &Value) -> Result<Value, RpcError> {
+    match method {
+        GET_BLOCK_BLOB => block_blob(rpc, params),
+        "getinfo" => xkr_rpc::call(rpc, "get_info", params),
+        other => xkr_rpc::call(rpc, other, params),
+    }
+    .map_err(|e| RpcError::new(e.code, e.message))
+}
+
+/// [`GET_BLOCK_BLOB`].
+fn block_blob(rpc: &RpcState, params: &Value) -> Result<Value, xkr_rpc::CallError> {
+    let fail = |code: i64, message: String| xkr_rpc::CallError { code, message };
+    let height = params
+        .get("height")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| fail(code::INVALID_PARAMS, "height (a number) is required".into()))?;
+    let chain = &rpc.chain;
+    let reader = chain
+        .reader()
+        .map_err(|e| fail(code::INTERNAL, e.to_string()))?;
+    // -2: the C++ CORE_RPC_ERROR_CODE_TOO_BIG_HEIGHT, as getblockheaderbyheight.
+    let hash = reader
+        .block_hash(height)
+        .map_err(|e| fail(code::INTERNAL, e.to_string()))?
+        .ok_or_else(|| fail(-2, format!("no block at height {height}")))?;
+    let blob = chain
+        .with_compressor(|c| reader.block_blob(height, c))
+        .map_err(|e| fail(code::INTERNAL, e.to_string()))?
+        .map_err(|e| fail(code::INTERNAL, e.to_string()))?
+        .ok_or_else(|| fail(-2, format!("no block at height {height}")))?;
+    Ok(serde_json::json!({
+        "height": height,
+        "hash": hash.to_string(),
+        "blob": hex::encode(blob),
+    }))
 }
 
 /// A service that is negotiated but not served yet (`stratum`).

@@ -56,6 +56,8 @@ serde_json         = { workspace = true }
 [dev-dependencies]
 # the built-in p2pool test mines a share through the stratum client (crate::p2pool tests)
 xkr-stratum        = { path = "../xkr-stratum" }
+# a fixed random source for templates built twice (crate::p2pool tests)
+rand_core          = { workspace = true }
 
 [lints]
 workspace = true

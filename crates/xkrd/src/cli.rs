@@ -31,7 +31,8 @@ const LOGGING: &str = "Logging and console";
 /// Shown after the flags in `--help`.
 const AFTER_HELP: &str = "Modes: without --node, --hugin or --p2pool xkrd runs the node, the \
                           Hugin relay and p2pool (p2pool not on the testnet; --no-hugin and \
-                          --no-p2pool leave one out); with mode flags only the ones named. \
+                          --no-p2pool leave one out); with mode flags only the ones named \
+                          (--p2pool alone: p2pool on remote nodes, no database). \
                           Console commands (typed while the node runs in a terminal): help, \
                           status, height, print_pl, set_log <0-4>, fee-address [<address>], \
                           start_mining <address>|p2pool [threads], stop_mining, invite [new], \
@@ -86,7 +87,8 @@ pub struct Args {
     /// Run the built-in p2pool (`docs/mining.md`, "Built-in p2pool"): the Kryptokrona sidechain,
     /// a stratum server for local miners and the sidechain P2P network (outgoing TCP to other
     /// p2pool nodes and Hyperswarm). It starts once the node is synchronized and pays every share
-    /// to the node's fee address (`--hugin-payout`, console `fee-address`).
+    /// to the node's fee address (`--hugin-payout`, console `fee-address`). Without `--node` the
+    /// main chain comes from public xkrd nodes over Hyperswarm (no database, no sync).
     #[arg(long, overrides_with = "p2pool", help_heading = MODES)]
     pub p2pool: bool,
 
@@ -728,11 +730,12 @@ impl Components {
         .join(" ")
     }
 
-    /// Why these parts cannot run yet: everything without the node needs the main chain from
-    /// remote nodes, which is not there yet. `None` when the node runs.
+    /// Why these parts cannot run yet: the Hugin relay without the node (it needs the stratum
+    /// service of remote nodes, which is not there yet). p2pool without the node takes the main
+    /// chain from remote nodes (`crate::remote`). `None` when the parts can run.
     #[must_use]
     pub fn not_available(self) -> Option<String> {
-        (!self.node).then(|| {
+        (!self.node && self.hugin).then(|| {
             format!(
                 "not available yet: {} without --node needs a remote node (coming); add --node",
                 self.mode_flags()
@@ -1518,7 +1521,11 @@ mod tests {
                 "testnet {flags:?}"
             );
             assert_eq!(main.label(), label, "{flags:?}");
-            assert_eq!(main.not_available().is_none(), main.node, "{flags:?}");
+            assert_eq!(
+                main.not_available().is_none(),
+                main.node || !main.hugin,
+                "{flags:?}"
+            );
         }
         assert_eq!(
             parts(true, true, true).mode_flags(),
@@ -1671,15 +1678,23 @@ mod tests {
         ] {
             assert!(parse(flags).checked_components().is_ok(), "{flags:?}");
         }
-        // modes without the node parse and pass the flag checks; `main` stops them
+        // the Hugin relay without the node parses and passes the flag checks; `main` stops it
         // (`Components::not_available`)
-        for flags in [
-            &["--hugin"][..],
-            &["--p2pool"],
-            &["--hugin", "--p2pool", "--mine-p2pool"],
-        ] {
+        for flags in [&["--hugin"][..], &["--hugin", "--p2pool", "--mine-p2pool"]] {
             let c = parse(flags).checked_components().unwrap();
             assert!(!c.node && c.not_available().is_some(), "{flags:?}");
+        }
+        // p2pool without the node runs: the main chain comes from remote nodes
+        for flags in [
+            &["--p2pool"][..],
+            &["--p2pool", "--mine-p2pool"],
+            &["--network", "testnet", "--p2pool", "--mine-p2pool"],
+            &["--p2pool", "--hyper-client-only"],
+        ] {
+            let c = parse(flags).checked_components().unwrap();
+            assert_eq!(c, parts(false, false, true), "{flags:?}");
+            assert_eq!(c.not_available(), None, "{flags:?}");
+            assert_eq!(c.label(), "p2pool");
         }
     }
 }
