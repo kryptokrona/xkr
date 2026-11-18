@@ -187,7 +187,7 @@ pub struct Args {
     #[arg(long, conflicts_with = "no_hyper", help_heading = HYPER)]
     pub private: bool,
 
-    /// Connect to a private node with its invite (`xkrinv1:...`) and stay connected, redialing
+    /// Connect to a private node with its invite (`xkrinv2:...`, or `xkrinv1:...` of earlier nodes) and stay connected, redialing
     /// when the connection drops; repeatable. Works with or without --private.
     #[arg(
         long = "private-peer",
@@ -197,6 +197,16 @@ pub struct Args {
         help_heading = HYPER
     )]
     pub private_peer: Vec<Invite>,
+
+    /// Most connections of programs that use this node over Hyperswarm (the clients topic:
+    /// chainless p2pool and Hugin relays).
+    #[arg(
+        long,
+        value_name = "N",
+        default_value_t = crate::clients::DEFAULT_MAX_CLIENTS,
+        help_heading = HYPER
+    )]
+    pub max_clients: usize,
 
     // ------------------------------------------------------------------ RPC
     /// RPC listen address. The RPC has no authentication: with 0.0.0.0 anyone who can reach
@@ -1176,6 +1186,7 @@ mod tests {
             xkr_hugin::relay::DEFAULT_APP_DIFFICULTY
         );
         assert_eq!(plain.hugin_max_clients, 200);
+        assert_eq!(plain.max_clients, 200);
         assert_eq!(plain.hugin_sync_slots, 8);
         assert_eq!(plain.hugin_queue_budget_mb, 256);
         assert_eq!(

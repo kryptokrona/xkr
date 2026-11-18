@@ -29,6 +29,8 @@ xkr-rpc            = { path = "../xkr-rpc" }
 # scripts/build-bare-kit.sh once (.cargo/config.toml points LIBBARE_DIR at its output);
 # docs/hyper-transport.md, "Building"
 xkr-p2p-hyper      = { path = "../xkr-p2p-hyper" }
+# the clients topic's wire protocol (crate::clients)
+xkr-hyper-rpc      = { path = "../xkr-hyper-rpc" }
 # hugin-node relay on the Hugin topics (crate::hyper)
 xkr-hugin          = { path = "../xkr-hugin" }
 # built-in miner (crate::miner): the shared hashing threads and miner loop

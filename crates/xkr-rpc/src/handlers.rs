@@ -334,7 +334,9 @@ pub async fn get_peers(State(s): State<Arc<RpcState>>) -> Response {
 /// `/status`: xkr's own status for the desktop app. `hyper` is the Hyperswarm network's DHT node
 /// ([`crate::HyperNetStatus`]: `state`, `udp_port`, `port_fixed`, `firewalled`, `nat`,
 /// `private`), `null` with `--no-hyper`. `p2pool` is the built-in p2pool
-/// ([`crate::P2poolStatus`]), `null` while it is off. `hyper.udp_port`, `hyper.firewalled`, `hyper.nat`, `hugin.fee_address`,
+/// ([`crate::P2poolStatus`]), `null` while it is off. `clients` is the Hyperswarm clients topic
+/// (`{ connections, served_calls }`, [`crate::ClientStatsSnapshot`]), `null` when the node does
+/// not serve it. `hyper.udp_port`, `hyper.firewalled`, `hyper.nat`, `hugin.fee_address`,
 /// `hugin.p2pool.host`, `p2pool.payout_address`, `p2pool.stratum` and `p2pool.stratum_off` are
 /// part of the answer only for a client on a loopback address ([`from_loopback`]); other clients get the rest.
 #[allow(clippy::cast_precision_loss)]
@@ -393,6 +395,9 @@ pub async fn get_status(State(s): State<Arc<RpcState>>, ext: Extensions) -> Resp
             "mining": serde_json::to_value(s.mining.borrow().as_ref()).unwrap_or(Value::Null),
             "hugin": s.hugin.as_deref().map_or(Value::Null, |h| hugin_json(h, local)),
             "p2pool": s.p2pool.as_ref().map_or(Value::Null, |p| p2pool_json(&p.borrow(), local)),
+            "clients": s.clients.as_deref().map_or(Value::Null, |c| {
+                serde_json::to_value(c.snapshot()).unwrap_or(Value::Null)
+            }),
             "white_peerlist_size": net.white_peers.len(),
             "gray_peerlist_size": net.gray_peers.len(),
             "download": {

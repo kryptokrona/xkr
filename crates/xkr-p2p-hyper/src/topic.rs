@@ -15,6 +15,11 @@
 //! announces every stripe of the default count; a syncing node that lacks a stripe looks it up
 //! (`docs/hyper-transport.md`, "Stripe topics").
 //!
+//! Service topics ([`xkr_service_topic`], e.g. [`xkr_clients_topic`] `xkr/<network>/clients/v1`)
+//! hash their name the same way but use the hash as a topic key, like the built-in p2pool's
+//! sidechain topic: the DHT topic is the Hugin derivation of its base key and peers carry a
+//! `mid`, so their connections arrive on an identity of their own.
+//!
 //! # Hugin topics (domain-separated derivation of hugin-p2p 3.0)
 //!
 //! Hugin swarms (hugin-node, hugin-desktop, hugin-native on `hugin-p2p`) are derived from a
@@ -122,6 +127,32 @@ pub fn xkr_stripe_topics(network: XkrNetwork, stripes: u8) -> Vec<[u8; 32]> {
     (1..=stripes)
         .map(|k| xkr_stripe_topic(network, stripes, k))
         .collect()
+}
+
+/// A service topic of a network, `xkr/<network>/<service>/v1` (the clients topic, later the
+/// wallets topic), as a keyed topic: its topic key is [`xkr_topic`] of the name, used like a
+/// Hugin topic key (base key pair from it, DHT topic [`hugin_topic_on`] of the base public
+/// key). Announced with [`HuginTopic::mid`], it gets its own DHT identity in the bridge and its
+/// connections arrive tagged with the topic, so they are told apart from Levin peers; a client
+/// proves with its `mid` that it knows the name.
+#[must_use]
+pub fn xkr_service_topic(network: XkrNetwork, service: &str) -> HuginTopic {
+    let name = format!("xkr/{}/{service}/v1", network.as_str());
+    let topic_key = xkr_topic(&name);
+    let base_public_key = ed25519_public_from_seed(&topic_key);
+    HuginTopic {
+        key: name,
+        topic_key,
+        base_public_key,
+        topic: hugin_topic_on(network, &base_public_key),
+    }
+}
+
+/// The clients topic `xkr/<network>/clients/v1`: chainless xkrd modes reach a node with the
+/// chain there (`xkr-hyper-rpc`; `docs/hyper-transport.md`, "Clients topic").
+#[must_use]
+pub fn xkr_clients_topic(network: XkrNetwork) -> HuginTopic {
+    xkr_service_topic(network, "clients")
 }
 
 /// `Buffer.alloc(32).fill(bytes)`: `bytes` repeated cyclically (all zeros if empty).
@@ -480,6 +511,34 @@ mod tests {
             .collect();
         assert_eq!(distinct.len(), 4 + 4 + 6 + 2);
         assert_eq!(xkr_stripe_topics(XkrNetwork::Mainnet, 0).len(), 0);
+    }
+
+    /// The clients topic spelled out: the topic key is the Keccak hash of the name, the DHT
+    /// topic the network's Hugin derivation of its base key.
+    #[test]
+    fn clients_topic_derivation() {
+        for network in [XkrNetwork::Mainnet, XkrNetwork::Testnet] {
+            let t = xkr_clients_topic(network);
+            let name = format!("xkr/{}/clients/v1", network.as_str());
+            assert_eq!(t.key, name);
+            assert_eq!(t.topic_key, xkr_crypto::cn_fast_hash(name.as_bytes()).0);
+            assert_eq!(t.base_public_key, ed25519_public_from_seed(&t.topic_key));
+            assert_eq!(t.topic, hugin_topic_on(network, &t.base_public_key));
+            assert_eq!(t.mid().topic_key, Some(t.topic_key));
+            assert_ne!(
+                t.topic, t.topic_key,
+                "the DHT topic is not the plain name hash"
+            );
+            assert_ne!(t.topic, xkr_blocks_topic(network));
+        }
+        assert_ne!(
+            xkr_clients_topic(XkrNetwork::Mainnet).topic,
+            xkr_clients_topic(XkrNetwork::Testnet).topic
+        );
+        assert_ne!(
+            xkr_service_topic(XkrNetwork::Mainnet, "wallets").topic,
+            xkr_clients_topic(XkrNetwork::Mainnet).topic
+        );
     }
 
     #[test]

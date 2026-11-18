@@ -58,6 +58,11 @@
 //!   identities of the old one are gone. `--private-peer <invite>` dials a private node's sync
 //!   identity with the invite's `mid` and redials it with the usual back-off.
 //!
+//! * **Clients topic** (`xkr/<network>/clients/v1`, [`crate::clients`]): with the node on, the
+//!   node announces it in server mode once synchronized (not in client mode), and with
+//!   `--private` only the private clients topic of its invite; connections on either go to the
+//!   [`ClientsServer`] (the `xkr-hyper-rpc` protocol), not the Tracker or the Levin P2P manager.
+//!
 //! Contract with `crate::p2p` (owned by the P2P side): `P2pManager::handle() -> P2pHandle`,
 //! `P2pHandle: Clone + Send + Sync + 'static`,
 //! `PeerOrigin::Hyper { remote_public_key: [u8; 32], topic: Option<[u8; 32]> }` and
@@ -97,13 +102,14 @@ use xkr_rpc::{HyperDhtState, HyperNat, HyperNetStatus, NetStatus};
 use xkr_storage::pruning::{DEFAULT_STRIPES, PruningSeed};
 
 use crate::cli::Args;
+use crate::clients::ClientsServer;
 use crate::downloader::stripe_holders_for;
 use crate::fee::{Fee, FeeAddress};
 use crate::p2p::{P2pHandle, PeerOrigin};
 use crate::rng::{RandomSource as _, SystemRng};
 
 /// A DHT public key (ed25519, the Noise static key of a peer).
-type Key = [u8; 32];
+pub(crate) type Key = [u8; 32];
 
 /// The DHT key pair in the data directory (JSON `{ seed }`, mode 0600, created by xkrd; files of
 /// earlier versions also carry `publicKey`). A stable key keeps the node's identity (bans, Hugin
@@ -265,6 +271,9 @@ pub struct HyperConfig {
     pub private: Option<Arc<PrivateNode>>,
     /// Private nodes to stay connected to (`--private-peer`).
     pub private_peers: Vec<Invite>,
+    /// The clients topic's server (set by `main` with the node on, unless
+    /// `--hyper-client-only` without `--private`).
+    pub clients: Option<Arc<ClientsServer>>,
 }
 
 /// The built-in p2pool on the Hyperswarm network: its sidechain topic, joined once p2pool
@@ -328,6 +337,7 @@ impl HyperConfig {
             p2pool: None,
             private: None,
             private_peers: args.private_peer.clone(),
+            clients: None,
         }
     }
 
@@ -720,7 +730,7 @@ fn hugin_topics(
 
 /// Whether the node is synchronized enough to serve Hugin apps: what the built-in miner waits
 /// for (`synced` and not downloading).
-fn synced_now(net: &NetStatus) -> bool {
+pub(crate) fn synced_now(net: &NetStatus) -> bool {
     net.synced && !net.downloading
 }
 
@@ -1105,7 +1115,7 @@ impl ConnMeta {
 
 /// The key under which connections per address are counted: the IPv4 address, or the /64 of
 /// an IPv6 address.
-fn address_key(addr: SocketAddr) -> IpAddr {
+pub(crate) fn address_key(addr: SocketAddr) -> IpAddr {
     match addr.ip().to_canonical() {
         IpAddr::V6(v6) => {
             let mut o = v6.octets();
@@ -1187,7 +1197,7 @@ fn dial_backoff(attempts: u32) -> Duration {
 
 /// Before `key` is added to `map`: at [`MAX_TRACKED_KEYS`] entries, the one with the earliest
 /// `end` goes (nothing goes for a key already there).
-fn make_room<V>(map: &mut HashMap<Key, V>, key: &Key, end: impl Fn(&V) -> Instant) {
+pub(crate) fn make_room<V>(map: &mut HashMap<Key, V>, key: &Key, end: impl Fn(&V) -> Instant) {
     if map.len() < MAX_TRACKED_KEYS || map.contains_key(key) {
         return;
     }
@@ -1646,6 +1656,15 @@ enum Event {
         label: &'static str,
         key: Option<Key>,
     },
+    /// A clients topic is announced (with the identity key used).
+    ClientsAnnounced {
+        label: &'static str,
+        key: Option<Key>,
+    },
+    /// A client connection ended.
+    ClientsDone {
+        conn_id: u64,
+    },
 }
 
 enum Step {
@@ -1718,6 +1737,7 @@ impl Supervisor {
             max_peers = self.cfg.max_peers,
             private = self.cfg.private.is_some(),
             private_peers = self.cfg.private_peers.len(),
+            clients = self.cfg.clients.is_some(),
             stripe_topics = held_stripe_topics(self.cfg.network, seed).len(),
             pruning_seed = seed.raw(),
             "Hyperswarm transport starting"
@@ -1922,12 +1942,16 @@ impl Supervisor {
             lookup_running: false,
             private,
             private_peers,
+            clients: self.cfg.clients.as_ref(),
+            clients_topic: topic::xkr_clients_topic(net),
+            clients_handles: HashMap::new(),
         };
         s.spawn_announce(self.cfg.mode);
         s.spawn_stripe_announces();
         s.spawn_hugin_announces();
         s.spawn_p2pool_announce();
         s.spawn_private_announces();
+        s.spawn_clients_announces();
         s.dial_private_peers(Instant::now());
         let lookup = tokio::time::sleep(LOOKUP_EMPTY);
         tokio::pin!(lookup);
@@ -2042,6 +2066,12 @@ struct Session<'a> {
     private: Option<OwnPrivate>,
     /// The private nodes to stay connected to (`--private-peer`).
     private_peers: Vec<PrivatePeer>,
+    /// The clients topic's server.
+    clients: Option<&'a Arc<ClientsServer>>,
+    /// The public clients topic (`xkr/<network>/clients/v1`).
+    clients_topic: HuginTopic,
+    /// Close handles of the client connections.
+    clients_handles: HashMap<u64, CloseHandle>,
 }
 
 /// The private node's secret of this session and its topics.
@@ -2061,6 +2091,8 @@ struct PrivatePeer {
 
 const PRIVATE_SYNC_LABEL: &str = "private sync";
 const PRIVATE_HUGIN_LABEL: &str = "private hugin";
+const CLIENTS_LABEL: &str = "clients";
+const PRIVATE_CLIENTS_LABEL: &str = "private clients";
 
 impl Session<'_> {
     fn spawn_announce(&self, mode: AnnounceMode) {
@@ -2334,6 +2366,106 @@ impl Session<'_> {
         }
     }
 
+    /// Announces the clients topic in server mode once the node is synchronized (not in client
+    /// mode: `--hyper-client-only`, `--private`), and with `--private` the private clients
+    /// topic of the invite at once, retrying like the XKR topic.
+    fn spawn_clients_announces(&self) {
+        let Some(server) = self.clients else {
+            return;
+        };
+        let mut joins = Vec::new();
+        if self.mode != AnnounceMode::Client {
+            joins.push((
+                CLIENTS_LABEL,
+                self.clients_topic.topic,
+                self.clients_topic.mid(),
+                true,
+            ));
+        }
+        if let Some(p) = &self.private {
+            joins.push((
+                PRIVATE_CLIENTS_LABEL,
+                p.topics.clients.topic,
+                p.secret.clients_mid(&p.topics),
+                false,
+            ));
+        }
+        for (label, topic, mid, after_sync) in joins {
+            let bridge = self.bridge.clone();
+            let events = self.event_tx.clone();
+            let server = server.clone();
+            tokio::spawn(async move {
+                if after_sync {
+                    if !server.wait_synced().await {
+                        return;
+                    }
+                    tracing::info!(
+                        topic = label,
+                        "node synchronized: announcing the clients topic"
+                    );
+                }
+                loop {
+                    match bridge
+                        .announce(topic, AnnounceMode::Server, Some(mid.clone()))
+                        .await
+                    {
+                        Ok(ack) => {
+                            let _ = events.send(Event::ClientsAnnounced {
+                                label,
+                                key: ack.local_public_key(),
+                            });
+                            return;
+                        }
+                        Err(e) => {
+                            if bridge.error().is_some() || events.is_closed() {
+                                return;
+                            }
+                            tracing::warn!(topic = label, error = %e, "announcing the clients topic failed; retrying");
+                            tokio::time::sleep(ANNOUNCE_RETRY).await;
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /// Whether `topic` is the public or the private clients topic.
+    fn is_clients_topic(&self, topic: &Key) -> bool {
+        self.clients.is_some()
+            && (*topic == self.clients_topic.topic
+                || self
+                    .private
+                    .as_ref()
+                    .is_some_and(|p| p.topics.clients.topic == *topic))
+    }
+
+    /// Hands a connection from a clients topic to the clients server, if it admits it.
+    fn start_client(&mut self, conn: HyperConn) {
+        let Some(server) = self.clients.cloned() else {
+            conn.close(CloseReason::Normal);
+            return;
+        };
+        let (conn_id, key, addr) = {
+            let info = conn.info();
+            (info.conn_id, info.remote_public_key, info.addr)
+        };
+        let slot = match server.admit(&key, addr, Instant::now()) {
+            Ok(slot) => slot,
+            Err(reason) => {
+                tracing::debug!(peer = %short(&key), ?reason, "client connection refused");
+                conn.close(CloseReason::Normal);
+                return;
+            }
+        };
+        self.clients_handles.insert(conn_id, conn.close_handle());
+        let events = self.event_tx.clone();
+        tokio::spawn(async move {
+            let end = server.serve(slot, key, conn).await;
+            tracing::debug!(peer = %short(&key), %end, "client connection ended");
+            let _ = events.send(Event::ClientsDone { conn_id });
+        });
+    }
+
     /// Hands a connection from a Hugin topic to the relay.
     fn start_hugin(&mut self, conn: HyperConn, role: Role) {
         let Some(h) = self.hugin else {
@@ -2385,7 +2517,9 @@ impl Session<'_> {
         if let Some(t) = conn_topic
             && !self.xkr_topics.contains(&t)
         {
-            if let Some(p) = self.p2pool.filter(|p| p.topic.topic == t) {
+            if self.is_clients_topic(&t) {
+                self.start_client(conn);
+            } else if let Some(p) = self.p2pool.filter(|p| p.topic.topic == t) {
                 // The p2pool P2P server takes it; if p2pool is gone the connection is dropped,
                 // which closes it.
                 if p.conns.send(conn).is_err() {
@@ -2572,6 +2706,12 @@ impl Session<'_> {
             Event::HuginDone { conn_id } => {
                 self.hugin_handles.remove(&conn_id);
             }
+            Event::ClientsAnnounced { label, key } => {
+                tracing::info!(topic = label, key = %key.map_or_default(hex::encode), "clients topic announced on the DHT");
+            }
+            Event::ClientsDone { conn_id } => {
+                self.clients_handles.remove(&conn_id);
+            }
             Event::P2poolAnnounced(key) => {
                 tracing::info!(key = %key.map_or_default(hex::encode), "p2pool topic announced on the DHT");
             }
@@ -2621,6 +2761,9 @@ impl Session<'_> {
         for (_, h) in self.hugin_handles.drain() {
             h.close(CloseReason::Normal);
         }
+        for (_, h) in self.clients_handles.drain() {
+            h.close(CloseReason::Normal);
+        }
         self.bridge.close();
         host.stop(SHUTDOWN_WORKERS_STOP).await;
     }
@@ -2633,10 +2776,17 @@ impl Session<'_> {
         let bridge = &self.bridge;
         let (xkr_topic, hugin) = (self.topic, self.hugin);
         let p2pool_topic = self.p2pool.map(|p| p.topic.topic);
-        let private_topics = self
-            .private
-            .as_ref()
-            .map(|p| [p.topics.sync.topic, p.topics.hugin.topic]);
+        let private_topics = self.private.as_ref().map(|p| {
+            [
+                p.topics.sync.topic,
+                p.topics.hugin.topic,
+                p.topics.clients.topic,
+            ]
+        });
+        let clients_topic = self
+            .clients
+            .filter(|_| self.mode != AnnounceMode::Client)
+            .map(|_| self.clients_topic.topic);
         let stripe_topics = &self.stripe_topics;
         let step = crate::stopping::step("Hyperswarm announcements");
         let unannounced = tokio::time::timeout(SHUTDOWN_UNANNOUNCE, async {
@@ -2645,6 +2795,9 @@ impl Session<'_> {
                 let _ = bridge.unannounce(*t).await;
             }
             if let Some(t) = p2pool_topic {
+                let _ = bridge.unannounce(t).await;
+            }
+            if let Some(t) = clients_topic {
                 let _ = bridge.unannounce(t).await;
             }
             for t in private_topics.iter().flatten() {
@@ -2667,6 +2820,9 @@ impl Session<'_> {
             h.close(CloseReason::Normal);
         }
         step.done_with(format!("{peers} disconnected"));
+        for (_, h) in self.clients_handles.drain() {
+            h.close(CloseReason::Normal);
+        }
         if hugin.is_some() {
             let step = crate::stopping::step("Hugin relay");
             let apps = self.hugin_handles.len();

@@ -28,7 +28,7 @@
 //! | `/queryblockslite` | `on_query_blocks_lite` (C++ walletd / xkrwallet sync) |
 //! | `/get_blocks_hashes_by_timestamps` | `onGetBlocksHashesByTimestamps` |
 //! | `/json_rpc` | `getblockcount`, `on_getblockhash`, `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`, `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`, `submitblock`, `getstatehash` (xkr), `f_blocks_list_json`, `f_block_json`, `f_transaction_json`, `f_on_transactions_pool_json` (the `f_*` methods only on a node started with `--explorer`, [`RpcState::explorer`]) |
-//! | `/status` | xkr only: sync, peer, mining, Hugin relay and p2pool state for the desktop app |
+//! | `/status` | xkr only: sync, peer, mining, Hugin relay, p2pool and clients-topic state for the desktop app |
 //!
 //! Like the C++ server, every path accepts GET and POST (the C++ HTTP server ignores the
 //! method). Storage reads run on `spawn_blocking`.
@@ -60,6 +60,7 @@ mod node_proxy;
 mod wallet;
 
 pub use details::MAX_DETAILS_ANSWER_BYTES;
+pub use jsonrpc::{CallError, call};
 pub use mining::{parse_miner_address, submit_mined_block};
 
 use std::future::Future;
@@ -68,6 +69,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -125,6 +127,33 @@ pub struct NetStatus {
     pub missing_stripe: Option<u32>,
     /// The Hyperswarm network's DHT node (`/status` `hyper`); `None` with `--no-hyper`.
     pub hyper_net: Option<HyperNetStatus>,
+}
+
+/// Counters of the Hyperswarm clients topic (`xkrd`, `docs/hyper-transport.md` "Clients
+/// topic"), shared by the server and `/status`.
+#[derive(Debug, Default)]
+pub struct ClientStats {
+    /// Client connections open now (from arrival to close).
+    pub connections: AtomicUsize,
+    /// Calls answered by a service (errors of the method included, refusals by the limits not).
+    pub served_calls: AtomicU64,
+}
+
+/// [`ClientStats`] at one moment: `/status` `clients`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ClientStatsSnapshot {
+    pub connections: usize,
+    pub served_calls: u64,
+}
+
+impl ClientStats {
+    #[must_use]
+    pub fn snapshot(&self) -> ClientStatsSnapshot {
+        ClientStatsSnapshot {
+            connections: self.connections.load(Ordering::Relaxed),
+            served_calls: self.served_calls.load(Ordering::Relaxed),
+        }
+    }
 }
 
 /// State of the node's HyperDHT node.
@@ -304,6 +333,9 @@ pub struct RpcState {
     /// The built-in p2pool, shown by `/status` as `p2pool`; `None` (`"p2pool": null`) when it
     /// is off.
     pub p2pool: Option<watch::Receiver<Arc<P2poolStatus>>>,
+    /// Counters of the Hyperswarm clients topic, shown by `/status` as `clients`; `None`
+    /// (`"clients": null`) when the node does not serve it.
+    pub clients: Option<Arc<ClientStats>>,
     /// Whether the block explorer methods (`f_blocks_list_json`, `f_block_json`,
     /// `f_transaction_json`, `f_on_transactions_pool_json`) are answered (`xkrd --explorer`,
     /// C++ `--enable-blockexplorer`). Off, `/json_rpc` reports them as not found.

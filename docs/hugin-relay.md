@@ -529,7 +529,7 @@ join the public-node topic or the address-based private topic above.
 The Hugin app invite has the form of the private node invite above with one field more:
 `<relay address, 99><Hugin topic key, 64 hex><Hugin identity key, 64 hex>` (227 characters).
 The node logs it once the Hugin identity is announced (`Hugin app invite of the private node`)
-and the console command `invite` prints it next to the `xkrinv1:` invite. The topic key is
+and the console command `invite` prints it next to the `xkrinv2:` invite. The topic key is
 `cn_fast_hash("xkr/private/hugin/v1" || secret)`; an app uses its 32 bytes as the Hugin topic
 key (base key pair, topic, `mid`). As with the 163-character invite, the app pays the relay at
 the address in the first 99 characters and admits only the key in the last 64; hugin-network's

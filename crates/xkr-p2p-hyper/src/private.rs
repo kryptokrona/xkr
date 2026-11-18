@@ -1,7 +1,8 @@
 //! Private node (`xkrd --private`): the secret file, what derives from it and the invite.
 //!
-//! A private node accepts Hyperswarm connections only on two identities of its own, and only
-//! from peers that hold its invite. Both identities use the Hugin `mid` machinery of the bridge
+//! A private node accepts Hyperswarm connections only on identities of its own (block sync,
+//! Hugin apps, clients), and only from peers that hold its invite. Each identity uses the Hugin
+//! `mid` machinery of the bridge
 //! (`bridge/src/mid.js`): each is announced like a Hugin topic, with a topic key and an identity
 //! seed, so the bridge gives it its own DHT key pair, signs that key as its `mid` and refuses
 //! every handshake whose `mid` does not verify against the topic base key.
@@ -23,8 +24,10 @@
 //! |---|---|
 //! | sync topic key | `cn_fast_hash("xkr/private/sync/v1" \|\| secret)` |
 //! | Hugin topic key | `cn_fast_hash("xkr/private/hugin/v1" \|\| secret)` |
+//! | clients topic key | `cn_fast_hash("xkr/private/clients/v1" \|\| secret)` |
 //! | sync identity seed | `cn_fast_hash("xkr/private/sync-identity/v1" \|\| identity)` |
 //! | Hugin identity seed | `cn_fast_hash("xkr/private/hugin-identity/v1" \|\| identity)` |
+//! | clients identity seed | `cn_fast_hash("xkr/private/clients-identity/v1" \|\| identity)` |
 //!
 //! A topic key is used exactly like a Hugin topic key: `base = crypto_sign_seed_keypair(topic
 //! key)`, the DHT topic is `hugin_topic_on(network, base.public_key)` (the testnet domain on
@@ -34,10 +37,12 @@
 //!
 //! # Invite
 //!
-//! One line: [`INVITE_PREFIX`] followed by 192 hex characters, `sync key || Hugin key ||
-//! secret` (the public keys of the two identities and the secret, 32 bytes each). A peer that
-//! holds it derives both topic keys, signs its own `mid` with them and dials the keys directly.
-//! A new secret (and identity) makes every earlier invite useless.
+//! One line: [`INVITE_PREFIX`] followed by 256 hex characters, `sync key || Hugin key ||
+//! clients key || secret` (the public keys of the three identities and the secret, 32 bytes
+//! each). A peer that holds it derives the topic keys, signs its own `mid` with them and dials
+//! the keys directly. Invites of the first version ([`INVITE_V1_PREFIX`], 192 hex characters,
+//! no clients key) are still read. A new secret (and identity) makes every earlier invite
+//! useless.
 
 use std::fmt;
 use std::io::{self, Write as _};
@@ -52,11 +57,17 @@ use crate::topic::{self, HuginTopic, XkrNetwork};
 /// The secret file in the data directory.
 pub const PRIVATE_FILE: &str = "hyper-private.json";
 
-/// Start of every invite string (version 1).
-pub const INVITE_PREFIX: &str = "xkrinv1:";
+/// Start of every invite string (version 2).
+pub const INVITE_PREFIX: &str = "xkrinv2:";
 
-/// Hex characters after [`INVITE_PREFIX`]: three 32-byte values.
-pub const INVITE_HEX_LEN: usize = 3 * 64;
+/// Hex characters after [`INVITE_PREFIX`]: four 32-byte values.
+pub const INVITE_HEX_LEN: usize = 4 * 64;
+
+/// Start of a version-1 invite (no clients key), still read.
+pub const INVITE_V1_PREFIX: &str = "xkrinv1:";
+
+/// Hex characters after [`INVITE_V1_PREFIX`]: three 32-byte values.
+pub const INVITE_V1_HEX_LEN: usize = 3 * 64;
 
 /// Length of the XKR address at the start of a Hugin app invite.
 pub const APP_INVITE_ADDRESS_LEN: usize = 99;
@@ -68,10 +79,14 @@ pub const APP_INVITE_LEN: usize = APP_INVITE_ADDRESS_LEN + 2 * 64;
 pub const SYNC_TOPIC_DOMAIN: &str = "xkr/private/sync/v1";
 /// Domain of the Hugin topic key.
 pub const HUGIN_TOPIC_DOMAIN: &str = "xkr/private/hugin/v1";
+/// Domain of the clients topic key.
+pub const CLIENTS_TOPIC_DOMAIN: &str = "xkr/private/clients/v1";
 /// Domain of the sync identity seed.
 pub const SYNC_IDENTITY_DOMAIN: &str = "xkr/private/sync-identity/v1";
 /// Domain of the Hugin identity seed.
 pub const HUGIN_IDENTITY_DOMAIN: &str = "xkr/private/hugin-identity/v1";
+/// Domain of the clients identity seed.
+pub const CLIENTS_IDENTITY_DOMAIN: &str = "xkr/private/clients-identity/v1";
 
 /// `cn_fast_hash(domain || value)`.
 fn derive(domain: &str, value: &[u8; 32]) -> [u8; 32] {
@@ -92,22 +107,25 @@ fn topic_of(topic_key: [u8; 32], network: XkrNetwork) -> HuginTopic {
     }
 }
 
-/// The two topics of a secret.
+/// The topics of a secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrivateTopics {
     /// Block sync (Levin) connections.
     pub sync: HuginTopic,
     /// Hugin app connections.
     pub hugin: HuginTopic,
+    /// Clients of the node's services (`xkr-hyper-rpc`), the private form of the clients topic.
+    pub clients: HuginTopic,
 }
 
 impl PrivateTopics {
-    /// Both topics of `secret` on `network`.
+    /// The topics of `secret` on `network`.
     #[must_use]
     pub fn of(secret: &[u8; 32], network: XkrNetwork) -> Self {
         Self {
             sync: topic_of(derive(SYNC_TOPIC_DOMAIN, secret), network),
             hugin: topic_of(derive(HUGIN_TOPIC_DOMAIN, secret), network),
+            clients: topic_of(derive(CLIENTS_TOPIC_DOMAIN, secret), network),
         }
     }
 }
@@ -211,6 +229,12 @@ impl PrivateSecret {
         derive(HUGIN_IDENTITY_DOMAIN, &self.identity)
     }
 
+    /// Seed of the DHT key pair of the clients identity.
+    #[must_use]
+    pub fn clients_identity_seed(&self) -> [u8; 32] {
+        derive(CLIENTS_IDENTITY_DOMAIN, &self.identity)
+    }
+
     /// What to announce the sync topic with: its topic key and the sync identity seed.
     #[must_use]
     pub fn sync_mid(&self, topics: &PrivateTopics) -> HuginMid {
@@ -229,12 +253,24 @@ impl PrivateSecret {
         }
     }
 
+    /// What to announce the clients topic with: its topic key and the clients identity seed.
+    #[must_use]
+    pub fn clients_mid(&self, topics: &PrivateTopics) -> HuginMid {
+        HuginMid {
+            identity_seed: Some(self.clients_identity_seed()),
+            ..topics.clients.mid()
+        }
+    }
+
     /// The invite of this secret.
     #[must_use]
     pub fn invite(&self) -> Invite {
         Invite {
             sync_key: topic::ed25519_public_from_seed(&self.sync_identity_seed()),
             hugin_key: topic::ed25519_public_from_seed(&self.hugin_identity_seed()),
+            clients_key: Some(topic::ed25519_public_from_seed(
+                &self.clients_identity_seed(),
+            )),
             secret: self.secret,
         }
     }
@@ -286,21 +322,23 @@ fn write_file(path: &Path, s: &PrivateSecret, create_new: bool) -> io::Result<()
 /// Why an invite string was not accepted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InviteError {
-    #[error("an invite starts with xkrinv1:")]
+    #[error("an invite starts with xkrinv2: (or xkrinv1:)")]
     Prefix,
-    #[error("an invite has 192 hex characters after xkrinv1:, not {0}")]
+    #[error("an invite has 256 hex characters after xkrinv2: (192 after xkrinv1:), not {0}")]
     Length(usize),
-    #[error("an invite is hex after xkrinv1:")]
+    #[error("an invite is hex after its prefix")]
     Hex,
 }
 
-/// A private node's invite ([`INVITE_PREFIX`] + hex of the three values).
+/// A private node's invite ([`INVITE_PREFIX`] + hex of the four values).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Invite {
     /// Public key of the node's sync identity.
     pub sync_key: [u8; 32],
     /// Public key of the node's Hugin identity.
     pub hugin_key: [u8; 32],
+    /// Public key of the node's clients identity (`None` in a version-1 invite).
+    pub clients_key: Option<[u8; 32]>,
     /// The node's secret.
     pub secret: [u8; 32],
 }
@@ -314,14 +352,25 @@ impl fmt::Debug for Invite {
 }
 
 impl fmt::Display for Invite {
+    /// Version 2; an invite read from version 1 (no clients key) is written as version 1.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{INVITE_PREFIX}{}{}{}",
-            hex::encode(self.sync_key),
-            hex::encode(self.hugin_key),
-            hex::encode(self.secret)
-        )
+        match self.clients_key {
+            Some(clients) => write!(
+                f,
+                "{INVITE_PREFIX}{}{}{}{}",
+                hex::encode(self.sync_key),
+                hex::encode(self.hugin_key),
+                hex::encode(clients),
+                hex::encode(self.secret)
+            ),
+            None => write!(
+                f,
+                "{INVITE_V1_PREFIX}{}{}{}",
+                hex::encode(self.sync_key),
+                hex::encode(self.hugin_key),
+                hex::encode(self.secret)
+            ),
+        }
     }
 }
 
@@ -330,11 +379,20 @@ impl FromStr for Invite {
 
     /// Surrounding white space is ignored; hex digits may be upper or lower case.
     fn from_str(s: &str) -> Result<Self, InviteError> {
-        let rest = s
-            .trim()
-            .strip_prefix(INVITE_PREFIX)
-            .ok_or(InviteError::Prefix)?;
-        if rest.len() != INVITE_HEX_LEN {
+        let s = s.trim();
+        let (rest, v2) = if let Some(rest) = s.strip_prefix(INVITE_PREFIX) {
+            (rest, true)
+        } else if let Some(rest) = s.strip_prefix(INVITE_V1_PREFIX) {
+            (rest, false)
+        } else {
+            return Err(InviteError::Prefix);
+        };
+        let want = if v2 {
+            INVITE_HEX_LEN
+        } else {
+            INVITE_V1_HEX_LEN
+        };
+        if rest.len() != want {
             return Err(InviteError::Length(rest.len()));
         }
         let bytes = hex::decode(rest).map_err(|_| InviteError::Hex)?;
@@ -343,10 +401,20 @@ impl FromStr for Invite {
             out.copy_from_slice(&bytes[i * 32..(i + 1) * 32]);
             out
         };
-        Ok(Self {
-            sync_key: part(0),
-            hugin_key: part(1),
-            secret: part(2),
+        Ok(if v2 {
+            Self {
+                sync_key: part(0),
+                hugin_key: part(1),
+                clients_key: Some(part(2)),
+                secret: part(3),
+            }
+        } else {
+            Self {
+                sync_key: part(0),
+                hugin_key: part(1),
+                clients_key: None,
+                secret: part(2),
+            }
         })
     }
 }
@@ -374,7 +442,7 @@ mod tests {
     fn invite_round_trip() {
         let invite = sample().invite();
         let text = invite.to_string();
-        assert!(text.starts_with("xkrinv1:"));
+        assert!(text.starts_with("xkrinv2:"));
         assert_eq!(text.len(), INVITE_PREFIX.len() + INVITE_HEX_LEN);
         assert!(text.ends_with(&"11".repeat(32)), "the secret comes last");
         assert_eq!(text.parse::<Invite>(), Ok(invite));
@@ -418,8 +486,12 @@ mod tests {
         let good = sample().invite().to_string();
         let hex_part = &good[INVITE_PREFIX.len()..];
         assert_eq!(
-            format!("xkrinv2:{hex_part}").parse::<Invite>(),
+            format!("xkrinv3:{hex_part}").parse::<Invite>(),
             Err(InviteError::Prefix)
+        );
+        assert_eq!(
+            format!("xkrinv1:{hex_part}").parse::<Invite>(),
+            Err(InviteError::Length(INVITE_HEX_LEN))
         );
         assert_eq!(hex_part.parse::<Invite>(), Err(InviteError::Prefix));
         assert_eq!("".parse::<Invite>(), Err(InviteError::Prefix));
@@ -435,7 +507,41 @@ mod tests {
             format!("{}zz", &good[..good.len() - 2]).parse::<Invite>(),
             Err(InviteError::Hex)
         );
+        assert_eq!("xkrinv2:".parse::<Invite>(), Err(InviteError::Length(0)));
         assert_eq!("xkrinv1:".parse::<Invite>(), Err(InviteError::Length(0)));
+    }
+
+    /// A version-1 invite (sync key, Hugin key, secret) is still read, without a clients key,
+    /// and written back unchanged.
+    #[test]
+    fn version_1_invites_are_read() {
+        let s = sample();
+        let v2 = s.invite();
+        let v1_text = format!(
+            "{INVITE_V1_PREFIX}{}{}{}",
+            hex::encode(v2.sync_key),
+            hex::encode(v2.hugin_key),
+            hex::encode(v2.secret)
+        );
+        let v1: Invite = v1_text.parse().expect("v1");
+        assert_eq!(v1.sync_key, v2.sync_key);
+        assert_eq!(v1.hugin_key, v2.hugin_key);
+        assert_eq!(v1.secret, v2.secret);
+        assert_eq!(v1.clients_key, None);
+        assert_eq!(v1.to_string(), v1_text);
+        assert_eq!(
+            v1.topics(XkrNetwork::Mainnet),
+            v2.topics(XkrNetwork::Mainnet)
+        );
+        assert_eq!(
+            v2.clients_key,
+            Some(topic::ed25519_public_from_seed(&s.clients_identity_seed()))
+        );
+        let text = v2.to_string();
+        assert_eq!(
+            &text[INVITE_PREFIX.len() + 128..INVITE_PREFIX.len() + 192],
+            hex::encode(v2.clients_key.unwrap())
+        );
     }
 
     /// The derivation spelled out: topic keys from the secret, identity seeds from the
@@ -452,7 +558,11 @@ mod tests {
             let t = s.topics(network);
             assert_eq!(t.sync.topic_key, hash("xkr/private/sync/v1", s.secret));
             assert_eq!(t.hugin.topic_key, hash("xkr/private/hugin/v1", s.secret));
-            for h in [&t.sync, &t.hugin] {
+            assert_eq!(
+                t.clients.topic_key,
+                hash("xkr/private/clients/v1", s.secret)
+            );
+            for h in [&t.sync, &t.hugin, &t.clients] {
                 assert_eq!(
                     h.base_public_key,
                     topic::ed25519_public_from_seed(&h.topic_key)
@@ -461,6 +571,16 @@ mod tests {
                 assert_eq!(h.key, hex::encode(h.topic_key));
             }
             assert_ne!(t.sync.topic, t.hugin.topic);
+            assert_ne!(t.clients.topic, t.sync.topic);
+            assert_ne!(t.clients.topic, t.hugin.topic);
+            assert_ne!(
+                t.clients.topic,
+                topic::xkr_clients_topic(network).topic,
+                "the private clients topic is not the public one"
+            );
+            let clients = s.clients_mid(&t);
+            assert_eq!(clients.topic_key, Some(t.clients.topic_key));
+            assert_eq!(clients.identity_seed, Some(s.clients_identity_seed()));
             assert_eq!(
                 t,
                 s.invite().topics(network),
@@ -485,6 +605,10 @@ mod tests {
         assert_eq!(
             s.hugin_identity_seed(),
             hash("xkr/private/hugin-identity/v1", s.identity)
+        );
+        assert_eq!(
+            s.clients_identity_seed(),
+            hash("xkr/private/clients-identity/v1", s.identity)
         );
         let invite = s.invite();
         assert_eq!(

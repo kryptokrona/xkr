@@ -106,6 +106,7 @@ fn testnet_state(db: &TempDb) -> Arc<RpcState> {
         mining,
         hugin: None,
         p2pool: None,
+        clients: None,
         explorer: true,
         info: NodeInfo {
             version: "rpc-node-proxy-test".into(),

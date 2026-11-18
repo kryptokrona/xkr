@@ -15,6 +15,7 @@
 mod bridge_check;
 mod chain_worker;
 mod cli;
+mod clients;
 mod console;
 mod db_tool;
 mod display;
@@ -48,7 +49,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt, reload};
 use xkr_chain::{Chain, ChainConfig, ChainError, unix_now};
 use xkr_consensus::Network;
-use xkr_rpc::{NetStatus, NodeInfo, RpcConfig, RpcState};
+use xkr_rpc::{ClientStats, NetStatus, NodeInfo, RpcConfig, RpcState};
 use xkr_storage::{OpenEvent, Store};
 use xkr_txpool::{PoolConfig, TxPool};
 
@@ -951,6 +952,13 @@ async fn async_main(
         .and_then(|c| c.hugin.as_ref())
         .and_then(|h| h.p2pool_nodes.first().cloned());
 
+    // The clients topic (crate::clients): served with the Hyperswarm transport, unless the node
+    // only dials (`--hyper-client-only` without `--private`).
+    let client_stats = hyper_cfg
+        .as_ref()
+        .filter(|_| !args.hyper_client_only || args.private)
+        .map(|_| Arc::new(ClientStats::default()));
+
     let (status_rx_display, mining_rx_display) = (status_rx.clone(), mining_rx.clone());
     let status_rx_p2pool = status_rx.clone();
     // The console answers from the node from now on.
@@ -961,6 +969,7 @@ async fn async_main(
         hugin: hugin_stats.clone(),
         fee: fee_handle.clone(),
         p2pool: p2pool_status.clone(),
+        clients: client_stats.clone(),
         miner: Some(miner_control.clone()),
         hyper: !args.no_hyper,
         private: private_node.clone(),
@@ -978,35 +987,46 @@ async fn async_main(
     let p2pool_commands = p2pool_settings.as_ref().map(|_| cmd_tx.clone());
     let rpc_port = args.rpc_bind_port.unwrap_or(params.rpc_port);
     let rpc_bind = SocketAddr::new(args.rpc_bind_ip, rpc_port);
+    // The node's RPC state: the HTTP server's and the clients topic's.
+    let state = Arc::new(RpcState {
+        chain: chain.clone(),
+        net: status_rx,
+        commands: cmd_tx,
+        mining: mining_rx,
+        hugin: hugin_stats,
+        p2pool: p2pool_status,
+        clients: client_stats.clone(),
+        explorer: args.explorer,
+        info: NodeInfo {
+            version: VERSION.to_owned(),
+            start_time,
+            // `/status` names the data directory on a loopback RPC only.
+            data_dir: if args.rpc_bind_ip.is_loopback() {
+                data_dir.clone()
+            } else {
+                PathBuf::new()
+            },
+            db_path,
+            fee_address: args.fee_address.clone(),
+            fee_amount: args.fee_amount,
+        },
+    });
+    if let (Some(stats), Some(cfg)) = (&client_stats, hyper_cfg.as_mut()) {
+        cfg.clients = Some(clients::ClientsServer::new(
+            state.clone(),
+            stats.clone(),
+            network,
+            args.max_clients.max(1),
+            cfg.p2pool.as_ref().map(|p| p.ready.clone()),
+        ));
+    }
     let step = ui.step("RPC server");
     let rpc_task = if rpc_port == 0 {
         tracing::info!("RPC server disabled");
-        drop(cmd_tx);
+        drop(state);
         step.done_with("off");
         None
     } else {
-        let state = Arc::new(RpcState {
-            chain: chain.clone(),
-            net: status_rx,
-            commands: cmd_tx,
-            mining: mining_rx,
-            hugin: hugin_stats,
-            p2pool: p2pool_status,
-            explorer: args.explorer,
-            info: NodeInfo {
-                version: VERSION.to_owned(),
-                start_time,
-                // `/status` names the data directory on a loopback RPC only.
-                data_dir: if args.rpc_bind_ip.is_loopback() {
-                    data_dir.clone()
-                } else {
-                    PathBuf::new()
-                },
-                db_path,
-                fee_address: args.fee_address.clone(),
-                fee_amount: args.fee_amount,
-            },
-        });
         if args.rpc_bind_ip.is_unspecified() {
             tracing::warn!(
                 bind = %args.rpc_bind_ip,

@@ -131,6 +131,7 @@ fn node(db: &TempDb, builtin: StateHashes) -> Arc<RpcState> {
         mining,
         hugin: None,
         p2pool: None,
+        clients: None,
         explorer: false,
         info: NodeInfo {
             version: "rpc-state-test".into(),

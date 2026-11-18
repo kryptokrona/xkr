@@ -8,6 +8,8 @@ members = [
     "crates/xkr-storage",
     "crates/xkr-p2p-legacy",
     "crates/xkr-p2p-hyper",
+    # wire protocol of the clients topic (server in xkrd, clients in chainless modes and wallets)
+    "crates/xkr-hyper-rpc",
     # node core
     "crates/xkr-txpool",
     "crates/xkr-chain",

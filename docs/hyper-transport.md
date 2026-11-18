@@ -54,6 +54,8 @@ of the bridge.
 | p2pool sidechain | `p2pool_topic(network, consensus id)` in `crates/xkrd/src/hyper.rs` | both (`client` with `--hyper-client-only` or `--private`) | the built-in p2pool's sidechain P2P (on by default on mainnet, `--no-p2pool`, `--node --p2pool`), see "The built-in p2pool" |
 | private sync | `PrivateTopics::of(secret).sync` (`xkr_p2p_hyper::private`) | server (`--private` only) | peers with the private node's invite; Levin, see "Private node" |
 | private Hugin | `PrivateTopics::of(secret).hugin` | server (`--private` only) | Hugin apps with the private node's invite, see "Private node" |
+| `xkr/<network>/clients/v1` | topic key `cn_fast_hash(name)`, keyed like p2pool (`topic::xkr_clients_topic`) | server, once synchronized (node on; not with `--hyper-client-only` or `--private`) | chainless xkrd modes (and later tools) use a node's chain, see "Clients topic" |
+| private clients | `PrivateTopics::of(secret).clients` | server (`--private` only) | the clients topic for holders of the private node's invite |
 
 Further XKR topics (e.g. separate `txs`/`sync` topics) are added by name with
 `topic::xkr_topic`, versioned (`/v1`) so a protocol change can move to a new topic without a
@@ -379,12 +381,13 @@ Hyperswarm connections only from peers that hold its invite.
   `--hyper-client-only`), the p2pool sidechain topic and the Hugin node mesh are joined in
   mode `client`: the node looks up and dials, its node key never listens. The Hugin
   public-node topic and the address-based Hugin private topic are not joined.
-- **What listens.** Two identities derived from the node's secret, each announced in mode
+- **What listens.** Three identities derived from the node's secret, each announced in mode
   `server` like a Hugin topic (topic key + identity seed, so the bridge gives it its own DHT key
   pair, signs that key as its `mid` and refuses every handshake whose `mid` does not verify):
   the sync identity (connections go to the Levin P2P manager, like plain Hyperswarm peers) and
   the Hugin identity (connections go to the Hugin relay as apps; announced only with the relay
-  on). `Session::on_conn` routes by the topic the connection arrived on; `Tracker::admit` admits
+  on) and the clients identity (connections go to the clients server, "Clients topic"; with the
+  node on). `Session::on_conn` routes by the topic the connection arrived on; `Tracker::admit` admits
   inbound Levin connections only on the sync identity.
 - **Secret.** `<data dir>/hyper-private.json`, `{ "secret": "<64 hex>", "identity": "<64
   hex>" }`, mode 0600, created with random bytes from the operating system on the first
@@ -395,17 +398,20 @@ Hyperswarm connections only from peers that hold its invite.
   |---|---|
   | sync topic key | `cn_fast_hash("xkr/private/sync/v1" \|\| secret)` |
   | Hugin topic key | `cn_fast_hash("xkr/private/hugin/v1" \|\| secret)` |
+  | clients topic key | `cn_fast_hash("xkr/private/clients/v1" \|\| secret)` |
   | sync identity seed | `cn_fast_hash("xkr/private/sync-identity/v1" \|\| identity)` |
   | Hugin identity seed | `cn_fast_hash("xkr/private/hugin-identity/v1" \|\| identity)` |
+  | clients identity seed | `cn_fast_hash("xkr/private/clients-identity/v1" \|\| identity)` |
 
   Each topic key is used like a Hugin topic key: base key pair
   `crypto_sign_seed_keypair(topic key)`, DHT topic `hugin_topic_on(network, base public key)`
   (the testnet domain on the testnet), `mid` = signature by the base key over
-  `"hugin/mid" || DHT public key`. The two topics have separate base keys because the bridge
+  `"hugin/mid" || DHT public key`. The topics have separate base keys because the bridge
   ties one topic to one base key. The identity seeds give the DHT key pairs the node listens
   with.
-- **Invite.** One line, `xkrinv1:` followed by 192 hex characters: the public key of the sync
-  identity, the public key of the Hugin identity and the secret, 32 bytes each. The node logs it
+- **Invite.** One line, `xkrinv2:` followed by 256 hex characters: the public keys of the sync,
+  Hugin and clients identities and the secret, 32 bytes each. Invites of the first version
+  (`xkrinv1:` + 192 hex: sync key, Hugin key, secret; no clients key) are still read. The node logs it
   once the sync identity is announced (`private node invite (console: invite)`, info level), and
   the console command `invite` prints it.
   With the Hugin relay on, the node also logs and prints a Hugin app invite
@@ -427,6 +433,95 @@ Hyperswarm connections only from peers that hold its invite.
 No frame or bridge change: the identities use the existing `Announce` and `Open` frames with
 the Hugin TLVs `0x11` (topic key) and `0x12` (identity seed), and `Opened` carries the topic
 (`docs/hyper-bridge-protocol.md` is unchanged).
+
+### Clients topic
+
+Programs without the chain (the chainless xkrd modes `--p2pool`, `--hugin` without `--node`;
+later wallet tools on a `wallets` topic of their own with the same framing) use a node with the
+chain over Hyperswarm. Code: `crates/xkr-hyper-rpc` (protocol, server driver, client),
+`crates/xkrd/src/clients.rs` (the node's server).
+
+- **Topic.** Name `xkr/<mainnet|testnet>/clients/v1`; topic key `cn_fast_hash(name)`
+  (`topic::xkr_topic`); used like a Hugin topic key (base key pair from it, DHT topic
+  `hugin_topic_on(network, base public key)`, `mid` signed by the base key;
+  `topic::xkr_clients_topic`), so the topic gets its own DHT identity and its connections arrive
+  tagged. A private node announces `PrivateTopics::of(secret).clients` with its clients identity
+  instead (key in the `xkrinv2:` invite).
+- **Who announces.** Every xkrd with the node and Hyperswarm, in mode `server`, once the node is
+  synchronized (`synced` and not downloading); not with `--hyper-client-only` or `--private`
+  (then only the private clients topic, announced at once). Clients look up and dial; they
+  never announce.
+- **Limits.** `--max-clients <n>` (default 200, as `--hugin-max-clients`) connections, at most 8
+  per IP address (IPv6: /64); per connection 8 calls in flight (more: error `-32000`), 20 calls/s
+  with a burst of 40 (more: `-32001`), 64 refused calls in a row close the connection; 10 s for
+  the hello; frames of at most 1 MiB. A client that sends a bad frame or keeps calling past its limits is closed and its
+  DHT key refused for 10 min. These connections do not go through the `Tracker` and do not count
+  against `--hyper-max-peers`.
+- **Status.** `/status` `clients: { connections, served_calls }` (`null` when not served); the
+  console's `status` has a `Clients:` line.
+
+#### Wire format (version 1)
+
+Every message is one **frame**: a `u32` little-endian length `n` (1 ≤ n ≤ 1 048 576), then `n`
+bytes of UTF-8 JSON, one object. A longer or empty frame, or JSON that is not a message below,
+closes the connection. Unknown object keys are ignored.
+
+1. **Hello** (client, first frame):
+
+   ```json
+   {"v":1,"network":"mainnet","service":"node","client":"xkrd/1.0.0"}
+   ```
+
+   `service` is `node`, `stratum` or `wallet` (the last only on the wallets topic); `client` is
+   for logs.
+
+2. **Hello reply** (server), or a refusal after which the server closes:
+
+   ```json
+   {"v":1,"height":2641203,"hash":"<64 hex>","synced":true,"services":["node","stratum"],
+    "state_span":644,"state_hash":"<64 hex>","pruning_seed":0}
+   {"v":1,"error":"service","message":"this node serves node"}
+   ```
+
+   `height` is the index of the top block and `hash` its hash; `synced` is the node's sync
+   state; `services` lists what this node serves now (`stratum` only while its built-in p2pool
+   runs); `state_span`/`state_hash` are the newest stable span with a state hash (`getstatehash`,
+   `null` before the first); `pruning_seed` is the raw seed (`stripes << 8 | stripe`, 0 = full).
+   Refusal `error`: `version`, `network`, `service`, `busy`, `hello` (first frame not a hello).
+
+3. **Calls**, any number in flight, answered in the order they finish (match by `id`, an
+   unsigned integer below 2^53 for JavaScript; a non-integer `id` closes the connection):
+
+   ```json
+   {"id":1,"method":"getblockheaderbyheight","params":{"height":5}}
+   {"id":1,"result":{"block_header":{...},"status":"OK"}}
+   {"id":2,"error":{"code":-32601,"message":"getblocktemplate is not served on the clients topic"}}
+   ```
+
+   `params` is what the method takes in `/json_rpc` (object or array; absent = `null`). Errors
+   of the methods keep their JSON-RPC codes (`-1` wrong parameter, `-2` too big height, ...);
+   the protocol's own: `-32601` method not served, `-32603` internal, `-32000` busy (calls in
+   flight), `-32001` rate limited, `-32002` answer larger than a frame, `-32003` service not
+   available yet.
+
+4. **Pushes** (server, no `id`):
+
+   ```json
+   {"method":"tip","params":{"height":2641204,"hash":"<64 hex>","synced":true}}
+   ```
+
+   sent on every new main-chain tip (service `node`). A push that finds the connection's send
+   queue full is dropped; the next one carries the newer tip.
+
+Service `node` answers these `/json_rpc` methods, through the node's dispatcher in-process:
+`get_miner_data`, `get_block_headers_range`, `getblockheaderbyheight`, `getblockheaderbyhash`,
+`submitblock` (`["<block blob hex>"]`), `getinfo` (the `/getinfo` answer) and `getstatehash`
+(`{"span":k}` or `{"height":h}`). Service `stratum` negotiates, but its calls answer `-32003`
+for now.
+
+Rust clients use `xkr_hyper_rpc::Client::connect(stream, Hello::new(network, service, agent))`,
+then `call(method, params)`, `tips()` (a watch channel with the tip of the hello, then every
+push) and `closed()`.
 
 ### What comes later
 

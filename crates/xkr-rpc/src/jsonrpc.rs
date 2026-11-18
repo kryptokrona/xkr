@@ -82,6 +82,25 @@ pub async fn json_rpc(State(s): State<Arc<RpcState>>, body: Bytes) -> Response {
     respond(&id, result)
 }
 
+/// The error of an in-process call ([`call`]): the JSON-RPC error object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallError {
+    pub code: i64,
+    pub message: String,
+}
+
+/// One `/json_rpc` method in-process, without HTTP: what the Hyperswarm clients topic of xkrd
+/// answers its allowlisted methods with. Reads storage: call it from `spawn_blocking`.
+///
+/// # Errors
+/// The JSON-RPC error the method answers with (e.g. -32601 for an unknown method).
+pub fn call(s: &RpcState, method: &str, params: &Value) -> Result<Value, CallError> {
+    dispatch(s, method, params).map_err(|e| CallError {
+        code: e.code,
+        message: e.message,
+    })
+}
+
 fn param_u64(params: &Value, key: &str) -> Option<u64> {
     params.get(key).and_then(Value::as_u64)
 }
