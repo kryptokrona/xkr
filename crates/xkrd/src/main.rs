@@ -3,7 +3,7 @@
 //! Threads and tasks (see `docs/node-architecture.md`):
 //!
 //! * a tokio multi-thread runtime (`xkr-io-*`) for connections, the P2P manager and the RPC;
-//! * the global rayon pool (`xkr-verify-*`, cores - 1) for proof of work and ring signatures;
+//! * the global rayon pool (`xkr-verify-*`, all cores) for proof of work and ring signatures;
 //! * one chain thread (`xkr-chain`) that applies verified batches and relayed blocks in order;
 //! * in a terminal, a console thread (`xkr-console`) reading commands from stdin
 //!   (`crate::console`) and a task printing the block and sync lines or the live panel
@@ -275,10 +275,7 @@ fn run(args: Args, ui: Ui) -> Result<(), Box<dyn Error>> {
         }
     }
     let cores = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
-    let verify_threads = args
-        .verify_threads
-        .unwrap_or(cores.saturating_sub(1))
-        .max(1);
+    let verify_threads = args.verify_thread_count();
     let io_threads = args.io_threads.unwrap_or(cores.min(4)).max(1);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(io_threads)

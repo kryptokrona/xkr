@@ -264,7 +264,7 @@ pub struct Args {
     #[arg(long, help_heading = CHAIN)]
     pub fast_sync: bool,
 
-    /// Verification threads for proof of work and signatures (default: available cores - 1).
+    /// Verification threads for proof of work and signatures (default: all available cores).
     #[arg(long, value_name = "N", help_heading = CHAIN)]
     pub verify_threads: Option<usize>,
 
@@ -531,6 +531,16 @@ impl Args {
     #[must_use]
     pub const fn p2pool_tcp_enabled(&self) -> bool {
         p2pool_choice(self.p2pool_tcp, self.no_p2pool_tcp, P2POOL_TCP_DEFAULT)
+    }
+
+    /// The verification pool size: `--verify-threads`, else all available cores; at least 1.
+    #[must_use]
+    pub fn verify_thread_count(&self) -> usize {
+        self.verify_threads
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get)
+            })
+            .max(1)
     }
 }
 

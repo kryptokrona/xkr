@@ -4,7 +4,7 @@
 
 use xkr_crypto::keccak::cn_fast_hash;
 use xkr_crypto::tree_hash::{tree_hash, tree_hash_from_branch};
-use xkr_crypto::{cn_lite_slow_hash_v1, cn_slow_hash_v0, cn_turtle_lite_slow_hash_v2};
+use xkr_crypto::{cn_lite_slow_hash_v1, cn_slow_hash_v0, cn_turtle_lite_slow_hash_v2_reused};
 use xkr_types::{Block, Hash, ParentBlock, Transaction, TransactionPrefix};
 
 use crate::block::{ParentBlockMode, encode_parent_block, write_block_header};
@@ -123,13 +123,16 @@ pub fn block_pow_blob(block: &Block) -> Result<Vec<u8>, EncodeError> {
 /// | 1, 2, 3 | `cn_slow_hash_v0` (CryptoNight) |
 /// | 4 | `cn_lite_slow_hash_v1` (CryptoNight-Lite variant 1) |
 /// | >= 5 | `cn_turtle_lite_slow_hash_v2` (CryptoNight-Turtle-Lite variant 2) |
+///
+/// Major 5 and later hash on the calling thread's reused hasher
+/// ([`xkr_crypto::cn_turtle_lite_slow_hash_v2_reused`]).
 pub fn block_long_hash(block: &Block) -> Result<Hash, PowError> {
     let major = block.header.major_version;
     let blob = block_pow_blob(block)?;
     match major {
         1..=3 => Ok(cn_slow_hash_v0(&blob)),
         4 => Ok(cn_lite_slow_hash_v1(&blob)?),
-        5.. => Ok(cn_turtle_lite_slow_hash_v2(&blob)),
+        5.. => Ok(cn_turtle_lite_slow_hash_v2_reused(&blob)),
         0 => Err(PowError::UnknownMajorVersion(major)),
     }
 }

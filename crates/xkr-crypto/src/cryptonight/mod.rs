@@ -2,8 +2,9 @@
 //! `crates/xkr-crypto/VENDORED.md`) and parametrised for the CN / CN-Lite / CN-Turtle family
 //! used by Kryptokrona (C++ `src/crypto/slow-hash.c`, `src/crypto/hash.h`).
 //!
-//! [`cn_slow_hash`] allocates a scratchpad per call and uses table AES (block verification);
-//! [`CnHasher`] keeps its scratchpad and uses the CPU's AES instructions (mining, share checks).
+//! [`cn_slow_hash`] allocates a scratchpad per call and uses table AES (the reference);
+//! [`CnHasher`] keeps its scratchpad and uses the CPU's AES instructions (block verification
+//! from major version 5, mining, share checks).
 
 mod blake256;
 mod cnaes;

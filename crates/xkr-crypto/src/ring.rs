@@ -17,7 +17,7 @@ use rand_core::CryptoRng;
 use xkr_types::{Hash, KeyImage, PublicKey, SecretKey, Signature};
 
 use crate::ops::{
-    canonical, decompress, hash_to_ec, hash_to_scalar, point_in_prime_subgroup, random_scalar,
+    CheckedKeyImage, canonical, decompress, hash_to_ec, hash_to_scalar, random_scalar,
 };
 
 /// One ring-signature verification job (data-oriented batch input).
@@ -53,13 +53,23 @@ pub fn check_ring_signature(
     if sigs.len() < pubs.len() {
         return false;
     }
-    let Some(image_point) = decompress(&image.0) else {
-        return false;
-    };
-    if !point_in_prime_subgroup(&image_point) {
+    CheckedKeyImage::new(image)
+        .is_some_and(|image| check_ring_signature_checked(prefix_hash, &image, pubs, sigs))
+}
+
+/// [`check_ring_signature`] with the key image decoded and in the prime-order subgroup
+/// ([`CheckedKeyImage`]), for callers that checked it while validating the transaction.
+#[must_use]
+pub fn check_ring_signature_checked(
+    prefix_hash: &Hash,
+    image: &CheckedKeyImage,
+    pubs: &[PublicKey],
+    sigs: &[Signature],
+) -> bool {
+    if sigs.len() < pubs.len() {
         return false;
     }
-
+    let image_point = *image.point();
     let mut buf = Vec::with_capacity(32 + 64 * pubs.len());
     buf.extend_from_slice(&prefix_hash.0);
     let mut sum = Scalar::ZERO;
@@ -174,18 +184,30 @@ mod tests {
                     generate_ring_signature(&msg, &image, &pubs, &keys[real].1, real, &mut rng)
                         .unwrap();
                 assert!(check_ring_signature(&msg, &image, &pubs, &sigs));
+                let checked = CheckedKeyImage::new(&image).unwrap();
+                assert!(check_ring_signature_checked(&msg, &checked, &pubs, &sigs));
 
                 // wrong message
                 let other = crate::keccak::cn_fast_hash(b"other");
                 assert!(!check_ring_signature(&other, &image, &pubs, &sigs));
+                assert!(!check_ring_signature_checked(
+                    &other, &checked, &pubs, &sigs
+                ));
                 // altered signature
                 let mut bad = sigs.clone();
                 bad[0].0[40] ^= 1;
                 assert!(!check_ring_signature(&msg, &image, &pubs, &bad));
+                assert!(!check_ring_signature_checked(&msg, &checked, &pubs, &bad));
                 // too few signatures
                 assert!(!check_ring_signature(
                     &msg,
                     &image,
+                    &pubs,
+                    &sigs[..ring_size - 1]
+                ));
+                assert!(!check_ring_signature_checked(
+                    &msg,
+                    &checked,
                     &pubs,
                     &sigs[..ring_size - 1]
                 ));

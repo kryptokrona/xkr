@@ -611,7 +611,7 @@ impl HuginSettings {
             share_difficulty: args.hugin_share_difficulty.max(1),
             private_only: args.hugin_private || args.private,
             private_node: args.private,
-            hash_threads: hash_threads(args.verify_threads),
+            hash_threads: (args.verify_thread_count() / 2).max(1),
             fee: None,
         }
     }
@@ -637,13 +637,6 @@ fn default_p2pool_nodes() -> Vec<String> {
         );
     }
     nodes
-}
-
-/// Share-hashing permits for `--verify-threads` (the same default as `main`: cores - 1).
-fn hash_threads(verify_threads: Option<usize>) -> usize {
-    let cores = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
-    let verify = verify_threads.unwrap_or(cores.saturating_sub(1)).max(1);
-    (verify / 2).max(1)
 }
 
 /// hugin-node's DHT seed for its client-facing swarms, `fill32(hex(cn_fast_hash(viewkey)))`

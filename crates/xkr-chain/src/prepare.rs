@@ -11,8 +11,8 @@
 //! first (`Chain::add_block`), then [`DecodedBlock::prepare_with_long_hash`] does the transactions.
 
 use xkr_consensus::params::CRYPTONOTE_MAX_TX_SIZE;
-use xkr_consensus::{BlockError, ConsensusError, validate_semantic};
-use xkr_crypto::cn_fast_hash;
+use xkr_consensus::{BlockError, ConsensusError, validate_semantic_checked};
+use xkr_crypto::{CheckedKeyImage, cn_fast_hash};
 use xkr_serialization::{
     MAX_PARENT_BLOCK_SIZE, block_hash, block_long_hash, decode_block, decode_transaction,
     encode_transaction, transaction_hash_from_blob, transaction_prefix_hash,
@@ -57,6 +57,8 @@ pub struct PreparedTx {
     pub prefix_len: usize,
     /// Inputs minus outputs.
     pub fee: u64,
+    /// The inputs' key images, checked by `validate_semantic`, in input order.
+    pub key_images: Vec<CheckedKeyImage>,
     /// Payment id from extra.
     pub payment_id: Option<[u8; 32]>,
 }
@@ -72,7 +74,7 @@ impl PreparedTx {
             )));
         }
         let tx = decode_transaction(&blob).map_err(RejectReason::decode)?;
-        let fee = validate_semantic(&tx).map_err(|error| {
+        let (fee, key_images) = validate_semantic_checked(&tx).map_err(|error| {
             RejectReason::Consensus(ConsensusError::Transaction {
                 tx_index: Some(index),
                 error,
@@ -93,6 +95,7 @@ impl PreparedTx {
             blob,
             prefix_len,
             fee,
+            key_images,
             payment_id,
         })
     }

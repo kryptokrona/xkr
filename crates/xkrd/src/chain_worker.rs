@@ -61,7 +61,7 @@ pub enum ChainEvent {
         /// Where they came from.
         sources: Vec<(u64, u64)>,
         /// Outcome (`Err` = node failure, e.g. storage).
-        report: Result<BatchReport, String>,
+        report: Result<Box<BatchReport>, String>,
         /// Time spent.
         elapsed: Duration,
     },
@@ -124,6 +124,7 @@ pub fn spawn(
                         let count = blocks.len();
                         let report = chain
                             .add_blocks(blocks, Some(&expected))
+                            .map(Box::new)
                             .map_err(|e| e.to_string());
                         prune(&chain);
                         ChainEvent::BatchDone {

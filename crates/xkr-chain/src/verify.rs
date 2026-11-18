@@ -26,7 +26,7 @@ use xkr_consensus::{
     BlockError, ChainContext, ConsensusError, NetworkParams, RingLookupError, TxError,
     check_proof_of_work_with_hash, check_transaction_version, difficulty_for_next_block,
 };
-use xkr_crypto::{check_ring_signature, clsag_verify};
+use xkr_crypto::{check_ring_signature_checked, clsag_verify_checked};
 use xkr_serialization::block_long_hash;
 use xkr_storage::Reader;
 use xkr_txpool::canonical_ring_indexes;
@@ -407,15 +407,22 @@ pub fn verify_signatures(blocks: &[PreparedBlock], jobs: &[SigJob]) -> Option<(u
             let Some(TxInput::Key { key_image, .. }) = t.tx.prefix.inputs.get(j.input) else {
                 return true;
             };
+            let Some(image) = t
+                .key_images
+                .get(j.input)
+                .filter(|c| c.key_image() == key_image)
+            else {
+                return true;
+            };
             if t.tx.is_v2() {
                 return t
                     .tx
                     .clsag_signatures
                     .get(j.input)
-                    .is_none_or(|sig| !clsag_verify(&t.prefix_hash, &j.ring, key_image, sig));
+                    .is_none_or(|sig| !clsag_verify_checked(&t.prefix_hash, &j.ring, image, sig));
             }
             let sigs = t.tx.signatures.get(j.input).map_or(&[][..], Vec::as_slice);
-            !check_ring_signature(&t.prefix_hash, key_image, &j.ring, sigs)
+            !check_ring_signature_checked(&t.prefix_hash, image, &j.ring, sigs)
         })
         .map(|j| (j.block, j.tx))
         .min()

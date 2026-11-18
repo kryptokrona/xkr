@@ -15,8 +15,9 @@ use xkr_consensus::reward::{
 use xkr_consensus::validation::{PoolPolicyError, check_pool_policy, is_valid_for_block_template};
 use xkr_consensus::{
     BlockTransaction, ForkSchedule, MAINNET, ResolvedInput, RingLookupError,
-    check_transaction_version, validate_semantic, validate_transaction,
+    check_transaction_version, validate_semantic_checked, validate_transaction_checked,
 };
+use xkr_crypto::CheckedKeyImage;
 use xkr_serialization::{decode_transaction, transaction_hash_from_blob, transaction_prefix_hash};
 use xkr_types::{Hash, KeyImage, PublicKey, Transaction, TxInput};
 
@@ -361,9 +362,8 @@ impl TxPool {
         // signatures, storage lookups), both without the lock.
         let mut permanent = None;
         let checked = match Self::decode_checked(&blob) {
-            Ok((tx, fee)) => {
-                Self::validate(hash, &blob, &tx, fee, chain).map(|fusion| (tx, fee, fusion))
-            }
+            Ok((tx, fee, key_images)) => Self::validate(hash, &blob, &tx, fee, &key_images, chain)
+                .map(|fusion| (tx, fee, fusion)),
             Err(e) => {
                 permanent = Some(e.clone());
                 Err(e)
@@ -435,11 +435,11 @@ impl TxPool {
     }
 
     /// The parts of admission that depend on the blob alone: decoding and C++
-    /// `validateSemantic`. Returns the transaction and its fee.
-    fn decode_checked(blob: &[u8]) -> Result<(Transaction, u64), PoolError> {
+    /// `validateSemantic`. Returns the transaction, its fee and its checked key images.
+    fn decode_checked(blob: &[u8]) -> Result<(Transaction, u64, Vec<CheckedKeyImage>), PoolError> {
         let tx = decode_transaction(blob).map_err(|e| PoolError::Decode(e.to_string()))?;
-        let fee = validate_semantic(&tx)?;
-        Ok((tx, fee))
+        let (fee, key_images) = validate_semantic_checked(&tx)?;
+        Ok((tx, fee, key_images))
     }
 
     /// C++ `Core::isTransactionValidForPool` (without the pool-state parts) for a transaction
@@ -449,6 +449,7 @@ impl TxPool {
         blob: &[u8],
         tx: &Transaction,
         fee: u64,
+        key_images: &[CheckedKeyImage],
         chain: &impl PoolChainState,
     ) -> Result<bool, PoolError> {
         let top = chain.top_index();
@@ -482,7 +483,7 @@ impl TxPool {
             inputs: &resolved,
         };
         let mut seen = HashSet::new();
-        validate_transaction(&entry, top, false, &mut seen)?;
+        validate_transaction_checked(&entry, key_images, top, false, &mut seen)?;
         Ok(fee == 0 && is_fusion_transaction(tx, blob.len(), top))
     }
 
@@ -518,7 +519,12 @@ impl TxPool {
             inner
                 .txs
                 .values()
-                .filter(|e| Self::validate(e.hash, &e.blob, &e.tx, e.fee, chain).is_err())
+                .filter(|e| {
+                    let valid = validate_semantic_checked(&e.tx).is_ok_and(|(fee, key_images)| {
+                        Self::validate(e.hash, &e.blob, &e.tx, fee, &key_images, chain).is_ok()
+                    });
+                    !valid
+                })
                 .map(|e| e.hash)
                 .collect()
         };

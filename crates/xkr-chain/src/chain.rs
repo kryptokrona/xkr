@@ -226,6 +226,24 @@ pub struct BatchReport {
     pub error: Option<BatchError>,
     /// Main-chain tip afterwards.
     pub tip: TipInfo,
+    /// Time spent in each stage.
+    pub times: StageTimes,
+}
+
+/// Wall time of the stages of [`Chain::add_blocks`]. The stages after `prepare` are timed
+/// for a batch that extends the main chain; they stay zero for alternative blocks.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StageTimes {
+    /// Decoding, size and semantic checks and the proof of work (parallel).
+    pub prepare: Duration,
+    /// Header context checks and the key-image and ring-member lookups (serial).
+    pub context: Duration,
+    /// Ring signatures (parallel).
+    pub signatures: Duration,
+    /// Writing the blocks into the write transaction.
+    pub write: Duration,
+    /// Commit, tip and pool update.
+    pub commit: Duration,
 }
 
 /// An alternative block (in memory; the raw block is in the `alt_blocks` table).
@@ -250,6 +268,8 @@ struct MainResult {
     pushed: Vec<VerifiedBlock>,
     /// First failure: index into the input and reason.
     fail: Option<(usize, Hash, RejectReason)>,
+    /// Time of the context, signature, write and commit stages.
+    times: StageTimes,
 }
 
 /// Chain state shared by the node: one writer at a time (sync batches, live blocks, reorgs),
@@ -726,6 +746,7 @@ impl Chain {
             PowMode::Full
         };
         let size_limit = self.raw_size_limit(submitted);
+        let prepare_started = Instant::now();
         // Stage 1 is a pure function of the bytes: it runs before the writer lock is taken, and
         // the sizes are checked before anything is decoded. The templates are decoded first, so
         // the ids are compared with the requested ones before any transaction is decoded or
@@ -773,10 +794,15 @@ impl Chain {
         }
         let prepared: Vec<Result<PreparedBlock, PrepareError>> =
             wanted.into_par_iter().map(|d| d.prepare(pow)).collect();
+        let prepare_time = prepare_started.elapsed();
         let mut w = self.writer.lock();
 
         let mut report = BatchReport {
             submitted,
+            times: StageTimes {
+                prepare: prepare_time,
+                ..StageTimes::default()
+            },
             ..BatchReport::default()
         };
         let mut ok = Vec::with_capacity(prepared.len());
@@ -810,6 +836,10 @@ impl Chain {
         {
             let res = self.push_main(&mut w, reader, rest, false, requested)?;
             report.added_main = res.pushed.len();
+            report.times = StageTimes {
+                prepare: prepare_time,
+                ..res.times
+            };
             if let Some((i, hash, reason)) = res.fail {
                 let kind = if reason == RejectReason::NotConnected {
                     BatchErrorKind::Orphan
@@ -1204,6 +1234,8 @@ impl Chain {
         let mut jobs: Vec<SigJob> = Vec::new();
         let mut verdicts: Vec<HeaderVerdict> = Vec::with_capacity(blocks.len());
         let mut fail: Option<(usize, RejectReason)> = None;
+        let mut times = StageTimes::default();
+        let context_started = Instant::now();
 
         // Stage 2: sequential context checks. The header window is extended block by block; on
         // a node-side error it is reloaded from storage before returning.
@@ -1257,6 +1289,7 @@ impl Chain {
             verdicts.push(verdict);
         }
         drop(reader);
+        times.context = context_started.elapsed();
         if let Some(e) = node_error {
             w.cache = HeaderCache::load(
                 &self.reader()?,
@@ -1269,9 +1302,11 @@ impl Chain {
         // Stage 3: ring signatures of every block that passed stage 2, in parallel.
         let checked = fail.as_ref().map_or(blocks.len(), |f| f.0);
         jobs.retain(|j| j.block < checked);
+        let signatures_started = Instant::now();
         if let Some((b, t)) = verify_signatures(&blocks[..checked], &jobs) {
             fail = Some((b, signature_error(t)));
         }
+        times.signatures = signatures_started.elapsed();
         let accepted = fail.as_ref().map_or(blocks.len(), |f| f.0);
         if !w.cache.truncate_to(start_top + accepted as u64) {
             w.cache = HeaderCache::load(
@@ -1286,6 +1321,7 @@ impl Chain {
             return Ok(MainResult {
                 pushed: Vec::new(),
                 fail,
+                times,
             });
         }
 
@@ -1301,27 +1337,41 @@ impl Chain {
                 into_verified(p, height, &v, info.map_or(0, |i| i.already_generated_coins))
             })
             .collect();
-        if let Err(e) = self.store_blocks(w, &pushed, durable) {
-            w.cache = HeaderCache::load(
-                &self.reader()?,
-                start_top,
-                self.cfg.header_cache.max(DEFAULT_HEADER_CACHE),
-            )?;
-            return Err(e);
+        match self.store_blocks(w, &pushed, durable) {
+            Ok((write, commit)) => {
+                times.write = write;
+                times.commit = commit;
+            }
+            Err(e) => {
+                w.cache = HeaderCache::load(
+                    &self.reader()?,
+                    start_top,
+                    self.cfg.header_cache.max(DEFAULT_HEADER_CACHE),
+                )?;
+                return Err(e);
+            }
         }
-        Ok(MainResult { pushed, fail })
+        Ok(MainResult {
+            pushed,
+            fail,
+            times,
+        })
     }
 
-    /// Writes verified blocks, commits, updates the tip and the pool.
+    /// Writes verified blocks, commits, updates the tip and the pool. Returns the time of the
+    /// write and of the commit with the tip and pool update.
     fn store_blocks(
         &self,
         w: &mut Writer,
         blocks: &[VerifiedBlock],
         force_durable: bool,
-    ) -> Result<(), ChainError> {
+    ) -> Result<(Duration, Duration), ChainError> {
+        let write_started = Instant::now();
         let durable = force_durable || w.last_durable.elapsed() >= self.cfg.durable_interval;
         let txn = self.store.begin_write()?;
         push_blocks(&txn, blocks, &mut w.comp)?;
+        let write = write_started.elapsed();
+        let commit_started = Instant::now();
         let gate = self.pool_gate.write();
         commit(txn, durable)?;
         if durable {
@@ -1351,7 +1401,7 @@ impl Chain {
                 "pool transactions dropped by key-image conflicts"
             );
         }
-        Ok(())
+        Ok((write, commit_started.elapsed()))
     }
 
     /// Makes the alternative branch ending at `alt_tip` the main chain.

@@ -2,10 +2,11 @@
 //! decode -> re-encode must be byte-identical and every hash must match the node's.
 
 use serde_json::Value;
+use xkr_crypto::cryptonight::{CnParams, Variant, cn_slow_hash};
 use xkr_serialization::{
-    block_hash, block_hashing_blob, block_pow_blob, decode_block, decode_raw_block,
-    decode_transaction, encode_block, encode_raw_block, encode_transaction, transaction_hash,
-    transaction_hash_from_blob, transaction_prefix_hash,
+    block_hash, block_hashing_blob, block_long_hash, block_pow_blob, decode_block,
+    decode_raw_block, decode_transaction, encode_block, encode_raw_block, encode_transaction,
+    transaction_hash, transaction_hash_from_blob, transaction_prefix_hash,
 };
 use xkr_types::{Hash, RawBlock, TxInput};
 
@@ -161,4 +162,61 @@ fn genesis_block_from_config_hex() {
         encode_block(&block).unwrap(),
         hex_field(genesis_fixture, "blob")
     );
+}
+
+/// `block_long_hash` against `cn_slow_hash` (fresh scratchpad, table AES) on the proof-of-work
+/// blob, for every fixture block (major 1-5) and for the v5 blocks relabelled as later major
+/// versions, on the test thread and on two more threads.
+#[test]
+fn block_long_hash_matches_cn_slow_hash() {
+    let reference = |major: u8, blob: &[u8]| {
+        let (variant, params) = match major {
+            1..=3 => (Variant::V0, CnParams::CN),
+            4 => (Variant::V1, CnParams::CN_LITE),
+            _ => (Variant::V2, CnParams::CN_TURTLE_LITE),
+        };
+        Hash(cn_slow_hash(blob, variant, &params).unwrap())
+    };
+    let mut blocks = Vec::new();
+    for f in &fixtures() {
+        let block = decode_block(&hex_field(f, "blob")).unwrap();
+        if block.header.major_version == 5 && blocks.len().is_multiple_of(3) {
+            for major in [6, 7, 8] {
+                let mut later = block.clone();
+                later.header.major_version = major;
+                blocks.push(later);
+            }
+        }
+        blocks.push(block);
+    }
+    let majors: std::collections::BTreeSet<u8> =
+        blocks.iter().map(|b| b.header.major_version).collect();
+    assert_eq!(
+        majors.into_iter().collect::<Vec<_>>(),
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    );
+    let check = |blocks: &[xkr_types::Block]| {
+        for block in blocks {
+            let major = block.header.major_version;
+            let want = reference(major, &block_pow_blob(block).unwrap());
+            assert_eq!(
+                block_long_hash(block).unwrap(),
+                want,
+                "height {} major {major}",
+                block.height()
+            );
+        }
+    };
+    check(&blocks);
+    let later: Vec<_> = blocks
+        .iter()
+        .filter(|b| b.header.major_version >= 5)
+        .cloned()
+        .collect();
+    let check = &check;
+    std::thread::scope(|s| {
+        for half in later.chunks(later.len().div_ceil(2)) {
+            s.spawn(move || check(half));
+        }
+    });
 }

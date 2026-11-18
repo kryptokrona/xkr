@@ -25,18 +25,22 @@ pub mod tree_hash;
 
 pub use clsag::{
     ClsagCheck, clsag_challenge_chain, clsag_sign, clsag_sign_with_randomness, clsag_verify,
-    clsag_verify_all,
+    clsag_verify_all, clsag_verify_checked,
 };
 pub use keccak::{cn_fast_hash, keccak1600};
 pub use ops::{
-    check_key, check_signature, decompress, derivation_to_scalar, derive_public_key,
-    derive_secret_key, generate_key_derivation, generate_key_image, generate_keys,
-    generate_signature, hash_data_to_ec, hash_to_ec, hash_to_scalar, key_image_in_prime_subgroup,
-    sc_check, secret_key_to_public_key, underive_public_key, view_tag,
+    CheckedKeyImage, check_key, check_signature, decompress, derivation_to_scalar,
+    derive_public_key, derive_secret_key, generate_key_derivation, generate_key_image,
+    generate_keys, generate_signature, hash_data_to_ec, hash_to_ec, hash_to_scalar,
+    key_image_in_prime_subgroup, sc_check, secret_key_to_public_key, underive_public_key, view_tag,
 };
-pub use pow::{check_hash, cn_lite_slow_hash_v1, cn_slow_hash_v0, cn_turtle_lite_slow_hash_v2};
+pub use pow::{
+    check_hash, cn_lite_slow_hash_v1, cn_slow_hash_v0, cn_turtle_lite_slow_hash_v2,
+    cn_turtle_lite_slow_hash_v2_reused,
+};
 pub use ring::{
-    RingSignatureCheck, check_ring_signature, check_ring_signatures, generate_ring_signature,
+    RingSignatureCheck, check_ring_signature, check_ring_signature_checked, check_ring_signatures,
+    generate_ring_signature,
 };
 pub use tree_hash::{tree_branch, tree_depth, tree_hash, tree_hash_from_branch};
 

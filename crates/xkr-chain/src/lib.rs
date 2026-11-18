@@ -42,7 +42,7 @@ mod view;
 
 pub use chain::{
     AddBlockOutcome, AddBlockResult, BatchError, BatchErrorKind, BatchReport, Chain, ChainConfig,
-    TipInfo, load_verified, unix_now,
+    StageTimes, TipInfo, load_verified, unix_now,
 };
 pub use checkpoints::Checkpoints;
 pub use error::{ChainError, RejectReason};

@@ -37,7 +37,7 @@ and in the single-owner tasks of `xkrd`.
                          +---------------------------------------------------------------------------------------------+   |
                                     ^ ChainEvent (unbounded)                                                                |
                                     |                                                                                       v
-                         chain thread (xkr-chain, one OS thread) -- Chain::add_blocks / add_block --> rayon pool (xkr-verify-*, cores-1)
+                         chain thread (xkr-chain, one OS thread) -- Chain::add_blocks / add_block --> rayon pool (xkr-verify-*, all cores)
 
  miner controller (xkr-miner) -- Chain::block_template --> job --> hashing threads (xkr-mine-*, --mine-threads)
         |  found block: RpcCommand::SubmitBlock --> manager --> ChainJob::Block{local} --> chain thread --> relay (hop 0)
@@ -191,8 +191,10 @@ legacy_incoming,hyper,total}`, `/getinfo` `hyper_connections_count` next to the 
    *n*, job *n+1* is waiting and the network keeps filling the buffer.
 6. **`Chain::add_blocks`** (one job):
    1. *prepare*, parallel over blocks (rayon): decode, block id, coinbase hash, PoW slow hash
-      (`block_long_hash`), every transaction decoded, hashed and `validate_semantic`-checked
-      (amounts, key-image subgroup). The id must equal the requested id.
+      (`block_long_hash`; from major 5 on each thread's own `CnHasher` with the CPU's AES
+      instructions when it has them), every transaction decoded, hashed and
+      `validate_semantic_checked` (amounts, key-image subgroup; the checked key images go to
+      step 3). The id must equal the requested id.
    2. *context*, sequential: leading blocks already stored are skipped. For each block, the
       context (timestamps incl. genesis, LWMA/Zawy difficulty window, last 100 sizes, generated
       coins) is sliced from the in-memory header window, which already contains the blocks
@@ -204,12 +206,17 @@ legacy_incoming,hyper,total}`, `/getinfo` `hyper_connections_count` next to the 
       `Reader::output_keys` or the overlay of outputs created earlier in the job (global indexes
       per amount, miner transaction first, exactly like `push_blocks` assigns them); unlock
       times; signature counts. Each input becomes a signature job.
-   3. *signatures*, parallel: every ring signature of the job (`check_ring_signature`) on rayon.
+   3. *signatures*, parallel: every ring signature of the job (`check_ring_signature_checked`,
+      `clsag_verify_checked` with the key images from step 1) on rayon.
    4. *store*: the accepted prefix (everything before the first failure) becomes
       `VerifiedBlock`s and is written with one `push_blocks` in one redb write transaction.
       During sync, commits are non-durable (`Durability::None`, no fsync) with a durable commit
       at least every 5 s; live blocks and reorgs always commit durably. A crash loses at most the
       last seconds of sync and leaves a consistent shorter chain.
+
+   The debug line `batch verified` gives the time of each step per job (`prepare_ms`,
+   `context_ms`, `sigs_ms`, `write_ms`, `commit_ms`, the total `ms`), the blocks stored and
+   `blocks_per_sec`.
 7. **Result**: an invalid block bans the peer that sent it (`sources` maps heights to
    connections) and resets the downloader (new generation, stale responses and results are
    ignored). When the tracker is complete and everything is verified, synchronizing peers whose
