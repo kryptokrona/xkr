@@ -682,6 +682,19 @@ pub enum DbCommand {
         #[arg(long, value_name = "HEIGHT")]
         to: Option<u64>,
     },
+    /// Print the state hash of every complete stripe span (`docs/storage.md` "State hashes")
+    /// as lines of the Rust list `MAINNET_STATE_HASHES` (`    (span, "hash"),`) on stdout;
+    /// progress goes to stderr.
+    StateHashes {
+        #[command(flatten)]
+        db: DbArgs,
+        /// Only spans whose last block is at or below this height (default: the top block).
+        #[arg(long, value_name = "HEIGHT")]
+        to: Option<u64>,
+    },
+    /// Recompute the state hash of every complete stripe span and compare it with the hashes
+    /// the node stored and with the built-in list; exit code 1 on any difference.
+    VerifyState(DbArgs),
     /// Copy a schema v1 database (the per-transaction layout) into a new v2 database without
     /// re-verifying it, then run maintenance: before/after numbers on the same chain.
     Convert {

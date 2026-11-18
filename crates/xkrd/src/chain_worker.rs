@@ -6,11 +6,13 @@
 //! never blocks on CPU work.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
-use xkr_chain::{AddBlockResult, BatchReport, Chain};
+use xkr_chain::state::STATE_SPANS_PER_STEP;
+use xkr_chain::{AddBlockResult, BatchReport, Chain, ChainError};
 use xkr_types::{Hash, RawBlock};
 
 /// Work for the chain thread.
@@ -99,9 +101,48 @@ fn prune(chain: &Chain) {
     }
 }
 
-/// Starts the chain thread. It ends when every job sender is dropped, after flushing the
-/// database. With a stripe seed it prunes once at start (a full database started with
-/// `--prune`) and after every batch and block.
+/// How often the state thread looks at the tip.
+const STATE_POLL: Duration = Duration::from_secs(1);
+
+/// The state thread (`xkr-state`): hashes the stable stripe spans
+/// (`Chain::update_state_hashes`, [`STATE_SPANS_PER_STEP`] per call) whenever the tip moved,
+/// until `stop` is set. Runs beside the chain thread so a first start on a long chain does
+/// not hold up block processing.
+fn state_loop(chain: &Chain, stop: &AtomicBool) {
+    let mut done_at = None;
+    while !stop.load(Ordering::Relaxed) {
+        let tip = chain.tip().height;
+        if done_at != Some(tip) && chain.state_mismatch().is_none() {
+            match chain.update_state_hashes(STATE_SPANS_PER_STEP) {
+                Ok(u) => {
+                    if u.computed > 0
+                        && u.pending == 0
+                        && let Some((span, hash)) = chain.state_view().latest()
+                    {
+                        tracing::info!(span, %hash, "state hash");
+                    } else if u.computed > 0 {
+                        tracing::debug!(computed = u.computed, pending = u.pending, "state hashes");
+                    }
+                    if u.pending > 0 {
+                        continue;
+                    }
+                    done_at = Some(tip);
+                }
+                Err(e) if e.is_closed() => return,
+                Err(ChainError::Storage(xkr_storage::Error::Busy)) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "state hashes could not be computed");
+                    done_at = Some(tip);
+                }
+            }
+        }
+        std::thread::sleep(STATE_POLL);
+    }
+}
+
+/// Starts the chain thread. It ends when every job sender is dropped, after stopping the state
+/// thread ([`state_loop`]) and flushing the database. With a stripe seed it prunes once at
+/// start (a full database started with `--prune`) and after every batch and block.
 pub fn spawn(
     chain: Arc<Chain>,
     mut jobs: mpsc::UnboundedReceiver<ChainJob>,
@@ -110,6 +151,16 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("xkr-chain".into())
         .spawn(move || {
+            let stop = Arc::new(AtomicBool::new(false));
+            let state = {
+                let (chain, stop) = (chain.clone(), stop.clone());
+                std::thread::Builder::new()
+                    .name("xkr-state".into())
+                    .spawn(move || state_loop(&chain, &stop))
+            };
+            if let Err(e) = &state {
+                tracing::warn!(error = %e, "the state thread did not start");
+            }
             prune(&chain);
             while let Some(job) = jobs.blocking_recv() {
                 let event = match job {
@@ -180,6 +231,12 @@ pub fn spawn(
                 if events.send(event).is_err() {
                     break;
                 }
+            }
+            stop.store(true, Ordering::Relaxed);
+            if let Ok(state) = state
+                && state.join().is_err()
+            {
+                tracing::error!("the state thread panicked");
             }
             match chain.flush() {
                 Ok(()) => tracing::info!("chain flushed"),

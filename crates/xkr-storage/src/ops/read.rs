@@ -21,6 +21,18 @@ use crate::{
 /// One row of [`Reader::global_indexes_for_range`]: `((height, tx_index), global output indexes)`.
 pub type TxGlobalIndexes = ((u64, u32), Vec<u32>);
 
+/// What every node keeps of a block, also a pruned one ([`Reader::block_prefixes`]): the block
+/// blob, the transaction prefixes and all global output indexes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockPrefixes {
+    /// The block blob (header, miner transaction, transaction hashes), as on the wire.
+    pub block: Vec<u8>,
+    /// Global output indexes of the miner transaction's outputs.
+    pub miner_global_indexes: Vec<u32>,
+    /// Per transaction in `tx_hashes` order: its prefix blob and its global output indexes.
+    pub txs: Vec<(Vec<u8>, Vec<u32>)>,
+}
+
 /// Read-only views of every table, opened once from a [`ReadTransaction`]. Cheap to keep
 /// for the duration of one RPC request or one verification batch; it sees a consistent
 /// snapshot regardless of concurrent writers.
@@ -480,6 +492,33 @@ impl Reader {
     pub fn block_blob(&self, height: u64, comp: &mut Compressor) -> Result<Option<Vec<u8>>> {
         self.with_record(height, comp, |rec, _| {
             self.restore(&rec.blob, rec.miner_outputs_at, &rec.miner_global_indexes)
+        })
+    }
+
+    /// The block blob, every transaction prefix and every global index of the block at
+    /// `height`, from one record read. Never [`Error::Pruned`]: signatures are not read.
+    pub fn block_prefixes(
+        &self,
+        height: u64,
+        comp: &mut Compressor,
+    ) -> Result<Option<BlockPrefixes>> {
+        self.with_record(height, comp, |rec, _| {
+            let block = self.restore(&rec.blob, rec.miner_outputs_at, &rec.miner_global_indexes)?;
+            let txs = rec
+                .txs
+                .iter()
+                .map(|t| {
+                    Ok((
+                        self.restore(&t.prefix, t.outputs_at, &t.global_indexes)?,
+                        t.global_indexes.clone(),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(BlockPrefixes {
+                block,
+                miner_global_indexes: rec.miner_global_indexes.clone(),
+                txs,
+            })
         })
     }
 

@@ -27,6 +27,10 @@
 //! Forks ([`forks`]): [`Chain::fork_status`] (active/next fork, readiness signalled through
 //! block minor versions) and [`Chain::block_rate`] (blocks of the last hour against the target).
 //! See `docs/forks.md`.
+//!
+//! State hashes ([`state`]): one hash per 4 096-block span over the data every node keeps
+//! (also a pruned one), checked against a compiled-in list ([`Chain::update_state_hashes`]).
+//! See `docs/storage.md` "State hashes".
 
 mod chain;
 pub mod checkpoints;
@@ -36,6 +40,7 @@ pub mod headers;
 pub mod miner_data;
 mod outputs;
 pub mod prepare;
+pub mod state;
 pub mod template;
 pub mod verify;
 mod view;
@@ -48,6 +53,7 @@ pub use checkpoints::Checkpoints;
 pub use error::{ChainError, RejectReason};
 pub use forks::{BlockRate, BlockRateStatus, ForkStatus};
 pub use miner_data::{MainChainHeader, MinerData, MinerDataError};
+pub use state::{StateHashes, StateMismatch, StateUpdate, StateView};
 pub use template::{
     BlockTemplate, MinerAddress, SubmitError, TemplateError, reserved_offset, set_merge_mining_tag,
 };

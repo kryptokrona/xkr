@@ -1896,6 +1896,11 @@ impl P2pManager {
 
     /// Lets the downloader request, buffer and submit; closes finished rounds.
     fn drive(&mut self) {
+        // A state hash differed from the built-in list: the chain takes no more blocks, so
+        // nothing is downloaded (`Chain::state_mismatch`).
+        if self.chain.state_mismatch().is_some() {
+            return;
+        }
         let slots = self.peer_slots();
         let mut out = Vec::new();
         if self.downloader.needs_chain() && !slots.is_empty() {

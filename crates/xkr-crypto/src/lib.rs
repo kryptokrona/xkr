@@ -27,7 +27,7 @@ pub use clsag::{
     ClsagCheck, clsag_challenge_chain, clsag_sign, clsag_sign_with_randomness, clsag_verify,
     clsag_verify_all, clsag_verify_checked,
 };
-pub use keccak::{cn_fast_hash, keccak1600};
+pub use keccak::{FastHasher, cn_fast_hash, keccak1600};
 pub use ops::{
     CheckedKeyImage, check_key, check_signature, decompress, derivation_to_scalar,
     derive_public_key, derive_secret_key, generate_key_derivation, generate_key_image,

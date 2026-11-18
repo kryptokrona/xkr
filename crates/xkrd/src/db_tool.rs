@@ -2,8 +2,13 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::io::{IsTerminal, Write};
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use xkr_chain::state::{StateHashes, chain_state, complete_spans, span_digest};
+use xkr_term::steps::{Outcome, render_finished, render_running};
+use xkr_term::term::Style;
 
 use xkr_serialization::{
     block_hash, decode_block, decode_transaction, decode_transaction_prefix, transaction_hash,
@@ -58,6 +63,8 @@ pub fn run(cmd: &DbCommand) -> DynResult {
             force_below,
         } => prune(db, *all, *stripes, *stripe, *below, *force_below),
         DbCommand::Convert { from, db, batch } => convert(from, db, *batch),
+        DbCommand::StateHashes { db, to } => state_hashes(db, *to),
+        DbCommand::VerifyState(db) => verify_state(db),
     }
 }
 
@@ -411,6 +418,214 @@ fn prune(
         "seed {}, pruned below {} (run `xkrd db compact` to shrink the file)",
         report.state.seed, report.state.pruned_below
     );
+    Ok(())
+}
+
+/// Progress of a command whose stdout is data (`db state-hashes`): on a terminal a step line
+/// on stderr redrawn in place (spinner, then ✔ / ✗ with the time); otherwise a plain line every
+/// 10 s and a final line. Colours follow `NO_COLOR` and `TERM=dumb` like the node's own output.
+struct StderrProgress {
+    name: &'static str,
+    tty: bool,
+    style: Style,
+    started: Instant,
+    shown: Instant,
+    frame: usize,
+}
+
+impl StderrProgress {
+    fn new(name: &'static str) -> Self {
+        let dumb = std::env::var_os("TERM").is_some_and(|t| t == "dumb");
+        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+        let tty = std::io::stderr().is_terminal() && !dumb;
+        let now = Instant::now();
+        Self {
+            name,
+            tty,
+            style: Style::new(tty && !no_color),
+            started: now,
+            shown: now.checked_sub(Duration::from_secs(60)).unwrap_or(now),
+            frame: 0,
+        }
+    }
+
+    /// `done` of `total` spans.
+    fn update(&mut self, done: u64, total: u64) {
+        let every = if self.tty {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_secs(10)
+        };
+        if self.shown.elapsed() < every {
+            return;
+        }
+        self.shown = Instant::now();
+        let status = format!("span {done}/{total}");
+        let mut err = std::io::stderr().lock();
+        if self.tty {
+            self.frame += 1;
+            let line = render_running(
+                self.style,
+                self.name,
+                Some(&status),
+                self.started.elapsed(),
+                self.frame,
+            );
+            let _ = write!(err, "\r\x1b[2K{line}");
+        } else {
+            let _ = writeln!(err, "{}: {status}", self.name);
+        }
+        let _ = err.flush();
+    }
+
+    /// Reports a problem on a line of its own (the progress line is redrawn after it).
+    fn problem(&mut self, p: &mut Problems, msg: &str) {
+        if self.tty {
+            eprint!("\r\x1b[2K");
+        }
+        p.report(msg);
+    }
+
+    /// The final line.
+    fn finish(self, outcome: &Outcome) {
+        let mut err = std::io::stderr().lock();
+        let elapsed = self.started.elapsed();
+        if self.tty {
+            let line = render_finished(self.style, self.name, outcome, elapsed);
+            let _ = writeln!(err, "\r\x1b[2K{line}");
+        } else {
+            let text = match outcome {
+                Outcome::Done(Some(d)) | Outcome::Failed(d) => d.clone(),
+                Outcome::Done(None) => "done".to_owned(),
+                Outcome::TimedOut(_) => "timed out".to_owned(),
+            };
+            let _ = writeln!(
+                err,
+                "{}: {text} in {}",
+                self.name,
+                xkr_term::steps::elapsed_text(elapsed)
+            );
+        }
+    }
+}
+
+/// `xkrd db state-hashes`: `S_k` of every complete span ending at or below `to`, printed as
+/// Rust list lines.
+fn state_hashes(db: &DbArgs, to: Option<u64>) -> DynResult {
+    let store = open(db)?;
+    let result = print_state_hashes(&store, to);
+    store.close()?;
+    result
+}
+
+fn print_state_hashes(store: &Store, to: Option<u64>) -> DynResult {
+    let r = store.reader()?;
+    let mut comp = store.compressor()?;
+    let Some(top) = r.top_height()? else {
+        return Err("empty chain".into());
+    };
+    let spans = complete_spans(to.unwrap_or(top).min(top));
+    let mut progress = StderrProgress::new("state hashes");
+    let mut prev = Hash::ZERO;
+    let mut out = std::io::stdout().lock();
+    for span in 0..spans {
+        progress.update(span, spans);
+        let state = match span_digest(&r, &mut comp, span) {
+            Ok(digest) => chain_state(&prev, &digest),
+            Err(e) => {
+                progress.finish(&Outcome::Failed(format!("span {span}: {e}")));
+                return Err(e.into());
+            }
+        };
+        writeln!(out, "    ({span}, \"{state}\"),")?;
+        prev = state;
+    }
+    out.flush()?;
+    progress.finish(&Outcome::Done(Some(format!(
+        "{spans} spans, up to height {}",
+        (spans * STRIPE_SPAN).saturating_sub(1)
+    ))));
+    Ok(())
+}
+
+/// `xkrd db verify-state`: recomputes every complete span and compares it with the stored
+/// hashes (`META_BLOBS["state_hashes"]`, also the hash of each span's last block) and the
+/// built-in list of the network.
+fn verify_state(db: &DbArgs) -> DynResult {
+    let store = open(db)?;
+    let result = check_state_hashes(&store, db.network.into());
+    store.close()?;
+    result
+}
+
+fn check_state_hashes(store: &Store, network: xkr_consensus::Network) -> DynResult {
+    let r = store.reader()?;
+    let mut comp = store.compressor()?;
+    let Some(top) = r.top_height()? else {
+        return Err("empty chain".into());
+    };
+    let saved = store.state_hashes()?;
+    let builtin = StateHashes::for_network(network);
+    let spans = complete_spans(top);
+    let mut p = Problems { count: 0 };
+    let mut progress = StderrProgress::new("state hashes");
+    let mut prev = Hash::ZERO;
+    let (mut matched_saved, mut matched_builtin) = (0_u64, 0_u64);
+    for span in 0..spans {
+        progress.update(span, spans);
+        let state = match span_digest(&r, &mut comp, span) {
+            Ok(digest) => chain_state(&prev, &digest),
+            Err(e) => {
+                progress.problem(&mut p, &format!("span {span}: {e}"));
+                break;
+            }
+        };
+        prev = state;
+        if let Some((s, last)) = saved.get(span as usize) {
+            let end_hash = r.block_hash((span + 1) * STRIPE_SPAN - 1)?;
+            if end_hash != Some(Hash(*last)) {
+                progress.problem(
+                    &mut p,
+                    &format!(
+                        "span {span}: the saved hash belongs to another last block than the chain's"
+                    ),
+                );
+            } else if *s == state.0 {
+                matched_saved += 1;
+            } else {
+                progress.problem(
+                    &mut p,
+                    &format!("span {span}: computed {state}, saved {}", Hash(*s)),
+                );
+            }
+        }
+        match builtin.get(span) {
+            Some(b) if b == state => matched_builtin += 1,
+            Some(b) => progress.problem(
+                &mut p,
+                &format!("span {span}: computed {state}, built-in {b}"),
+            ),
+            None => {}
+        }
+    }
+    if saved.len() as u64 > spans {
+        progress.problem(
+            &mut p,
+            &format!(
+                "{} saved state hashes for {spans} complete spans",
+                saved.len()
+            ),
+        );
+    }
+    let summary = format!(
+        "{spans} spans, {matched_saved} of {} saved and {matched_builtin} built-in match",
+        saved.len()
+    );
+    if p.count > 0 {
+        progress.finish(&Outcome::Failed(format!("{summary}: {} problems", p.count)));
+        return Err(format!("{} state hash problems found", p.count).into());
+    }
+    progress.finish(&Outcome::Done(Some(summary)));
     Ok(())
 }
 

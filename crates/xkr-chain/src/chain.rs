@@ -38,6 +38,7 @@ use crate::headers::{
 use crate::prepare::{
     DecodedBlock, PowMode, PrepareError, PreparedBlock, check_raw_sizes, decode_raw, prepare_block,
 };
+use crate::state::{StateHashes, StateView, load_view};
 use crate::verify::{
     HeaderVerdict, Overlay, SigJob, check_header, check_header_cheap, check_inputs,
     signature_error, verify_signatures,
@@ -75,6 +76,9 @@ pub struct ChainConfig {
     pub durable_interval: Duration,
     /// Checkpoints (defaults to the compiled-in list of the network).
     pub checkpoints: Checkpoints,
+    /// State hashes the node's own must match (defaults to the compiled-in list of the
+    /// network, [`crate::state`]).
+    pub state_hashes: StateHashes,
     /// Height of fork 13 (block major version 6, `docs/forks.md`); defaults to the network's
     /// table value (`None` = not scheduled). `xkrd --fork13-height` sets it on testnet.
     pub fork13_height: Option<u32>,
@@ -98,6 +102,7 @@ impl ChainConfig {
             header_cache: DEFAULT_HEADER_CACHE,
             durable_interval: Duration::from_secs(5),
             checkpoints: Checkpoints::for_network(network),
+            state_hashes: StateHashes::for_network(network),
             fork13_height: network.params().fork13_height,
             fork14_height: network.params().fork14_height,
             fork14: network.params().fork14,
@@ -291,6 +296,10 @@ pub struct Chain {
     pool_gate: RwLock<()>,
     /// Fork-signal count of the readiness window, keyed by the tip it was computed for.
     pub(crate) signal_cache: Mutex<Option<crate::forks::SignalCache>>,
+    /// The stored state hashes and a mismatch against the compiled-in list ([`crate::state`]).
+    pub(crate) state: RwLock<StateView>,
+    /// Held while [`Chain::update_state_hashes`] runs.
+    pub(crate) state_update: Mutex<()>,
 }
 
 impl std::fmt::Debug for Chain {
@@ -409,6 +418,7 @@ impl Chain {
             }
         }
         drop(reader);
+        let state = load_view(&store, &cfg.state_hashes)?;
         tracing::info!(height = top, hash = %tip.hash, "chain opened");
 
         Ok(Self {
@@ -427,6 +437,8 @@ impl Chain {
             read_comps: Mutex::new(Vec::new()),
             pool_gate: RwLock::new(()),
             signal_cache: Mutex::new(None),
+            state: RwLock::new(state),
+            state_update: Mutex::new(()),
             cfg,
         })
     }
@@ -619,8 +631,10 @@ impl Chain {
     /// handles to this chain may still exist (tasks that outlive the stop); their storage calls
     /// return `xkr_storage::Error::Closed` from then on ([`ChainError::is_closed`]). Closing
     /// again does nothing. The close runs even when the final commit fails; the first error
-    /// is returned.
+    /// is returned. Waits for a running [`Self::update_state_hashes`] call.
     pub fn close(&self) -> Result<(), ChainError> {
+        // No state-hash write may be in flight when the file closes.
+        let _state = self.state_update.lock();
         let mut w = self.writer.lock();
         let flushed = if self.store.is_closed() {
             Ok(())
@@ -664,6 +678,19 @@ impl Chain {
         w.comp.clear_cache();
         self.read_comps.lock().clear();
         Ok(report)
+    }
+
+    /// [`ChainError::StateMismatch`] once a state hash differed from the compiled-in list
+    /// ([`Self::state_mismatch`]): no block is taken after that.
+    fn check_state(&self) -> Result<(), ChainError> {
+        match self.state_mismatch() {
+            Some(m) => Err(ChainError::StateMismatch {
+                span: m.span,
+                expected: m.expected,
+                found: m.found,
+            }),
+            None => Ok(()),
+        }
     }
 
     /// Stripe-pruning bound for the current tip ([`Checkpoints::prune_bound`]).
@@ -737,6 +764,7 @@ impl Chain {
         raws: Vec<RawBlock>,
         expected: Option<&[Hash]>,
     ) -> Result<BatchReport, ChainError> {
+        self.check_state()?;
         let submitted = raws.len();
         // `--fast-sync` applies to requested batches only.
         let requested = expected.is_some();
@@ -915,6 +943,7 @@ impl Chain {
     }
 
     fn add_block_inner(&self, raw: RawBlock) -> Result<AddBlockResult, ChainError> {
+        self.check_state()?;
         let rejected = |e: PrepareError| {
             Ok(AddBlockResult {
                 hash: e.hash.unwrap_or(Hash::ZERO),

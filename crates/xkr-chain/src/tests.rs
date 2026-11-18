@@ -968,6 +968,296 @@ fn chain_prune_follows_the_bound_as_the_tip_grows() {
     }
 }
 
+// ------------------------------------------------------------------ state hashes
+
+/// The entry of one transaction in `D_k`, written from the byte layout in `docs/storage.md`
+/// ("State hashes"); `next_index` counts the outputs of each amount (the global index).
+fn spec_tx(
+    out: &mut Vec<u8>,
+    hash: &Hash,
+    p: &TransactionPrefix,
+    next_index: &mut HashMap<u64, u64>,
+) {
+    out.extend_from_slice(&hash.0);
+    out.extend_from_slice(&xkr_types::tx_public_key(&p.extra).map_or([0; 32], |k| k.0));
+    out.extend_from_slice(&p.unlock_time.to_le_bytes());
+    out.extend_from_slice(&(p.outputs.len() as u64).to_le_bytes());
+    for o in &p.outputs {
+        out.extend_from_slice(&o.key().0);
+        out.extend_from_slice(&o.amount.to_le_bytes());
+        match o.target {
+            TxOutputTarget::TaggedKey { view_tag, .. } => out.extend_from_slice(&[1, view_tag]),
+            TxOutputTarget::Key(_) => out.extend_from_slice(&[0, 0]),
+        }
+        let n = next_index.entry(o.amount).or_default();
+        out.extend_from_slice(&n.to_le_bytes());
+        *n += 1;
+    }
+    out.extend_from_slice(&(p.inputs.len() as u64).to_le_bytes());
+    for input in &p.inputs {
+        match input {
+            TxInput::Key { key_image, .. } => out.extend_from_slice(&key_image.0),
+            TxInput::Coinbase { height } => {
+                out.extend_from_slice(&u64::from(*height).to_le_bytes());
+            }
+        }
+    }
+}
+
+/// The entry of one block in `D_k` (`txs`: the coinbase first).
+fn spec_block(
+    out: &mut Vec<u8>,
+    height: u64,
+    hash: &Hash,
+    timestamp: u64,
+    txs: &[(Hash, &TransactionPrefix)],
+    next_index: &mut HashMap<u64, u64>,
+) {
+    out.extend_from_slice(&height.to_le_bytes());
+    out.extend_from_slice(&hash.0);
+    out.extend_from_slice(&timestamp.to_le_bytes());
+    out.extend_from_slice(&(txs.len() as u64).to_le_bytes());
+    for (h, p) in txs {
+        spec_tx(out, h, p, next_index);
+    }
+}
+
+/// Top of the state-hash test chains: spans 0 and 1 are `max_reorg_depth` (1 000) below it.
+const STATE_TIP: u64 = 2 * STRIPE_SPAN + 1_000;
+
+/// A testnet database with the genesis block and [`unchecked_block`]s up to [`STATE_TIP`].
+fn state_db() -> TempDb {
+    let db = TempDb::new();
+    db.open(Network::Testnet).close().expect("close");
+    let store = Store::open(&db.0).expect("store");
+    push_unchecked(&store, 1, STATE_TIP + 1);
+    store.close().expect("close");
+    db
+}
+
+/// The chain over `db` with `builtin` as the compiled-in state hashes.
+fn state_chain(db: &TempDb, builtin: crate::StateHashes) -> Chain {
+    let mut cfg = ChainConfig::new(Network::Testnet);
+    cfg.state_hashes = builtin;
+    db.open_with(cfg)
+}
+
+/// `S_0` written from the specification bytes equals the node's, the node hashes exactly the
+/// stable spans, and a stored hash whose last block is not the chain's is computed again.
+#[test]
+fn state_hash_of_span_0_follows_the_byte_layout() {
+    let s = STRIPE_SPAN;
+    let db = state_db();
+    let chain = state_chain(&db, crate::StateHashes::default());
+    assert_eq!(chain.tip().height, STATE_TIP);
+    assert_eq!(chain.stable_spans(), 2);
+
+    // D_0 and S_0 from the bytes of the specification.
+    let genesis = xkr_consensus::genesis_block(chain.params()).expect("genesis");
+    let mut next_index = HashMap::new();
+    let mut bytes = Vec::new();
+    spec_block(
+        &mut bytes,
+        0,
+        &chain.genesis_hash(),
+        genesis.header.timestamp,
+        &[(
+            xkr_serialization::transaction_hash(&genesis.miner_tx).expect("hash"),
+            &genesis.miner_tx.prefix,
+        )],
+        &mut next_index,
+    );
+    for height in 1..s {
+        let vb = unchecked_block(height);
+        let mut txs = vec![(
+            xkr_serialization::transaction_hash(&vb.block.miner_tx).expect("hash"),
+            &vb.block.miner_tx.prefix,
+        )];
+        txs.extend(vb.txs.iter().map(|t| (t.hash, &t.tx.prefix)));
+        spec_block(
+            &mut bytes,
+            height,
+            &vb.hash,
+            vb.block.header.timestamp,
+            &txs,
+            &mut next_index,
+        );
+    }
+    let digest = xkr_crypto::cn_fast_hash(&bytes);
+    let mut chained = b"xkr state v1".to_vec();
+    chained.extend_from_slice(&[0; 32]);
+    chained.extend_from_slice(&digest.0);
+    let s0 = xkr_crypto::cn_fast_hash(&chained);
+
+    let reader = chain.reader().expect("reader");
+    let computed = chain
+        .with_compressor(|c| crate::state::span_digest(&reader, c, 0))
+        .expect("compressor")
+        .expect("digest");
+    assert_eq!(computed, digest);
+    assert_eq!(crate::state::chain_state(&Hash::ZERO, &digest), s0);
+
+    let update = chain.update_state_hashes(8).expect("update");
+    assert_eq!(
+        update,
+        crate::StateUpdate {
+            computed: 2,
+            dropped: 0,
+            pending: 0
+        }
+    );
+    let view = chain.state_view();
+    assert_eq!(view.get(0), Some(s0));
+    assert_eq!(
+        view.hashes[0].1,
+        reader.block_hash(s - 1).expect("read").expect("block")
+    );
+    let s1 = view.get(1).expect("span 1");
+    let d1 = chain
+        .with_compressor(|c| crate::state::span_digest(&reader, c, 1))
+        .expect("compressor")
+        .expect("digest");
+    assert_eq!(s1, crate::state::chain_state(&s0, &d1));
+    assert!(view.mismatch.is_none());
+    assert_eq!(
+        chain.update_state_hashes(8).expect("update"),
+        crate::StateUpdate::default()
+    );
+    // The span still growing is not complete: no digest.
+    assert!(
+        chain
+            .with_compressor(|c| crate::state::span_digest(&reader, c, 2))
+            .expect("compressor")
+            .is_err()
+    );
+    drop(reader);
+
+    // The stored list survives a restart; a span whose stored last block is not the chain's
+    // is dropped and computed again.
+    let stored = chain.store().state_hashes().expect("stored");
+    assert_eq!(
+        stored,
+        vec![(s0.0, view.hashes[0].1.0), (s1.0, view.hashes[1].1.0)]
+    );
+    chain
+        .store()
+        .set_state_hashes(&[stored[0], (stored[1].0, [0xee; 32])])
+        .expect("set");
+    chain.close().expect("close");
+    drop(chain);
+    let chain = state_chain(&db, crate::StateHashes::default());
+    assert_eq!(chain.state_view().hashes.len(), 2);
+    let update = chain.update_state_hashes(8).expect("update");
+    assert_eq!((update.dropped, update.computed), (1, 1));
+    assert_eq!(chain.state_view().get(1), Some(s1));
+    assert_eq!(chain.store().state_hashes().expect("stored"), stored);
+}
+
+/// A full, a stripe-pruned and a completely pruned database have the same state hashes.
+#[test]
+fn pruned_databases_have_the_same_state_hashes() {
+    let s = STRIPE_SPAN;
+    let digests = |db: &TempDb| -> Vec<Hash> {
+        let store = Store::open(&db.0).expect("store");
+        let reader = store.reader().expect("reader");
+        let mut comp = store.compressor().expect("compressor");
+        let out = (0..2)
+            .map(|span| crate::state::span_digest(&reader, &mut comp, span).expect("digest"))
+            .collect();
+        drop(reader);
+        store.close().expect("close");
+        out
+    };
+    let full = state_db();
+    let striped = state_db();
+    let none = state_db();
+    // Stripe 1 of 2 keeps span 0 and drops span 1.
+    let seed = PruningSeed::new(2, 1).expect("seed");
+    let store = Store::open(&striped.0).expect("store");
+    store
+        .prune(PruneMode::Stripe(seed), 2 * s, &mut |_| {})
+        .expect("prune");
+    assert!(store.reader().expect("reader").has_full_block(7));
+    assert!(!store.reader().expect("reader").has_full_block(s + 7));
+    store.close().expect("close");
+    let store = Store::open(&none.0).expect("store");
+    store
+        .prune(PruneMode::All, 2 * s, &mut |_| {})
+        .expect("prune");
+    assert!(!store.reader().expect("reader").has_full_block(7));
+    store.close().expect("close");
+
+    let want = digests(&full);
+    assert_eq!(digests(&striped), want);
+    assert_eq!(digests(&none), want);
+    assert_ne!(want[0], want[1]);
+}
+
+/// A computed hash that differs from the built-in list stops the hashing at that span, is
+/// reported and makes the chain refuse blocks; a stored hash that differs from a newer
+/// built-in list is reported when the chain opens; matching lists are quiet.
+#[test]
+fn state_mismatch_stops_the_chain() {
+    let db = state_db();
+    let wrong = Hash([0xab; 32]);
+    let chain = state_chain(&db, crate::StateHashes::from_list([(1, wrong)]));
+    let update = chain.update_state_hashes(8).expect("update");
+    assert_eq!((update.computed, update.pending), (1, 0));
+    let m = chain.state_mismatch().expect("mismatch");
+    assert_eq!((m.span, m.expected), (1, wrong));
+    let view = chain.state_view();
+    assert_eq!(view.hashes.len(), 1, "the differing span is not stored");
+    let s0 = view.get(0).expect("span 0");
+    assert_ne!(m.found, wrong);
+    assert!(matches!(
+        chain.add_blocks(Vec::new(), None),
+        Err(crate::ChainError::StateMismatch { span: 1, .. })
+    ));
+    let raw = RawBlock {
+        block: Vec::new(),
+        transactions: Vec::new(),
+    };
+    assert!(matches!(
+        chain.add_block(raw),
+        Err(crate::ChainError::StateMismatch { span: 1, .. })
+    ));
+    assert_eq!(
+        chain.update_state_hashes(8).expect("update"),
+        crate::StateUpdate::default()
+    );
+    chain.close().expect("close");
+    drop(chain);
+
+    // The stored span 0 against a built-in list that lists another hash for it.
+    let chain = state_chain(&db, crate::StateHashes::from_list([(0, wrong)]));
+    let m = chain.state_mismatch().expect("mismatch at open");
+    assert_eq!((m.span, m.expected, m.found), (0, wrong, s0));
+    chain.close().expect("close");
+    drop(chain);
+
+    // The right values: no mismatch, and span 1 is hashed now.
+    let chain = state_chain(&db, crate::StateHashes::from_list([(0, s0)]));
+    assert!(chain.state_mismatch().is_none());
+    let update = chain.update_state_hashes(8).expect("update");
+    assert_eq!(update.computed, 1);
+    let s1 = chain.state_view().get(1).expect("span 1");
+    assert_eq!(s1, recomputed_span_1(&chain));
+    assert!(chain.state_mismatch().is_none());
+    assert_eq!(chain.config().state_hashes.matches(0, &s0), Some(true));
+    assert_eq!(chain.config().state_hashes.matches(1, &s1), None);
+}
+
+/// `S_1` recomputed from the database.
+fn recomputed_span_1(chain: &Chain) -> Hash {
+    let reader = chain.reader().expect("reader");
+    let s0 = chain.state_view().get(0).expect("span 0");
+    let d1 = chain
+        .with_compressor(|c| crate::state::span_digest(&reader, c, 1))
+        .expect("compressor")
+        .expect("digest");
+    crate::state::chain_state(&s0, &d1)
+}
+
 // ------------------------------------------------------------------ block templates
 
 #[test]

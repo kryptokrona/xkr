@@ -187,6 +187,42 @@ fn dispatch(s: &RpcState, method: &str, params: &Value) -> Result<Value, RpcErro
         "f_on_transactions_pool_json" => Ok(explorer::pool(s)),
         "get_miner_data" => mining::get_miner_data(s),
         "get_block_headers_range" => mining::block_headers_range(s, params),
+        "getstatehash" => state_hash(chain, params),
         _ => Err(RpcError::new(ERR_METHOD_NOT_FOUND, "Method not found")),
     }
+}
+
+/// `getstatehash { span }` or `{ height }` (the span holding that height): the stored state
+/// hash of a stable span (`docs/storage.md` "State hashes") as `{ span, height_end, hash,
+/// builtin_match, status }`. `height_end` is the first height after the span; `builtin_match`
+/// is `true`/`false` when the built-in list has the span, `null` otherwise. A span without a
+/// stored hash yet is error -2.
+fn state_hash(chain: &xkr_chain::Chain, params: &Value) -> Result<Value, RpcError> {
+    let span = match (param_u64(params, "span"), param_u64(params, "height")) {
+        (Some(span), _) => span,
+        (None, Some(height)) => height / xkr_storage::STRIPE_SPAN,
+        (None, None) => {
+            return Err(RpcError::new(
+                CORE_RPC_ERROR_CODE_WRONG_PARAM,
+                "Wrong parameters, expected span or height",
+            ));
+        }
+    };
+    let view = chain.state_view();
+    let Some(hash) = view.get(span) else {
+        return Err(RpcError::new(
+            CORE_RPC_ERROR_CODE_TOO_BIG_HEIGHT,
+            format!(
+                "No state hash for span {span} yet: {} spans are hashed",
+                view.hashes.len()
+            ),
+        ));
+    };
+    Ok(json!({
+        "span": span,
+        "height_end": xkr_chain::state::span_heights(span).end,
+        "hash": hash.to_string(),
+        "builtin_match": chain.config().state_hashes.matches(span, &hash),
+        "status": STATUS_OK,
+    }))
 }

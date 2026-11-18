@@ -282,6 +282,22 @@ fn pruning_json(raw: u32, net: &NetStatus) -> Value {
     })
 }
 
+/// `/status` `state`: the newest stored state hash (`span`, `hash`; `null` before the first
+/// stable span) and the first span whose hash differs from the built-in list (`mismatch`:
+/// `{ span, expected, found }`, `null` when none does).
+pub(crate) fn state_json(view: &xkr_chain::StateView) -> Value {
+    let latest = view.latest();
+    json!({
+        "span": latest.map(|(span, _)| span),
+        "hash": latest.map(|(_, hash)| hash.to_string()),
+        "mismatch": view.mismatch.map(|m| json!({
+            "span": m.span,
+            "expected": m.expected.to_string(),
+            "found": m.found.to_string(),
+        })),
+    })
+}
+
 /// Transaction versions the block at `height` accepts, ascending (version 0 counts as 1).
 fn tx_versions(forks: &xkr_consensus::ForkSchedule, height: u64) -> Vec<u8> {
     let allowed = forks.tx_versions_at(height);
@@ -389,6 +405,7 @@ pub async fn get_status(State(s): State<Arc<RpcState>>, ext: Extensions) -> Resp
             "fork": fork_json,
             "block_rate": rate_json,
             "pruning": pruning,
+            "state": state_json(&s.chain.state_view()),
             "db_size": db_size,
             "data_dir": (!s.info.data_dir.as_os_str().is_empty())
                 .then(|| s.info.data_dir.display().to_string()),
@@ -915,6 +932,33 @@ mod tests {
         assert_eq!(recent["recent_only"], json!(true));
         assert_eq!(recent["stripes"], Value::Null);
         assert_eq!(recent["stripe"], Value::Null);
+    }
+
+    /// `/status.state` before the first span, with a stored span, and with a mismatch.
+    #[test]
+    fn state_status_names_the_newest_span_and_a_mismatch() {
+        let empty = state_json(&xkr_chain::StateView::default());
+        assert_eq!(
+            empty,
+            json!({ "span": null, "hash": null, "mismatch": null })
+        );
+        let view = xkr_chain::StateView {
+            hashes: vec![
+                (Hash([1; 32]), Hash([9; 32])),
+                (Hash([2; 32]), Hash([9; 32])),
+            ],
+            mismatch: Some(xkr_chain::StateMismatch {
+                span: 2,
+                expected: Hash([3; 32]),
+                found: Hash([4; 32]),
+            }),
+        };
+        let v = state_json(&view);
+        assert_eq!(v["span"], json!(1));
+        assert_eq!(v["hash"], json!("02".repeat(32)));
+        assert_eq!(v["mismatch"]["span"], json!(2));
+        assert_eq!(v["mismatch"]["expected"], json!("03".repeat(32)));
+        assert_eq!(v["mismatch"]["found"], json!("04".repeat(32)));
     }
 
     /// A pruned block is its own error (404 per item), never an internal error.
