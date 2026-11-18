@@ -13,6 +13,26 @@ Targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple
 `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`. Every target is built natively on its own
 runner, so the tests run on the target itself; there is no cross-compiling.
 
+## Linux: glibc 2.35 and later
+
+The Linux archives run on glibc 2.35 and later: Ubuntu 22.04 and newer, Debian 12 and newer,
+Fedora 36 and newer, Rocky/Alma 9, Arch. They are built on Ubuntu 22.04 (in an `ubuntu:22.04`
+container in CI, `packaging/linux/setup-build-env.sh`), because a program linked on a newer
+system needs that system's glibc. `package-release.sh --max-glibc 2.35` stops when a program,
+`libbare-kit.so` or a bridge addon needs more (`packaging/scripts/check-glibc.sh`, which also
+checks any unpacked archive).
+
+The same build on your own machine, in docker (x86_64 or aarch64, the host's architecture):
+
+```sh
+scripts/build-linux-release.sh [--version 1.0.1]   # -> dist/linux-release/xkr-<version>-<target>.tar.gz
+```
+
+It builds the image `xkr-linux-build:22.04` from `packaging/linux/Dockerfile`, libbare-kit in
+`target/linux-release/bare-kit` (apart from the host's `target/bare-kit`), fetches the bridge
+and the crates on the host (through Socket Firewall when installed) and runs
+`cargo build --offline` and `package-release.sh` in the image (3 CPUs, 5 GiB, `-j 3`).
+
 ## How the bridge travels
 
 xkrd's Hyperswarm transport runs `bridge/src/worker.js` on Bare worker threads inside xkrd
@@ -96,20 +116,23 @@ sha256sum -c --quiet SHA256SUMS
 
 ## CI
 
-`.github/workflows/build.yml` runs on `v*` tags and by hand (Actions, "Build", "Run
+`.github/workflows/build.yml` runs on pushes to `main`, on `v*` tags and by hand (Actions, "Build", "Run
 workflow"; tick "tauri" to also build the sample app):
 
 1. `bridge` (Ubuntu): `npm ci` and `npm test` in `bridge/`, then `bundle-bridge.sh` and the
    `xkr-bridge-<version>.tar.gz` artifact.
-2. `build` (five native runners): clippy with `-D warnings`, `cargo test --workspace`,
+2. `build` (five native runners; the two Linux ones inside `ubuntu:22.04`): clippy with `-D warnings`, `cargo test --workspace`,
    the release build of `xkrd`, `xkr-wallet-api`, `xkr-walletd`, `xkr-wallet-cli` and
    `xkr-miner`, `package-release.sh`, then a smoke test of the unpacked archive (every
    program answers `--version`, the archive's `SHA256SUMS` matches, the bridge's
-   addons and modules load on a Bare worker: `xkrd bridge-check`). Artifact `xkr-<target>`.
-3. `release` (tag pushes only): `SHA256SUMS` over the per-target archives (the bridge bundle
+   addons and modules load on a Bare worker: `xkrd bridge-check`). Linux archives pass
+   `--max-glibc 2.35`. Artifact `xkr-<target>`.
+3. `linux-distros`: the Linux archives start (`--version`, `xkrd bridge-check`) in Debian 12
+   and 13, Ubuntu 24.04, Fedora 42 and Arch containers (arm64: Debian 12, Ubuntu 24.04).
+4. `release` (tag pushes only): `SHA256SUMS` over the per-target archives (the bridge bundle
    is left out: every archive carries its own `bridge/`), all of it as the `release-<version>`
    artifact, and a **draft** GitHub release with those files (published by hand).
-4. `tauri` (manual runs with "tauri" ticked): builds the sample app per target from the
+5. `tauri` (manual runs with "tauri" ticked): builds the sample app per target from the
    archive of step 2: xkrd, libbare-kit and the pruned `bridge/` go in as they are, so the job
    needs no Node.js.
 

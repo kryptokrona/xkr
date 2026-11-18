@@ -2,7 +2,10 @@ name: Build
 
 # Release builds on every supported platform. ci.yml stays the fast gate for pushes and pull
 # requests (fmt, clippy, test on Linux x86_64); this workflow runs the same checks natively on
-# all five targets and packs the release archives (node, wallet tools, miner, bridge). It runs on
+# all five targets and packs the release archives (node, wallet tools, miner, bridge). The Linux
+# targets build inside an Ubuntu 22.04 container (packaging/linux/setup-build-env.sh), so the
+# archives run on glibc 2.35 and later; the package step stops on anything newer and the
+# linux-distros job starts them on other distributions. It runs on
 # pushes to main, on version tags and by hand, so main and a release build the same way; the
 # draft release is made on tags only.
 on:
@@ -71,18 +74,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, container: "ubuntu:22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, container: "ubuntu:22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde" }
           - { os: macos-15, target: aarch64-apple-darwin }
           - { os: macos-15-intel, target: x86_64-apple-darwin }
           - { os: windows-2025, target: x86_64-pc-windows-msvc }
+    # Linux only (empty elsewhere): glibc 2.35, the oldest the Linux archives support.
+    container: ${{ matrix.container }}
     defaults:
       run:
         shell: bash
     steps:
+      # The bare Ubuntu image has no git, which checkout and build-bare-kit.sh need.
+      - name: git (Linux container)
+        if: matrix.container
+        shell: sh
+        run: apt-get update -q && apt-get install -y -q --no-install-recommends ca-certificates git
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Compilers, patchelf, binutils and Node.js for the Linux build (Ubuntu 22.04).
+      - name: Linux build environment
+        if: matrix.container
+        run: packaging/linux/setup-build-env.sh
       # Installs the toolchain and components pinned in rust-toolchain.toml. Every build is
       # native (no cross-compiling), so the tests run on the target itself.
       - name: Install Rust toolchain
@@ -99,14 +113,16 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.target }}
+      # The Linux container has Node.js from setup-build-env.sh.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !matrix.container }}
         with:
           node-version: ${{ env.NODE_VERSION }}
       # libbare-kit (scripts/build-bare-kit.sh), cached by the script that pins bare-kit.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/bare-kit/lib
-          key: bare-kit-${{ matrix.target }}-${{ hashFiles('scripts/build-bare-kit.sh') }}
+          key: bare-kit-${{ matrix.target }}-${{ hashFiles('scripts/build-bare-kit.sh', 'packaging/linux/setup-build-env.sh') }}
       - name: libbare-kit
         run: scripts/build-bare-kit.sh
       # Windows has no run path: the test programs find bare-kit.dll on PATH (the release
@@ -128,10 +144,15 @@ jobs:
           name: xkr-bridge
           path: dist
       - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           tar -C dist -xzf "dist/xkr-bridge-$XKR_VERSION.tar.gz"
+          glibc=()
+          if [[ "$TARGET" == *linux* ]]; then glibc=(--max-glibc 2.35); fi
           archive=$(packaging/scripts/package-release.sh --target "${{ matrix.target }}" \
-            --version "$XKR_VERSION" --bin-dir target/release --bridge dist/bridge --out dist/release)
+            --version "$XKR_VERSION" --bin-dir target/release --bridge dist/bridge --out dist/release \
+            ${glibc[@]+"${glibc[@]}"})
           # Relative to the workspace: the shell tools and the upload action (a Windows program,
           # which does not know the POSIX form of a drive path) both resolve it.
           archive=${archive#"$PWD/"}
@@ -161,11 +182,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The Linux archives on other distributions: the programs start and xkrd runs the bridge on a
+  # Bare worker (the build job's smoke test already runs them on Ubuntu 22.04).
+  linux-distros:
+    name: ${{ matrix.image }} ${{ matrix.target }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04]
+        target: [x86_64-unknown-linux-gnu]
+        image: ["debian:12", "debian:13", "ubuntu:24.04", "fedora:42", "archlinux:latest"]
+        include:
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, image: "debian:12" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, image: "ubuntu:24.04" }
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: xkr-${{ matrix.target }}
+          path: dist
+      - name: Start the programs
+        shell: sh
+        run: |
+          set -eu
+          # Fedora's container image has no tar.
+          command -v tar >/dev/null || dnf install -y -q tar gzip
+          tar -C dist -xzf dist/xkr-*.tar.gz
+          dir=$(echo dist/xkr-*/)
+          for bin in xkrd xkr-wallet-api xkr-walletd xkrwallet xkr-miner; do
+            "$dir$bin" --version
+          done
+          "${dir}xkrd" bridge-check
+
   # Tags only: manual runs keep the per-target archives as artifacts of the build job.
   release:
     name: checksums and draft release
     if: github.ref_type == 'tag'
-    needs: [bridge, build]
+    needs: [bridge, build, linux-distros]
     runs-on: ubuntu-24.04
     permissions:
       # Needed to create the draft release.

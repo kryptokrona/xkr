@@ -3,7 +3,7 @@
 # Hyperswarm bridge.
 #
 #   packaging/scripts/package-release.sh --target <triple> --bridge <bridge dir> \
-#       [--version <version>] [--bin-dir <dir>] [--bare-kit <dir>] [--out <dir>]
+#       [--version <version>] [--bin-dir <dir>] [--bare-kit <dir>] [--out <dir>] [--max-glibc <v>]
 #
 # --version defaults to the workspace version in Cargo.toml. --bin-dir defaults to
 # target/<target>/release when xkrd is there, else target/release (both under $CARGO_TARGET_DIR
@@ -29,12 +29,14 @@
 # runs it on Bare worker threads through libbare-kit, which the archive carries next to xkrd. On
 # Linux targets the run path of the packed xkrd is set to $ORIGIN:$ORIGIN/lib with patchelf when
 # it is installed (a release build without XKR_DEV_RPATH=1 has exactly that already); without
-# patchelf, a run path that names any other directory is reported. Prints the archive path.
+# patchelf, a run path that names any other directory is reported. --max-glibc (Linux targets,
+# 2.35 for the releases) stops when any program, library or addon in the archive needs a newer
+# glibc (check-glibc.sh). Prints the archive path.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
-target="" version="" bridge="" bin_dir="" bare_kit="" out="$repo/dist"
+target="" version="" bridge="" bin_dir="" bare_kit="" out="$repo/dist" max_glibc=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) target=${2:?}; shift 2 ;;
@@ -43,7 +45,8 @@ while [[ $# -gt 0 ]]; do
     --bin-dir) bin_dir=${2:?}; shift 2 ;;
     --bare-kit) bare_kit=${2:?}; shift 2 ;;
     --out) out=${2:?}; shift 2 ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    --max-glibc) max_glibc=${2:?}; shift 2 ;;
+    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -132,6 +135,10 @@ cp "$repo/docs/wallet-tools.md" "$stage/docs/"
 
 # xkrd uses a bridge/ found next to itself only when nobody else can write to it.
 chmod -R go-w "$stage"
+
+if [[ -n "$max_glibc" && "$target" == *linux* ]]; then
+  "$here/check-glibc.sh" --max "$max_glibc" "$stage" >&2
+fi
 
 (
   cd "$stage"
