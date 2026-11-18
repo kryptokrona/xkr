@@ -1,7 +1,8 @@
-//! The main chain from remote nodes (`xkrd --p2pool` without `--node`): [`RemoteNodes`] keeps
-//! connections to xkrd nodes on the Hyperswarm clients topic (`xkr/<network>/clients/v1`,
-//! [`crate::clients`], `docs/hyper-transport.md` "Clients topic") as a client, and is the
-//! built-in p2pool's [`MainChainSource`].
+//! The main chain from remote nodes (`xkrd --hugin` / `--p2pool` without `--node`):
+//! [`RemoteNodes`] keeps connections to xkrd nodes on the Hyperswarm clients topic
+//! (`xkr/<network>/clients/v1`, [`crate::clients`], `docs/hyper-transport.md` "Clients topic")
+//! as a client, is the built-in p2pool's [`MainChainSource`] and gives the Hugin relay its sync
+//! state and tip (`/status` `remote`, `crate::hyper::follow_remote_sync`).
 //!
 //! * **Connections**: up to [`MAX_NODES`] nodes with distinct DHT keys, found by a lookup of
 //!   the clients topic and dialed in client mode (the topic is never announced), each with the
@@ -25,11 +26,19 @@
 //!   connected node answers and says it is synchronized, and a node confirmed the tip in use
 //!   less than [`STALE_AFTER`] ago.
 //!
-//! [`run_hyper`] is the Hyperswarm transport of this mode: the Bare workers with only the p2pool
-//! sidechain topic announced and the clients topic looked up and dialed ([`BridgeDialer`]).
+//! * **Stratum** ([`RemoteStratum`]): the Hugin relay's last job source. A stratum session on a
+//!   connected node that runs p2pool (`stratum_open`, `stratum`, pushes `stratum`), over the
+//!   same connection as the chain (Hyperswarm keeps one connection per key on a topic); nodes
+//!   whose hello lists `stratum` and that have the tip in use are tried first.
+//!
+//! [`run_hyper`] is the Hyperswarm transport of this mode: the Bare workers with the Hugin
+//! topics (the public-node topic only while the remote nodes are synchronized) and the p2pool
+//! sidechain topic announced, and the clients topic looked up and dialed ([`BridgeDialer`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -37,19 +46,24 @@ use futures::FutureExt as _;
 use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{mpsc, watch};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::AbortHandle;
 use tokio_util::sync::CancellationToken;
 use xkr_chain::{MainChainHeader, MinerData, StateHashes, TipInfo, unix_now};
 use xkr_consensus::{Network, NetworkParams, check_proof_of_work};
-use xkr_hyper_rpc::{Client, ClientOptions, Hello, Service};
-use xkr_p2p_hyper::{BareWorkers, Bridge, CloseReason, HuginTopic, OpenFlags, topic};
+use xkr_hugin::PeerMeta;
+use xkr_hugin::pool::{PoolConnector, PoolReader, PoolWriter};
+use xkr_hyper_rpc::{Client, ClientOptions, Hello, Push, Service};
+use xkr_p2p_hyper::{BareWorkers, Bridge, CloseHandle, CloseReason, HuginTopic, OpenFlags, topic};
 use xkr_rpc::{HyperDhtState, HyperNetStatus, NetStatus, RemoteNodeStatus, RemoteStatus};
 use xkr_txpool::PoolTxSummary;
 use xkr_types::{Block, Hash, TxInput};
 
-use crate::hyper::{self, HyperConfig, P2poolTopic};
+use crate::clients::{STRATUM_CLOSE, STRATUM_CLOSED, STRATUM_MESSAGE, STRATUM_OPEN};
+use crate::hyper::{self, HuginRuntime, HyperConfig, P2poolTopic};
 use crate::p2pool::{
     BlockOnChain, MainChainSource, MainChainState, Refusal, apply_headers, header_ranges,
 };
@@ -80,6 +94,15 @@ const DIAL_BACKOFF_MAX: Duration = Duration::from_mins(10);
 const HEADERS_PER_CALL: u64 = 500;
 /// Transactions remembered with the time they were first seen in miner data.
 const MAX_SEEN_TXS: usize = 4_096;
+/// The Hugin relay's p2pool entry for the stratum service of the remote nodes
+/// ([`RemoteStratum`]; `crate::hyper::remote_relay_nodes`).
+pub const REMOTE_STRATUM: &str = "hyperswarm";
+/// Longest stratum line taken from the relay's pool client.
+const STRATUM_LINE: u64 = 64 * 1024;
+/// Buffer between the relay's pool client and a stratum session.
+const STRATUM_PIPE: usize = 16 * 1024;
+/// How long closing a stratum session may take.
+const STRATUM_CLOSE_WAIT: Duration = Duration::from_secs(5);
 
 /// A DHT public key.
 pub type Key = [u8; 32];
@@ -1061,6 +1084,29 @@ impl RemoteNodes {
             .map(|n| (n.client.clone(), chosen.header))
     }
 
+    /// The connected nodes for a stratum session, best first: nodes whose hello lists
+    /// `stratum`, then the others (p2pool may have started after the hello); among them those
+    /// with the tip in use first.
+    #[must_use]
+    pub fn stratum_clients(&self) -> Vec<Client> {
+        let st = self.state();
+        let on_tip = |k: &Key| st.chosen.as_ref().is_some_and(|c| c.supporters.contains(k));
+        let mut nodes: Vec<(bool, bool, Client)> = st
+            .nodes
+            .iter()
+            .filter(|n| !n.client.is_closed())
+            .map(|n| {
+                (
+                    !n.client.hello().serves(Service::Stratum),
+                    !on_tip(&n.key),
+                    n.client.clone(),
+                )
+            })
+            .collect();
+        nodes.sort_by_key(|n| (n.0, n.1));
+        nodes.into_iter().map(|n| n.2).collect()
+    }
+
     /// Miner data at the tip in use, and the client that sent it.
     async fn miner_data(&self) -> Result<(MinerData, Client, Header), String> {
         for attempt in 0..2 {
@@ -1254,6 +1300,147 @@ impl MainChainSource for RemoteNodes {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// stratum over the clients topic
+
+/// The Hugin relay's [`PoolConnector`] for [`REMOTE_STRATUM`]: a stratum session in the p2pool
+/// of a connected remote node (`docs/hyper-transport.md`, "Service stratum"), as a line stream
+/// for the relay's pool client. Each connection tries the next node first.
+#[derive(Debug)]
+pub struct RemoteStratum {
+    nodes: RemoteNodes,
+    next: AtomicUsize,
+}
+
+impl RemoteStratum {
+    #[must_use]
+    pub fn new(nodes: RemoteNodes) -> Self {
+        Self {
+            nodes,
+            next: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl PoolConnector for RemoteStratum {
+    fn serves(&self, pool: &str) -> bool {
+        pool == REMOTE_STRATUM
+    }
+
+    fn open(&self, _pool: &str) -> BoxFuture<'static, Result<(PoolReader, PoolWriter), String>> {
+        let clients = self.nodes.stratum_clients();
+        let first = self.next.fetch_add(1, Ordering::Relaxed);
+        async move {
+            if clients.is_empty() {
+                return Err("no remote node connected".to_owned());
+            }
+            let mut last = String::new();
+            for i in 0..clients.len() {
+                let client = clients[(first + i) % clients.len()].clone();
+                match open_stratum(client).await {
+                    Ok(rw) => return Ok(rw),
+                    Err(e) => last = e,
+                }
+            }
+            Err(format!("no remote node opened a stratum session ({last})"))
+        }
+        .boxed()
+    }
+}
+
+/// Opens a stratum session on `client`'s node and returns the relay's side of it.
+async fn open_stratum(client: Client) -> Result<(PoolReader, PoolWriter), String> {
+    // Subscribed before the session exists, so its first lines are not missed.
+    let pushes = client.pushes();
+    let v = client
+        .call(STRATUM_OPEN, json!({}))
+        .await
+        .map_err(|e| e.to_string())?;
+    let session = v
+        .get("session")
+        .and_then(Value::as_u64)
+        .ok_or("the node sent no session number")?;
+    let (ours, theirs) = tokio::io::duplex(STRATUM_PIPE);
+    tokio::spawn(pump_stratum(client, session, theirs, pushes));
+    let (r, w) = tokio::io::split(ours);
+    Ok((Box::new(r), Box::new(w)))
+}
+
+/// Carries one stratum session: the pool client's lines as `stratum` calls (one at a time, in
+/// order), the session's pushes as lines. Ends when either side ends; then the session is
+/// closed on the node.
+async fn pump_stratum(
+    client: Client,
+    session: u64,
+    stream: tokio::io::DuplexStream,
+    mut pushes: broadcast::Receiver<Push>,
+) {
+    let (rd, mut wr) = tokio::io::split(stream);
+    let up = {
+        let client = client.clone();
+        async move {
+            let mut reader = tokio::io::BufReader::new(rd);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match (&mut reader)
+                    .take(STRATUM_LINE)
+                    .read_until(b'\n', &mut buf)
+                    .await
+                {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                if buf.last() != Some(&b'\n') {
+                    return;
+                }
+                let Ok(message) = serde_json::from_slice::<Value>(&buf) else {
+                    continue;
+                };
+                let params = json!({ "session": session, "message": message });
+                if client.call(STRATUM_MESSAGE, params).await.is_err() {
+                    return;
+                }
+            }
+        }
+    };
+    let down = async move {
+        loop {
+            // Lost lines: start again with a new session.
+            let Ok(push) = pushes.recv().await else {
+                return;
+            };
+            if push.params.get("session").and_then(Value::as_u64) != Some(session) {
+                continue;
+            }
+            if push.method == STRATUM_CLOSED {
+                return;
+            }
+            if push.method != STRATUM_MESSAGE {
+                continue;
+            }
+            let Some(message) = push.params.get("message") else {
+                continue;
+            };
+            let mut line = message.to_string().into_bytes();
+            line.push(b'\n');
+            if wr.write_all(&line).await.is_err() {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        () = up => {}
+        () = down => {}
+        () = client.closed() => {}
+    }
+    let _ = tokio::time::timeout(
+        STRATUM_CLOSE_WAIT,
+        client.call(STRATUM_CLOSE, json!({ "session": session })),
+    )
+    .await;
+}
+
 /// The "Remote nodes" start-up step's detail: `3 nodes, height 2 641 203`.
 #[must_use]
 pub fn step_detail(status: &RemoteStatus) -> String {
@@ -1334,7 +1521,7 @@ impl Dialer for BridgeDialer {
 #[derive(Debug)]
 pub struct RemoteHyper {
     /// Bridge settings and announce mode (`--hyper-client-only`: the p2pool topic in client
-    /// mode too).
+    /// mode too), the Hugin relay (`cfg.hugin`, with `cfg.remote` as its sync state and tip).
     pub cfg: HyperConfig,
     /// The built-in p2pool's sidechain topic.
     pub p2pool: Option<P2poolTopic>,
@@ -1349,10 +1536,12 @@ enum End {
     Failed(String),
 }
 
-/// The Hyperswarm transport without the node until `shutdown`: starts the Bare workers
-/// (restarted with back-off, 1 s doubling to 60 s), announces the p2pool sidechain topic once
-/// p2pool runs and hands its connections to p2pool, and offers the bridge to the
-/// [`BridgeDialer`]. At the stop: the p2pool topic is left, the workers leave the DHT.
+/// The Hyperswarm transport without the node until `shutdown`: starts the Hugin relay (once,
+/// across bridge restarts) and the Bare workers (restarted with back-off, 1 s doubling to
+/// 60 s), announces the relay's topics ([`HuginRuntime::spawn_announces`]) and the p2pool
+/// sidechain topic once p2pool runs, hands the connections on them to the relay and to p2pool,
+/// and offers the bridge to the [`BridgeDialer`]. At the stop: the topics are left, the relay's
+/// connections closed, the workers leave the DHT.
 pub async fn run_hyper(h: RemoteHyper, shutdown: CancellationToken) {
     let port_fixed = h.cfg.port_fixed();
     if let Err(reason) = xkr_p2p_hyper::bare::check_runtime() {
@@ -1364,6 +1553,18 @@ pub async fn run_hyper(h: RemoteHyper, shutdown: CancellationToken) {
         tracing::error!(%reason, "Hyperswarm transport off: remote nodes cannot be reached");
         return;
     }
+    let hugin = h.cfg.hugin.as_ref().and_then(|settings| {
+        HuginRuntime::start(
+            settings,
+            h.cfg.network,
+            h.cfg.hugin_stats.clone(),
+            &shutdown,
+            None,
+            h.cfg.remote.as_ref(),
+        )
+        .map_err(|e| tracing::error!(error = %e, "Hugin relay disabled"))
+        .ok()
+    });
     let mut delay = RESTART_MIN;
     loop {
         let started = tokio::select! {
@@ -1372,10 +1573,12 @@ pub async fn run_hyper(h: RemoteHyper, shutdown: CancellationToken) {
         };
         let at = Instant::now();
         let why = match started {
-            Ok((bridge, host)) => match session(&h, bridge, host, &shutdown).await {
-                End::Shutdown => break,
-                End::Failed(why) => why,
-            },
+            Ok((bridge, host)) => {
+                match session(&h, hugin.as_ref(), bridge, host, &shutdown).await {
+                    End::Shutdown => break,
+                    End::Failed(why) => why,
+                }
+            }
             Err(e) => e.to_string(),
         };
         h.bridge.send_replace(None);
@@ -1393,8 +1596,12 @@ pub async fn run_hyper(h: RemoteHyper, shutdown: CancellationToken) {
     tracing::info!("Hyperswarm transport stopped");
 }
 
+/// A Hugin topic announced (label, local key).
+type Announced = (&'static str, Option<Key>);
+
 async fn session(
     h: &RemoteHyper,
+    hugin: Option<&HuginRuntime>,
     bridge: Bridge,
     mut host: BareWorkers,
     shutdown: &CancellationToken,
@@ -1406,9 +1613,18 @@ async fn session(
     let mut dht = bridge.dht_status(0);
     tracing::info!(
         node_key = %bridge.node_public_key().map_or_default(hex::encode),
-        "Hyperswarm bridge up (no node: p2pool topic, clients topic as a client)"
+        hugin = hugin.is_some(),
+        p2pool = h.p2pool.is_some(),
+        "Hyperswarm bridge up (no node: Hugin and p2pool topics, clients topic as a client)"
     );
     h.bridge.send_replace(Some(bridge.clone()));
+    let (announced_tx, mut announced_rx) = mpsc::unbounded_channel::<Announced>();
+    if let Some(rt) = hugin {
+        rt.spawn_announces(&bridge, &announced_tx, |label, key| (label, key));
+    }
+    // The relay's connections: closed at the stop.
+    let mut hugin_handles: HashMap<u64, CloseHandle> = HashMap::new();
+    let (done_tx, mut done_rx) = mpsc::unbounded_channel::<u64>();
     let p2pool_topic = h.p2pool.as_ref().map(|p| p.topic.topic);
     if let Some(p) = &h.p2pool {
         let bridge = bridge.clone();
@@ -1439,15 +1655,27 @@ async fn session(
         tokio::select! {
             () = shutdown.cancelled() => {
                 let step = crate::stopping::step("Hyperswarm announcements");
+                let hugin_topics = hugin.map_or_default(HuginRuntime::topic_keys);
                 let left = tokio::time::timeout(UNANNOUNCE_STOP, async {
                     if let Some(t) = p2pool_topic {
                         let _ = bridge.unannounce(t).await;
+                    }
+                    for t in &hugin_topics {
+                        let _ = bridge.unannounce(*t).await;
                     }
                 })
                 .await;
                 match left {
                     Ok(()) => step.done_with("topics left"),
                     Err(_) => step.timed_out(UNANNOUNCE_STOP),
+                }
+                if hugin.is_some() {
+                    let step = crate::stopping::step("Hugin relay");
+                    let apps = hugin_handles.len();
+                    for (_, c) in hugin_handles.drain() {
+                        c.close(CloseReason::Normal);
+                    }
+                    step.done_with(format!("{apps} connections closed"));
                 }
                 h.bridge.send_replace(None);
                 let step = crate::stopping::step("Hyperswarm Bare workers");
@@ -1469,9 +1697,35 @@ async fn session(
                 bridge.close();
                 return End::Failed(why);
             }
+            Some((label, key)) = announced_rx.recv() => {
+                if let Some(rt) = hugin {
+                    rt.log_announced(label, key);
+                }
+            }
+            Some(conn_id) = done_rx.recv() => {
+                hugin_handles.remove(&conn_id);
+            }
             item = incoming.next() => match item {
                 Some(Ok(conn)) => {
                     let topic = conn.info().topic;
+                    let role = topic.and_then(|t| hugin.and_then(|rt| rt.role_of(&t)));
+                    if let (Some(rt), Some(role)) = (hugin, role) {
+                        let info = conn.info();
+                        let meta = PeerMeta {
+                            role,
+                            remote_key: info.remote_public_key,
+                            remote_ip: info.addr.as_ref().map(SocketAddr::ip),
+                        };
+                        let conn_id = info.conn_id;
+                        hugin_handles.insert(conn_id, conn.close_handle());
+                        let relay = rt.relay().clone();
+                        let done = done_tx.clone();
+                        tokio::spawn(async move {
+                            relay.serve(conn, meta).await;
+                            let _ = done.send(conn_id);
+                        });
+                        continue;
+                    }
                     match h.p2pool.as_ref().filter(|p| topic == Some(p.topic.topic)) {
                         Some(p) => {
                             if p.conns.send(conn).is_err() {
@@ -1661,6 +1915,17 @@ pub(crate) mod tests {
         pub fn real(tc: &TestChain) -> Self {
             let stats = Arc::new(ClientStats::default());
             let server = ClientsServer::new(rpc_state(tc), stats, Network::Testnet, 16, None);
+            Self::Real(server)
+        }
+
+        /// [`TestNode::real`] with p2pool's stratum server (`stratum` service).
+        pub fn with_stratum(
+            tc: &TestChain,
+            stratum: Arc<dyn crate::clients::StratumSource>,
+        ) -> Self {
+            let stats = Arc::new(ClientStats::default());
+            let server =
+                ClientsServer::new(rpc_state(tc), stats, Network::Testnet, 16, Some(stratum));
             Self::Real(server)
         }
 
@@ -2153,6 +2418,118 @@ pub(crate) mod tests {
             .submit_block(xkr_serialization::encode_block(&bad).unwrap())
             .await;
         assert!(r.is_err());
+        stop.cancel();
+    }
+
+    /// The Hugin relay's job sources without the node: a TCP p2pool that does not answer
+    /// first, then the stratum service of the connected remote node, over the connection that
+    /// carries the chain: login, job, an accepted share in that node's p2pool.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stratum_over_the_clients_topic_is_the_last_job_source() {
+        use xkr_hugin::pool::{Failover, LoginExtras, ShareSubmit, StratumConfig, StratumPool};
+
+        let tc = mined(3, &miner(), "stratum");
+        let (srv, sink, source) = crate::clients::test_stratum::server().await;
+        let (remote, stop) = start(
+            vec![
+                (key(1), TestNode::real(&tc)),
+                (key(2), TestNode::with_stratum(&tc, source)),
+            ],
+            StateHashes::default(),
+        );
+        wait_for(&remote, |s| s.nodes.len() == 2 && s.synced).await;
+        let clients = remote.stratum_clients();
+        assert_eq!(clients.len(), 2);
+        assert!(clients[0].hello().serves(Service::Stratum), "listed first");
+        assert!(!clients[1].hello().serves(Service::Stratum));
+
+        // a TCP port nothing listens on
+        let closed = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().to_string()
+        };
+        let shutdown = CancellationToken::new();
+        let pool = StratumPool::spawn_with_connector(
+            StratumConfig {
+                pools: vec![closed, REMOTE_STRATUM.to_owned()],
+                login: "SEKRrelay".into(),
+                pass: "x".into(),
+                agent: "remote-test".into(),
+            },
+            LoginExtras::default(),
+            Failover {
+                switch_after: 1,
+                return_to_first: None,
+                max_backoff: Duration::from_secs(2),
+            },
+            Some(Arc::new(RemoteStratum::new(remote.clone()))),
+            shutdown.clone(),
+        );
+        let mut jobs = pool.jobs();
+        let job = tokio::time::timeout(WAIT, async {
+            loop {
+                if let Some(j) = jobs.borrow_and_update().clone() {
+                    return j;
+                }
+                jobs.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("a job over the clients topic");
+        let status = pool.status();
+        assert!(status.connected);
+        assert_eq!(status.pool.as_deref(), Some(REMOTE_STRATUM));
+        assert_eq!(srv.connections(), 1);
+
+        let target = xkr_stratum::target::parse_target(&job.target).unwrap();
+        let blob = job.blob.clone();
+        let (nonce, hash) =
+            tokio::task::spawn_blocking(move || crate::clients::test_stratum::mine(&blob, target))
+                .await
+                .unwrap();
+        let outcome = pool
+            .submit(ShareSubmit {
+                job_id: job.job_id.clone(),
+                nonce: hex::encode(nonce.to_le_bytes()),
+                result: hex::encode(hash),
+            })
+            .await;
+        assert_eq!(outcome, xkr_hugin::pool::SubmitOutcome::Accepted);
+        assert_eq!(sink.shares.lock().unwrap().len(), 1);
+
+        // the pool client stops: the session is closed on the node
+        shutdown.cancel();
+        tokio::time::timeout(WAIT, async {
+            while srv.connections() > 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the session ends");
+        // the chain connection is still there
+        assert_eq!(remote.status().nodes.len(), 2);
+        stop.cancel();
+    }
+
+    /// Without a node that runs p2pool no stratum session opens.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_stratum_without_p2pool_on_the_nodes() {
+        let tc = mined(2, &miner(), "no-stratum");
+        let empty = RemoteStratum::new(RemoteNodes::new(RemoteConfig::new(
+            Network::Testnet,
+            "test",
+        )));
+        assert!(empty.serves(REMOTE_STRATUM));
+        assert!(!empty.serves("127.0.0.1:3333"));
+        assert!(empty.open(REMOTE_STRATUM).await.is_err());
+        let (remote, stop) = start(vec![(key(1), TestNode::real(&tc))], StateHashes::default());
+        wait_for(&remote, |s| s.synced).await;
+        let e = RemoteStratum::new(remote.clone())
+            .open(REMOTE_STRATUM)
+            .await
+            .err()
+            .expect("refused");
+        assert!(e.contains("stratum"), "{e}");
         stop.cancel();
     }
 

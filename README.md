@@ -36,9 +36,20 @@ target/release/xkrd --help
 Modes: plain `xkrd` runs the node, the Hugin relay and p2pool (on the testnet the node and the
 relay). `--node`, `--hugin` and `--p2pool` run only the ones named, for example
 `xkrd --node --p2pool`; `--no-hugin` and `--no-p2pool` leave one out of plain `xkrd`.
-`xkrd --p2pool` alone runs p2pool without the node: no database and no sync, the main chain
-comes from public xkrd nodes over Hyperswarm (`docs/mining.md`, "p2pool without the node").
-The Hugin relay still needs `--node` (a relay on remote nodes comes later).
+Without `--node` there is no database and no sync: the main chain comes from public xkrd nodes
+over Hyperswarm.
+
+| command | node | Hugin relay | p2pool |
+|---|---|---|---|
+| `xkrd` | ✔ | ✔ | ✔ (not on the testnet) |
+| `xkrd --node` | ✔ | – | – |
+| `xkrd --hugin` | remote nodes | ✔ | – |
+| `xkrd --p2pool` | remote nodes | – | ✔ |
+| `xkrd --hugin --p2pool` | remote nodes | ✔ (jobs from its own p2pool) | ✔ |
+
+`xkrd --p2pool`: `docs/mining.md`, "p2pool without the node". `xkrd --hugin`: the relay takes
+its sync state from the remote nodes and its jobs from the local p2pool, `--hugin-p2pool`, then
+the p2pool of a remote node (`docs/hugin-relay.md`, "The relay without the node").
 
 - `--fast-sync` skips proof of work up to the last checkpoint.
 - `--prune` keeps 25 % of the old ring signatures (about 45 % less disk space).

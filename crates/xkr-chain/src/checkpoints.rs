@@ -220,7 +220,9 @@ mod tests {
             assert!(hash.parse::<Hash>().is_ok(), "span {span}");
         }
         let last = u64::from(MAINNET_STATE_HASHES.last().unwrap().0);
-        let last_checkpoint = Checkpoints::for_network(Network::Mainnet).last_height().unwrap();
+        let last_checkpoint = Checkpoints::for_network(Network::Mainnet)
+            .last_height()
+            .unwrap();
         assert!((last + 1) * STRIPE_SPAN - 1 <= last_checkpoint);
     }
 

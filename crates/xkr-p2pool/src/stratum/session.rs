@@ -7,8 +7,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::sync::mpsc;
 use xkr_crypto::cn_turtle_lite_slow_hash_v2_reused;
 use xkr_stratum::messages::SubmitParams;
@@ -173,8 +172,11 @@ fn fields(hb: &HashingBlob, job_id: u32, target: u64) -> JobFields<'_> {
 }
 
 /// Runs one connection until it closes, then forgets it (and bans its address when it broke
-/// the rules).
-pub(crate) async fn run(inner: Arc<Inner>, stream: TcpStream, addr: SocketAddr) {
+/// the rules and `ip_bans`: the address is the miner's own). Returns how it ended.
+pub(crate) async fn run<S>(inner: Arc<Inner>, stream: S, addr: SocketAddr, ip_bans: bool) -> End
+where
+    S: AsyncRead + AsyncWrite + Send + 'static,
+{
     let (tx, mut rx) = mpsc::unbounded_channel();
     let client = Arc::new(Client {
         addr,
@@ -184,9 +186,10 @@ pub(crate) async fn run(inner: Arc<Inner>, stream: TcpStream, addr: SocketAddr) 
     let id = inner.add_client(client.clone());
     let end = serve(&inner, &client, stream, &mut rx).await;
     inner.remove_client(id);
-    if end == End::Ban {
+    if end == End::Ban && ip_bans {
         inner.ban(addr.ip());
     }
+    end
 }
 
 /// What handling one request line gives: lines to send, then maybe the end.
@@ -221,17 +224,20 @@ impl Reply {
 
 /// `StratumClient::on_read`: lines of at most [`STRATUM_BUF_SIZE`] bytes; an HTTP `GET` or
 /// `HEAD` gets [`HTTP_RESPONSE`] and the connection closes.
-async fn serve(
+async fn serve<S>(
     inner: &Arc<Inner>,
     client: &Arc<Client>,
-    stream: TcpStream,
+    stream: S,
     rx: &mut mpsc::UnboundedReceiver<Out>,
-) -> End {
+) -> End
+where
+    S: AsyncRead + AsyncWrite + Send + 'static,
+{
     let mut stop = inner.stop.subscribe();
     if *stop.borrow_and_update() {
         return End::Close;
     }
-    let (mut rd, mut wr) = stream.into_split();
+    let (mut rd, mut wr) = tokio::io::split(stream);
     let mut buf = vec![0u8; STRATUM_BUF_SIZE];
     let mut len = 0usize;
     let login_deadline = tokio::time::sleep(LOGIN_TIMEOUT);

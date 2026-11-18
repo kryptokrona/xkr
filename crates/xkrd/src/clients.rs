@@ -10,8 +10,15 @@
 //! * service `node`: the allowlisted JSON-RPC methods ([`NODE_METHODS`]) answered by the node's
 //!   own dispatcher in-process (`xkr_rpc::call`, no HTTP), and a `tip` push on every new
 //!   main-chain tip;
-//! * service `stratum`: listed only while the built-in p2pool runs; for now its calls are
-//!   answered with "not available yet".
+//! * service `stratum`: listed while the built-in p2pool's stratum server runs. The methods
+//!   [`STRATUM_OPEN`], [`STRATUM_MESSAGE`] and [`STRATUM_CLOSE`] carry p2pool stratum messages
+//!   (`login`, `submit`, `keepalived`, `getjob`) into a session of the node's own
+//!   [`StratumServer`](xkr_p2pool::stratum::StratumServer), the same session a TCP miner gets
+//!   (its line limit, login timeout, share checks and score); the session's lines (answers and
+//!   `job` notifications) come back as [`STRATUM_MESSAGE`] pushes, its end as a
+//!   [`STRATUM_CLOSED`] push. The methods are also answered on a `node` connection of a node
+//!   that runs p2pool: Hyperswarm keeps one connection per client key on a topic, so a
+//!   chainless xkrd uses the connection it already has for the chain.
 //!
 //! A connection that breaks the protocol or keeps calling past its limits is closed and its DHT key is
 //! refused for [`BAN`].
@@ -26,14 +33,17 @@ use futures::FutureExt as _;
 use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use serde_json::Value;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Semaphore, watch};
+use serde_json::{Value, json};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+};
+use tokio::sync::{Semaphore, mpsc};
 use xkr_consensus::Network;
 use xkr_hyper_rpc::{
     Accepted, Handler, Hello, HelloReply, Push, RefuseReason, Refused, RpcError, ServeEnd,
     ServerLimits, Service, Tip, VERSION, code,
 };
+use xkr_p2pool::stratum::{STRATUM_BUF_SIZE, StratumHandle, StreamEnd};
 use xkr_rpc::{ClientStats, RpcState};
 
 use crate::hyper::{self, Key};
@@ -68,6 +78,33 @@ const MAX_BLOCKING_CALLS: usize = 16;
 /// How long a misbehaving client's key is refused.
 pub const BAN: Duration = Duration::from_mins(10);
 
+/// `stratum_open {}` -> `{"session": n}`: starts the connection's stratum session (a session
+/// of this connection that is still open ends first).
+pub const STRATUM_OPEN: &str = "stratum_open";
+/// `stratum {"session": n, "message": {...}}` -> `null`: one stratum message (a JSON object,
+/// shorter than a p2pool stratum line) into session `n`. Also the name of the pushes
+/// `{"session": n, "message": {...}}` that carry the session's answers and jobs.
+pub const STRATUM_MESSAGE: &str = "stratum";
+/// `stratum_close {"session": n}` -> `null`: ends session `n`.
+pub const STRATUM_CLOSE: &str = "stratum_close";
+/// Push `{"session": n}`: session `n` ended (the client closed it, a new one was opened, or the
+/// stratum server closed it).
+pub const STRATUM_CLOSED: &str = "stratum_closed";
+/// Messages of a stratum session waiting to be read by the stratum server.
+const STRATUM_QUEUE: usize = 32;
+/// Session lines waiting to be pushed.
+const STRATUM_PUSHES: usize = 32;
+/// Buffer between a session and its pumps.
+const STRATUM_PIPE: usize = 16 * 1024;
+/// Longest line taken from the stratum server.
+const STRATUM_SERVER_LINE: u64 = 64 * 1024;
+
+/// The built-in p2pool's stratum server while it runs ([`crate::p2pool::PoolLink`]).
+pub trait StratumSource: Send + Sync + std::fmt::Debug {
+    /// Its sessions, `None` while it does not run.
+    fn stratum(&self) -> Option<StratumHandle>;
+}
+
 /// Why a client connection was not admitted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotAdmitted {
@@ -95,8 +132,8 @@ pub struct ClientsServer {
     network: Network,
     max_clients: usize,
     limits: ServerLimits,
-    /// `true` while the built-in p2pool runs (`None`: p2pool off).
-    p2pool: Option<watch::Receiver<bool>>,
+    /// The built-in p2pool's stratum server (`None`: p2pool off).
+    p2pool: Option<Arc<dyn StratumSource>>,
     blocking: Arc<Semaphore>,
     book: Mutex<Book>,
 }
@@ -106,6 +143,7 @@ pub struct ClientsServer {
 pub struct Slot {
     server: Arc<ClientsServer>,
     ip: Option<IpAddr>,
+    addr: Option<SocketAddr>,
 }
 
 impl Drop for Slot {
@@ -127,15 +165,15 @@ impl Drop for Slot {
 }
 
 impl ClientsServer {
-    /// The server over the node's RPC state; `p2pool` is the built-in p2pool's "running"
-    /// switch (service `stratum` is listed while it is `true`).
+    /// The server over the node's RPC state; `p2pool` is the built-in p2pool's stratum server
+    /// (service `stratum` is listed while it runs).
     #[must_use]
     pub fn new(
         rpc: Arc<RpcState>,
         stats: Arc<ClientStats>,
         network: Network,
         max_clients: usize,
-        p2pool: Option<watch::Receiver<bool>>,
+        p2pool: Option<Arc<dyn StratumSource>>,
     ) -> Arc<Self> {
         Self::with_limits(
             rpc,
@@ -154,7 +192,7 @@ impl ClientsServer {
         stats: Arc<ClientStats>,
         network: Network,
         max_clients: usize,
-        p2pool: Option<watch::Receiver<bool>>,
+        p2pool: Option<Arc<dyn StratumSource>>,
         limits: ServerLimits,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -205,6 +243,7 @@ impl ClientsServer {
         Ok(Slot {
             server: self.clone(),
             ip,
+            addr,
         })
     }
 
@@ -221,7 +260,9 @@ impl ClientsServer {
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
-        let end = xkr_hyper_rpc::serve(stream, self.limits, |hello| self.accept(hello)).await;
+        let addr = slot.addr;
+        let end =
+            xkr_hyper_rpc::serve(stream, self.limits, |hello| self.accept(hello, key, addr)).await;
         if end.is_misbehaviour() {
             self.ban(key, Instant::now());
         }
@@ -235,10 +276,15 @@ impl ClientsServer {
         net.wait_for(|n| hyper::synced_now(n)).await.is_ok()
     }
 
+    /// The built-in p2pool's stratum server, while it runs.
+    fn stratum_handle(&self) -> Option<StratumHandle> {
+        self.p2pool.as_ref().and_then(|s| s.stratum())
+    }
+
     /// The services offered now.
     fn services(&self) -> Vec<Service> {
         let mut out = vec![Service::Node];
-        if self.p2pool.as_ref().is_some_and(|r| *r.borrow()) {
+        if self.stratum_handle().is_some() {
             out.push(Service::Stratum);
         }
         out
@@ -267,7 +313,12 @@ impl ClientsServer {
         }
     }
 
-    fn accept(&self, hello: &Hello) -> Result<Accepted, Refused> {
+    fn accept(
+        self: &Arc<Self>,
+        hello: &Hello,
+        key: Key,
+        addr: Option<SocketAddr>,
+    ) -> Result<Accepted, Refused> {
         let network = hyper::xkr_network(self.network).as_str();
         if hello.network != network {
             return Err(Refused::new(
@@ -283,19 +334,48 @@ impl ClientsServer {
                 format!("this node serves {}", names.join(", ")),
             ));
         };
+        // The stratum methods, on a `node` connection too while p2pool is on.
+        let (stratum, stratum_pushes) = if self.p2pool.is_some() {
+            let (tx, rx) = mpsc::channel(STRATUM_PUSHES);
+            let conn = Arc::new(StratumConn {
+                server: self.clone(),
+                key,
+                addr,
+                pushes: tx,
+                state: Arc::new(Mutex::new(StratumState::default())),
+            });
+            (Some(conn), Some(receiver_stream(rx)))
+        } else {
+            (None, None)
+        };
         // Subscribe before the reply is read, so no tip falls between the two.
         let (handler, pushes): (Arc<dyn Handler>, _) = match service {
-            Service::Node => (
-                Arc::new(NodeHandler {
-                    rpc: self.rpc.clone(),
-                    stats: self.stats.clone(),
-                    blocking: self.blocking.clone(),
-                }) as Arc<dyn Handler>,
-                Some(self.tip_pushes()),
-            ),
-            Service::Stratum | Service::Wallet => {
-                (Arc::new(NotYet { service }) as Arc<dyn Handler>, None)
+            Service::Node => {
+                let tips = self.tip_pushes();
+                let pushes = match stratum_pushes {
+                    Some(s) => futures::stream::select(tips, s).boxed(),
+                    None => tips,
+                };
+                (
+                    Arc::new(ConnHandler {
+                        node: Some(NodeHandler {
+                            rpc: self.rpc.clone(),
+                            stats: self.stats.clone(),
+                            blocking: self.blocking.clone(),
+                        }),
+                        stratum,
+                    }) as Arc<dyn Handler>,
+                    Some(pushes),
+                )
             }
+            Service::Stratum => (
+                Arc::new(ConnHandler {
+                    node: None,
+                    stratum,
+                }) as Arc<dyn Handler>,
+                stratum_pushes,
+            ),
+            Service::Wallet => (Arc::new(NotYet { service }) as Arc<dyn Handler>, None),
         };
         tracing::debug!(client = %hello.client, %service, "client on the clients topic");
         Ok(Accepted {
@@ -336,7 +416,32 @@ struct NodeHandler {
     blocking: Arc<Semaphore>,
 }
 
-impl Handler for NodeHandler {
+/// The calls of one connection: service `node` ([`NodeHandler`]) and, with p2pool on, the
+/// stratum methods ([`StratumConn`]).
+struct ConnHandler {
+    node: Option<NodeHandler>,
+    stratum: Option<Arc<StratumConn>>,
+}
+
+impl Handler for ConnHandler {
+    fn call(&self, method: String, params: Value) -> BoxFuture<'static, Result<Value, RpcError>> {
+        if let Some(s) = &self.stratum
+            && let Some(outcome) = s.call(&method, &params)
+        {
+            return futures::future::ready(outcome).boxed();
+        }
+        match &self.node {
+            Some(n) => n.call(method, params),
+            None => futures::future::ready(Err(RpcError::new(
+                code::METHOD_NOT_FOUND,
+                format!("{method} is not served on the stratum service"),
+            )))
+            .boxed(),
+        }
+    }
+}
+
+impl NodeHandler {
     fn call(&self, method: String, params: Value) -> BoxFuture<'static, Result<Value, RpcError>> {
         if !NODE_METHODS.contains(&method.as_str()) {
             let error = RpcError::new(
@@ -400,7 +505,223 @@ fn block_blob(rpc: &RpcState, params: &Value) -> Result<Value, xkr_rpc::CallErro
     }))
 }
 
-/// A service that is negotiated but not served yet (`stratum`).
+/// The pushes of a channel, as a stream.
+fn receiver_stream(rx: mpsc::Receiver<Push>) -> BoxStream<'static, Push> {
+    futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|p| (p, rx)) }).boxed()
+}
+
+/// The stratum session state of one connection.
+#[derive(Default)]
+struct StratumState {
+    /// Number of the last session opened.
+    last: u64,
+    /// The open session: its number and its message queue (dropping the queue ends it).
+    current: Option<(u64, mpsc::Sender<Vec<u8>>)>,
+    /// A session of this connection broke the stratum server's rules: no new one.
+    refused: bool,
+}
+
+/// The stratum methods of one connection: at most one session at a time, in the node's own
+/// stratum server.
+struct StratumConn {
+    server: Arc<ClientsServer>,
+    key: Key,
+    addr: Option<SocketAddr>,
+    pushes: mpsc::Sender<Push>,
+    state: Arc<Mutex<StratumState>>,
+}
+
+fn locked(m: &Mutex<StratumState>) -> std::sync::MutexGuard<'_, StratumState> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn session_of(params: &Value) -> Result<u64, RpcError> {
+    params
+        .get("session")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "session (a number) is required"))
+}
+
+impl StratumConn {
+    /// Answers `method` if it is a stratum method (in call order: a message is queued before
+    /// the next call is read).
+    fn call(&self, method: &str, params: &Value) -> Option<Result<Value, RpcError>> {
+        Some(match method {
+            STRATUM_OPEN => self.open(),
+            STRATUM_MESSAGE => self.message(params),
+            STRATUM_CLOSE => session_of(params).map(|n| {
+                let mut st = locked(&self.state);
+                if st.current.as_ref().is_some_and(|(id, _)| *id == n) {
+                    st.current = None;
+                }
+                Value::Null
+            }),
+            _ => return None,
+        })
+    }
+
+    fn open(&self) -> Result<Value, RpcError> {
+        let Some(handle) = self.server.stratum_handle() else {
+            return Err(RpcError::new(
+                code::UNAVAILABLE,
+                "the stratum server of this node's p2pool is not running",
+            ));
+        };
+        let (id, rx) = {
+            let mut st = locked(&self.state);
+            if st.refused {
+                return Err(RpcError::new(
+                    code::UNAVAILABLE,
+                    "no stratum session on this connection",
+                ));
+            }
+            st.last += 1;
+            let id = st.last;
+            let (tx, rx) = mpsc::channel(STRATUM_QUEUE);
+            // Replacing the queue ends the session before.
+            st.current = Some((id, tx));
+            (id, rx)
+        };
+        let ends = SessionEnds {
+            server: self.server.clone(),
+            key: self.key,
+            state: self.state.clone(),
+        };
+        tokio::spawn(run_stratum(
+            handle,
+            id,
+            rx,
+            self.pushes.clone(),
+            self.addr,
+            ends,
+        ));
+        Ok(json!({ "session": id }))
+    }
+
+    fn message(&self, params: &Value) -> Result<Value, RpcError> {
+        let n = session_of(params)?;
+        let Some(message) = params.get("message").filter(|m| m.is_object()) else {
+            return Err(RpcError::new(
+                code::INVALID_PARAMS,
+                "message (a stratum JSON object) is required",
+            ));
+        };
+        let line = serde_json::to_vec(message)
+            .map_err(|e| RpcError::new(code::INVALID_PARAMS, e.to_string()))?;
+        if line.len() >= STRATUM_BUF_SIZE {
+            return Err(RpcError::new(
+                code::INVALID_PARAMS,
+                format!(
+                    "a stratum message is at most {} bytes",
+                    STRATUM_BUF_SIZE - 1
+                ),
+            ));
+        }
+        let st = locked(&self.state);
+        let Some((_, queue)) = st.current.as_ref().filter(|(id, _)| *id == n) else {
+            return Err(RpcError::new(
+                code::UNAVAILABLE,
+                format!("no open stratum session {n} ({STRATUM_OPEN} opens one)"),
+            ));
+        };
+        match queue.try_send(line) {
+            Ok(()) => Ok(Value::Null),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(RpcError::new(
+                code::BUSY,
+                "the stratum session has not read the messages before",
+            )),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(RpcError::new(
+                code::UNAVAILABLE,
+                format!("stratum session {n} has ended"),
+            )),
+        }
+    }
+}
+
+/// What the end of a stratum session changes.
+struct SessionEnds {
+    server: Arc<ClientsServer>,
+    key: Key,
+    state: Arc<Mutex<StratumState>>,
+}
+
+impl SessionEnds {
+    fn ended(&self, id: u64, end: StreamEnd) {
+        let mut st = locked(&self.state);
+        if st.current.as_ref().is_some_and(|(n, _)| *n == id) {
+            st.current = None;
+        }
+        if end == StreamEnd::Banned {
+            st.refused = true;
+            drop(st);
+            tracing::debug!(peer = %hex::encode(&self.key[..8]), "stratum session over the clients topic refused");
+            self.server.ban(self.key, Instant::now());
+        }
+    }
+}
+
+/// One stratum session: the messages of `queue` go into the stratum server as lines, its lines
+/// come back as pushes; then the end is pushed.
+async fn run_stratum(
+    handle: StratumHandle,
+    id: u64,
+    mut queue: mpsc::Receiver<Vec<u8>>,
+    pushes: mpsc::Sender<Push>,
+    addr: Option<SocketAddr>,
+    ends: SessionEnds,
+) {
+    let (ours, theirs) = tokio::io::duplex(STRATUM_PIPE);
+    let session = tokio::spawn(async move { handle.serve_stream(theirs, addr).await });
+    let (rd, mut wr) = tokio::io::split(ours);
+    let feed = tokio::spawn(async move {
+        while let Some(mut line) = queue.recv().await {
+            line.push(b'\n');
+            if wr.write_all(&line).await.is_err() {
+                return;
+            }
+        }
+        // The client closed the session: the stratum server reads the end.
+        let _ = wr.shutdown().await;
+    });
+    let mut reader = tokio::io::BufReader::new(rd);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        // The connection is gone (its pushes are no longer read): the session ends.
+        let mut limited = (&mut reader).take(STRATUM_SERVER_LINE);
+        let read = tokio::select! {
+            r = limited.read_until(b'\n', &mut buf) => r,
+            () = pushes.closed() => break,
+        };
+        match read {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if buf.last() != Some(&b'\n') {
+            break;
+        }
+        let Ok(message) = serde_json::from_slice::<Value>(&buf) else {
+            continue;
+        };
+        let push = Push {
+            method: STRATUM_MESSAGE.to_owned(),
+            params: json!({ "session": id, "message": message }),
+        };
+        if pushes.send(push).await.is_err() {
+            break;
+        }
+    }
+    feed.abort();
+    drop(reader);
+    let end = session.await.unwrap_or(StreamEnd::Closed);
+    ends.ended(id, end);
+    let _ = pushes.try_send(Push {
+        method: STRATUM_CLOSED.to_owned(),
+        params: json!({ "session": id }),
+    });
+}
+
+/// A service that is negotiated but not served yet (`wallet`).
 struct NotYet {
     service: Service,
 }
@@ -418,12 +739,139 @@ impl Handler for NotYet {
     }
 }
 
+/// A stand-in p2pool stratum server for the tests of the `stratum` service.
+#[cfg(test)]
+pub(crate) mod test_stratum {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::sync::{Arc, Mutex};
+
+    use xkr_p2pool::Difficulty;
+    use xkr_p2pool::stratum::{
+        HashingBlob, ShareSink, StratumHandle, StratumServer, StratumServerConfig,
+        TemplateDifficulties, TemplateSource,
+    };
+    use xkr_types::Hash;
+
+    use super::StratumSource;
+
+    /// Major 5, minor 16, a 5-byte timestamp varint; the nonce follows the 32-byte `prev_id`.
+    const HEADER: [u8; 7] = [5, 16, 0x80, 0x80, 0x80, 0x80, 0x01];
+    const NONCE_OFFSET: usize = 39;
+
+    /// One template at difficulty 1 on both chains: every share that meets the job target is
+    /// a sidechain share.
+    pub(crate) struct FakeTemplate;
+
+    fn hashing_blob(template_id: u32, extra_nonce: u32) -> HashingBlob {
+        let mut blob = HEADER.to_vec();
+        blob.extend_from_slice(&[0x11; 32]);
+        blob.extend_from_slice(&[0; 4]);
+        blob.extend_from_slice(&template_id.to_le_bytes());
+        blob.extend_from_slice(&extra_nonce.to_le_bytes());
+        blob.extend_from_slice(&[0x22; 24]);
+        blob.push(1);
+        HashingBlob {
+            blob,
+            nonce_offset: NONCE_OFFSET,
+            template_id,
+            height: 100,
+            sidechain_height: 10,
+            mainchain_difficulty: Difficulty::from_u64(1),
+            sidechain_difficulty: Difficulty::from_u64(1),
+            seed_hash: Hash::ZERO,
+        }
+    }
+
+    impl TemplateSource for FakeTemplate {
+        fn hashing_blob(&self, extra_nonce: u32) -> Option<HashingBlob> {
+            Some(hashing_blob(1, extra_nonce))
+        }
+
+        fn hashing_blob_for(&self, template_id: u32, extra_nonce: u32) -> Option<HashingBlob> {
+            (template_id == 1).then(|| hashing_blob(1, extra_nonce))
+        }
+
+        fn difficulties(&self, template_id: u32) -> Option<TemplateDifficulties> {
+            self.hashing_blob_for(template_id, 0)
+                .map(|b| TemplateDifficulties::from(&b))
+        }
+
+        fn sidechain_difficulty(&self) -> Difficulty {
+            Difficulty::from_u64(1)
+        }
+
+        fn sidechain_tip_height(&self) -> Option<u64> {
+            Some(10)
+        }
+
+        fn chain_window_size(&self) -> u64 {
+            2160
+        }
+    }
+
+    /// The shares that reached the sidechain: `(template_id, nonce, extra_nonce)`.
+    #[derive(Default)]
+    pub(crate) struct FakeSink {
+        pub shares: Mutex<Vec<(u32, u32, u32)>>,
+    }
+
+    impl ShareSink for FakeSink {
+        fn submit_block(&self, _template_id: u32, _nonce: u32, _extra_nonce: u32) {}
+
+        fn submit_share(&self, template_id: u32, nonce: u32, extra_nonce: u32) -> bool {
+            self.shares
+                .lock()
+                .unwrap()
+                .push((template_id, nonce, extra_nonce));
+            true
+        }
+    }
+
+    /// The stratum server as a [`StratumSource`]; `None` stands for p2pool not running.
+    #[derive(Debug, Default)]
+    pub(crate) struct TestStratum(pub Mutex<Option<StratumHandle>>);
+
+    impl StratumSource for TestStratum {
+        fn stratum(&self) -> Option<StratumHandle> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// A stratum server on a loopback port with [`FakeTemplate`], its sink and its source.
+    pub(crate) async fn server() -> (StratumServer, Arc<FakeSink>, Arc<TestStratum>) {
+        let sink = Arc::new(FakeSink::default());
+        let config = StratumServerConfig {
+            listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            ..StratumServerConfig::default()
+        };
+        let srv = StratumServer::bind(config, Arc::new(FakeTemplate), sink.clone())
+            .await
+            .unwrap();
+        let source = Arc::new(TestStratum(Mutex::new(Some(srv.handle()))));
+        (srv, sink, source)
+    }
+
+    /// Hashes nonces from 0 until one meets `target`; returns the nonce and the hash.
+    pub(crate) fn mine(blob_hex: &str, target: u64) -> (u32, [u8; 32]) {
+        let mut blob = hex::decode(blob_hex).unwrap();
+        let off = xkr_stratum::blob::nonce_offset(&blob);
+        for nonce in 0u32.. {
+            blob[off..off + 4].copy_from_slice(&nonce.to_le_bytes());
+            let h = xkr_crypto::cn_turtle_lite_slow_hash_v2(&blob).0;
+            if u64::from_le_bytes(h[24..].try_into().unwrap()) < target {
+                return (nonce, h);
+            }
+        }
+        unreachable!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use serde_json::json;
-    use tokio::sync::mpsc;
+    use tokio::sync::{broadcast, mpsc, watch};
     use tokio::task::JoinHandle;
     use xkr_chain::{AddBlockOutcome, Chain, ChainConfig, MinerAddress, set_merge_mining_tag};
     use xkr_hyper_rpc::{Client, ClientError, MAX_FRAME, read_frame, write_frame};
@@ -505,10 +953,14 @@ mod tests {
         net: watch::Sender<Arc<NetStatus>>,
         stats: Arc<ClientStats>,
         server: Arc<ClientsServer>,
-        _p2pool: Option<watch::Sender<bool>>,
     }
 
-    fn node(name: &str, p2pool: Option<bool>, max_clients: usize, limits: ServerLimits) -> Node {
+    fn node(
+        name: &str,
+        p2pool: Option<Arc<test_stratum::TestStratum>>,
+        max_clients: usize,
+        limits: ServerLimits,
+    ) -> Node {
         let tc = TestChain::new(name);
         for _ in 0..3 {
             tc.mine(&miner());
@@ -539,13 +991,12 @@ mod tests {
                 fee_amount: 0,
             },
         });
-        let (p2pool_tx, p2pool_rx) = p2pool.map(watch::channel).unzip();
         let server = ClientsServer::with_limits(
             rpc,
             stats.clone(),
             Network::Testnet,
             max_clients,
-            p2pool_rx,
+            p2pool.map(|p| p as Arc<dyn StratumSource>),
             limits,
         );
         Node {
@@ -553,7 +1004,6 @@ mod tests {
             net,
             stats,
             server,
-            _p2pool: p2pool_tx,
         }
     }
 
@@ -719,19 +1169,31 @@ mod tests {
             other => panic!("{other:?}"),
         };
         // p2pool off, and p2pool on but not running yet
-        for p2pool in [None, Some(false)] {
+        for p2pool in [None, Some(Arc::default())] {
+            let on = p2pool.is_some();
             let n = node("no-stratum", p2pool, 4, ServerLimits::default());
             let (stream, _task) = open(&n.server, key(1));
             let r = Client::connect(stream, Hello::new("testnet", Service::Stratum, "t")).await;
-            assert_eq!(refused(r), "service", "{p2pool:?}");
+            assert_eq!(refused(r), "service", "{on}");
             let client = connect(&n.server, key(2), Service::Node).await;
             assert_eq!(client.hello().services, ["node"]);
+            let e = rpc_error(client.call(STRATUM_OPEN, json!({})).await);
+            let want = if on {
+                code::UNAVAILABLE
+            } else {
+                code::METHOD_NOT_FOUND
+            };
+            assert_eq!(e.code, want, "{on}");
         }
-        let n = node("stratum", Some(true), 4, ServerLimits::default());
+        let (_srv, _sink, source) = test_stratum::server().await;
+        let n = node("stratum", Some(source), 4, ServerLimits::default());
         let client = connect(&n.server, key(1), Service::Stratum).await;
         assert_eq!(client.hello().services, ["node", "stratum"]);
+        // the stratum service answers the stratum methods only
+        let e = rpc_error(client.call("getinfo", json!({})).await);
+        assert_eq!(e.code, code::METHOD_NOT_FOUND);
         let e = rpc_error(client.call("login", json!({})).await);
-        assert_eq!(e.code, code::UNAVAILABLE);
+        assert_eq!(e.code, code::METHOD_NOT_FOUND);
         // wallets have a topic of their own; other networks are refused
         let (stream, _task) = open(&n.server, key(2));
         let r = Client::connect(stream, Hello::new("testnet", Service::Wallet, "t")).await;
@@ -739,6 +1201,167 @@ mod tests {
         let (stream, _task) = open(&n.server, key(3));
         let r = Client::connect(stream, Hello::new("mainnet", Service::Node, "t")).await;
         assert_eq!(refused(r), "network");
+    }
+
+    /// The next push `method` of stratum session `session`: its params.
+    async fn stratum_push(
+        pushes: &mut broadcast::Receiver<Push>,
+        method: &str,
+        session: u64,
+    ) -> Value {
+        tokio::time::timeout(WAIT, async {
+            loop {
+                let p = pushes.recv().await.expect("pushes");
+                if p.method == method && p.params["session"] == session {
+                    return p.params;
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("no {method} push"))
+    }
+
+    /// Service `stratum`: a session in the node's p2pool stratum server over the clients topic.
+    /// Login (answered with a job), a share accepted into the sidechain, a pushed job, the
+    /// message checks, the close; the methods on a `node` connection; a session that breaks the
+    /// stratum rules ends and its key is refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stratum_sessions_reach_the_stratum_server() {
+        let (srv, sink, source) = test_stratum::server().await;
+        let n = node("stratum-e2e", Some(source), 4, ServerLimits::default());
+        let client = connect(&n.server, key(1), Service::Stratum).await;
+        let mut pushes = client.pushes();
+        let login = json!({"id": 1, "method": "login",
+            "params": {"login": "SEKRrelay", "pass": "x", "agent": "clients-test"}});
+        let e = rpc_error(
+            client
+                .call(STRATUM_MESSAGE, json!({"session": 1, "message": login}))
+                .await,
+        );
+        assert_eq!(e.code, code::UNAVAILABLE, "no session yet");
+
+        let session = client.call(STRATUM_OPEN, json!({})).await.unwrap()["session"]
+            .as_u64()
+            .unwrap();
+        client
+            .call(
+                STRATUM_MESSAGE,
+                json!({"session": session, "message": login}),
+            )
+            .await
+            .unwrap();
+        let answer = stratum_push(&mut pushes, STRATUM_MESSAGE, session).await["message"].clone();
+        assert_eq!(answer["id"], 1);
+        assert_eq!(answer["result"]["status"], "OK");
+        let job = answer["result"]["job"].clone();
+        let rpc_id = answer["result"]["id"].as_str().unwrap().to_owned();
+        assert_eq!(srv.connections(), 1);
+
+        let target = xkr_stratum::target::parse_target(job["target"].as_str().unwrap()).unwrap();
+        let blob = job["blob"].as_str().unwrap().to_owned();
+        let (nonce, hash) = tokio::task::spawn_blocking(move || test_stratum::mine(&blob, target))
+            .await
+            .unwrap();
+        let submit = json!({"id": 2, "method": "submit", "params": {"id": rpc_id,
+            "job_id": job["job_id"], "nonce": hex::encode(nonce.to_le_bytes()),
+            "result": hex::encode(hash)}});
+        client
+            .call(
+                STRATUM_MESSAGE,
+                json!({"session": session, "message": submit}),
+            )
+            .await
+            .unwrap();
+        let answer = stratum_push(&mut pushes, STRATUM_MESSAGE, session).await["message"].clone();
+        assert_eq!(answer["id"], 2);
+        assert!(answer["error"].is_null(), "{answer}");
+        assert_eq!(answer["result"]["status"], "OK");
+        assert_eq!(sink.shares.lock().unwrap().len(), 1);
+
+        // a new template reaches the session as a pushed job
+        srv.on_block();
+        let job_message =
+            stratum_push(&mut pushes, STRATUM_MESSAGE, session).await["message"].clone();
+        assert_eq!(job_message["method"], "job");
+
+        // the checks of a message
+        for (params, want) in [
+            (
+                json!({"session": session, "message": [1, 2]}),
+                code::INVALID_PARAMS,
+            ),
+            (json!({"message": login}), code::INVALID_PARAMS),
+            (
+                json!({"session": session, "message": {"id": 3, "method": "x".repeat(STRATUM_BUF_SIZE)}}),
+                code::INVALID_PARAMS,
+            ),
+            (
+                json!({"session": session + 1, "message": login}),
+                code::UNAVAILABLE,
+            ),
+        ] {
+            let e = rpc_error(client.call(STRATUM_MESSAGE, params.clone()).await);
+            assert_eq!(e.code, want, "{params}");
+        }
+
+        // closed: the end is job_message and the stratum server forgets the miner
+        client
+            .call(STRATUM_CLOSE, json!({"session": session}))
+            .await
+            .unwrap();
+        stratum_push(&mut pushes, STRATUM_CLOSED, session).await;
+        tokio::time::timeout(WAIT, async {
+            while srv.connections() > 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the session is gone");
+
+        // the same methods on the connection a chainless xkrd has for the chain
+        let on_node = connect(&n.server, key(2), Service::Node).await;
+        let mut node_pushes = on_node.pushes();
+        let session = on_node.call(STRATUM_OPEN, json!({})).await.unwrap()["session"]
+            .as_u64()
+            .unwrap();
+        on_node
+            .call(
+                STRATUM_MESSAGE,
+                json!({"session": session, "message": login}),
+            )
+            .await
+            .unwrap();
+        let answer =
+            stratum_push(&mut node_pushes, STRATUM_MESSAGE, session).await["message"].clone();
+        assert_eq!(answer["result"]["status"], "OK");
+        // a new session ends the one before
+        let next = on_node.call(STRATUM_OPEN, json!({})).await.unwrap()["session"]
+            .as_u64()
+            .unwrap();
+        assert_ne!(next, session);
+        stratum_push(&mut node_pushes, STRATUM_CLOSED, session).await;
+
+        // a message the stratum server does not take (no id) ends the session; the
+        // connection gets no new one and its key is refused
+        on_node
+            .call(
+                STRATUM_MESSAGE,
+                json!({"session": next, "message": {"method": "login"}}),
+            )
+            .await
+            .unwrap();
+        stratum_push(&mut node_pushes, STRATUM_CLOSED, next).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let e = rpc_error(on_node.call(STRATUM_OPEN, json!({})).await);
+        assert_eq!(e.code, code::UNAVAILABLE);
+        assert!(
+            on_node.call("getinfo", json!({})).await.is_ok(),
+            "the node service goes on"
+        );
+        assert_eq!(
+            n.server.admit(&key(2), None, Instant::now()).unwrap_err(),
+            NotAdmitted::Banned
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -93,7 +93,7 @@ xkrd main ── hyper::run(cfg, P2pManager::handle(), shutdown)
 | `--hyper-client-only` | off | announce mode `client`: look up and dial, never announce (no inbound Hyperswarm peers) |
 | `--private` | off | private node: public topics client-only, peers and Hugin apps only through the invite ("Private node") |
 | `--private-peer <invite>` | none | repeatable; stay connected to a private node ("Private node") |
-| `--node`, `--hugin`, `--p2pool` | none: node, Hugin relay and p2pool (testnet: no p2pool) | mode flags: only the ones named run (`--node --hugin`, `--node --p2pool`, ...); `--p2pool` alone runs p2pool on remote nodes ("Clients topic", client role); `--hugin` needs `--node` for now and the Hyperswarm transport |
+| `--node`, `--hugin`, `--p2pool` | none: node, Hugin relay and p2pool (testnet: no p2pool) | mode flags: only the ones named run (`--node --hugin`, `--node --p2pool`, ...); `--p2pool` and `--hugin` without `--node` run on remote nodes ("Clients topic", client role); `--hugin` needs the Hyperswarm transport |
 | `--no-hugin` | relay on | do not run the Hugin relay on the three Hugin topics ([`hugin-relay.md`](hugin-relay.md)); `--no-hyper` turns it off too; not with mode flags |
 | `--hugin-payout <address>` | saved, else the donation address | fee address of the relay's p2pool shares, saved in `<data dir>/hugin/identity.json` |
 | `--hugin-p2pool <host:port>` | `127.0.0.1:3333`, then the public p2pool nodes | p2pool stratum nodes for jobs and shares, repeatable, in order |
@@ -340,7 +340,9 @@ not XKR peers and do not count against `--hyper-max-peers`); the relay enforces 
 (`--hugin-max-clients`, new apps paused while many apps sync, 32 nodes) and bans by DHT key. The relay outlives bridge restarts; on
 shutdown the Hugin topics are unannounced with the XKR topic and their connections closed.
 The Hugin topics share the worker's DHT node with the XKR topics, each on its own Hyperswarm
-instance and identity ("Sharding" below), so they use the same UDP port.
+instance and identity ("Sharding" below), so they use the same UDP port. Without the node
+(`xkrd --hugin`) `remote::run_hyper` does the same with the remote nodes' sync state: the
+public-node topic is announced while they are synchronized and left while they are not.
 
 ### The built-in p2pool
 
@@ -436,8 +438,8 @@ the Hugin TLVs `0x11` (topic key) and `0x12` (identity seed), and `Opened` carri
 
 ### Clients topic
 
-Programs without the chain (the chainless xkrd modes `--p2pool`, later `--hugin` without
-`--node`; later wallet tools on a `wallets` topic of their own with the same framing) use a node
+Programs without the chain (the chainless xkrd modes `--p2pool` and `--hugin` without `--node`;
+later wallet tools on a `wallets` topic of their own with the same framing) use a node
 with the chain over Hyperswarm. Code: `crates/xkr-hyper-rpc` (protocol, server driver, client),
 `crates/xkrd/src/clients.rs` (the node's server), `crates/xkrd/src/remote.rs` (xkrd as a
 client, "Client role" below).
@@ -520,15 +522,57 @@ Service `node` answers these `/json_rpc` methods, through the node's dispatcher 
 (`{"span":k}` or `{"height":h}`), and one method of its own, `get_block_blob`
 (`{"height":h}` -> `{"height":h,"hash":"<64 hex>","blob":"<hex>"}`: the main-chain block at
 `h` as stored, header, parent block, miner transaction and transaction hashes, without the
-transactions), from which a client computes the block's id and proof of work. Service
-`stratum` negotiates, but its calls answer `-32003` for now.
+transactions), from which a client computes the block's id and proof of work.
 
-#### Client role: `xkrd --p2pool` without the node
+#### Service stratum
 
-Code: `crates/xkrd/src/remote.rs` (`RemoteNodes`, `run_hyper`, `BridgeDialer`). Without the
-node xkrd starts the Bare workers without the blocks, stripe and Hugin topics and without the
-Levin P2P manager. It announces only the built-in p2pool's sidechain topic (once p2pool runs;
-client mode with `--hyper-client-only`), and uses the clients topic as a client:
+A node whose built-in p2pool runs its stratum server lists `stratum` in the hello reply. Its
+stratum methods carry p2pool stratum messages into a session of that stratum server, the same
+session a TCP miner gets: the line limit (1 024 bytes with the newline), the login timeout
+(10 s), the share checks and the score. They are answered on a connection with
+`"service":"stratum"`, and also on a `"service":"node"` connection of such a node: Hyperswarm
+keeps one connection per client key on a topic, so a chainless xkrd uses the connection it
+already has for the chain. At most one session per connection.
+
+```json
+{"id":7,"method":"stratum_open","params":{}}
+{"id":7,"result":{"session":1}}
+{"id":8,"method":"stratum","params":{"session":1,"message":{"id":1,"method":"login","params":{"login":"SEKR…","pass":"x","agent":"xkrd/1.0.0"}}}}
+{"id":8,"result":null}
+{"method":"stratum","params":{"session":1,"message":{"id":1,"jsonrpc":"2.0","result":{"id":"…","job":{…},"status":"OK"}}}}
+{"method":"stratum","params":{"session":1,"message":{"jsonrpc":"2.0","method":"job","params":{…}}}}
+{"id":9,"method":"stratum_close","params":{"session":1}}
+{"method":"stratum_closed","params":{"session":1}}
+```
+
+- `stratum_open` starts a session (a session of the connection that is still open ends first)
+  and answers its number. `-32003` while p2pool's stratum server does not run, and on a
+  connection whose session broke the stratum server's rules.
+- `stratum {"session":n,"message":{…}}` queues one stratum request (`login`, `submit`,
+  `keepalived`, `getjob`; a JSON object, shorter than the line limit) and answers `null` once it
+  is queued; messages reach the session in the order of the calls. `-32602` for a message that
+  is not an object or too long, `-32003` for a session that is not open, `-32000` while 32
+  messages wait.
+- Push `stratum {"session":n,"message":{…}}`: every line of the session (answers, matched by
+  the stratum `id`, and `job` notifications), in order. A client ignores pushes of other
+  sessions.
+- `stratum_close {"session":n}` ends the session. Push `stratum_closed {"session":n}`: the
+  session ended (closed, replaced, or closed by the stratum server).
+- A session that breaks the stratum server's rules (a request it cannot read, no login in time,
+  too many bad shares) ends; the connection gets no new session and the client's DHT key is
+  refused for 10 min, as for a broken frame. The calls count against the connection's limits.
+
+p2pool pays every share to the wallet it was started with; the stratum login only names the
+user. Shares sent through this service therefore count for the serving node's p2pool wallet.
+
+#### Client role: `xkrd --p2pool` and `xkrd --hugin` without the node
+
+Code: `crates/xkrd/src/remote.rs` (`RemoteNodes`, `run_hyper`, `BridgeDialer`,
+`RemoteStratum`). Without the node xkrd starts the Bare workers without the blocks and stripe
+topics and without the Levin P2P manager. It announces the built-in p2pool's sidechain topic
+(once p2pool runs; client mode with `--hyper-client-only`) and, with `--hugin`, the Hugin
+topics (the public-node topic only while the remote nodes are synchronized;
+`docs/hugin-relay.md`, "The relay without the node"), and uses the clients topic as a client:
 
 - **Finding nodes.** A lookup of `xkr/<network>/clients/v1` every 30 s while fewer than three
   nodes are connected (every 10 s with none); each found key is dialed with
@@ -551,6 +595,10 @@ client mode with `--hyper-client-only`), and uses the clients topic as a client:
 - **Use.** `get_miner_data` and the PPLNS headers from a node at the tip; a block found by
   p2pool goes to every connected node with `submitblock`. Synchronized: a node answers and is
   synchronized, and the tip was confirmed (push, answer) less than three minutes ago.
+- **Stratum.** The Hugin relay's last job source (`hyperswarm` in its p2pool list): a session
+  of service stratum (above) on one of these connections, nodes whose hello lists `stratum` and
+  that have the tip in use first, the next node on every new connection. The relay's stratum
+  client speaks its usual line protocol into it.
 - **Status.** `/status` `remote` and the start-up step `Remote nodes` (`3 nodes, height …`;
   `docs/mining.md`, "p2pool without the node").
 

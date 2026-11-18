@@ -61,7 +61,7 @@ use xkr_p2pool::p2p::{
     Direction, P2pConfig, P2pEvent, P2pServer, P2pServerConfig, P2pStats, SharedMainChain,
     SharedSideChain,
 };
-use xkr_p2pool::stratum::{ShareSink, StratumServer, StratumServerConfig};
+use xkr_p2pool::stratum::{ShareSink, StratumHandle, StratumServer, StratumServerConfig};
 use xkr_p2pool::template::{
     FoundBlock, MempoolTx, PoolNode, PoolTemplates, Template, TemplateError, TemplateMinerData,
 };
@@ -729,6 +729,15 @@ pub enum LinkState {
     Down(String),
 }
 
+impl crate::clients::StratumSource for PoolLink {
+    fn stratum(&self) -> Option<StratumHandle> {
+        match self.state() {
+            LinkState::Running(a) => a.stratum.filter(|h| !h.is_stopped()),
+            LinkState::Waiting | LinkState::Down(_) => None,
+        }
+    }
+}
+
 impl PoolLink {
     /// The current state.
     #[must_use]
@@ -757,6 +766,9 @@ impl PoolLink {
 pub struct PoolAccess {
     templates: Arc<PoolTemplates>,
     sink: Arc<Sink>,
+    /// The stratum server's sessions on other streams (`None`: its address could not be
+    /// bound, so it does not run).
+    stratum: Option<StratumHandle>,
 }
 
 impl fmt::Debug for PoolAccess {
@@ -1096,10 +1108,6 @@ impl Running {
             templates: templates.clone(),
             cmds: cmds_tx.clone(),
         });
-        let access = PoolAccess {
-            templates: templates.clone(),
-            sink: sink.clone(),
-        };
         if let Some(dir) = &settings.dir
             && let Err(e) = std::fs::create_dir_all(dir)
         {
@@ -1107,10 +1115,15 @@ impl Running {
         }
         let listen = settings.stratum.listen;
         let (stratum, stratum_off) =
-            match StratumServer::bind(settings.stratum, templates.clone(), sink).await {
+            match StratumServer::bind(settings.stratum, templates.clone(), sink.clone()).await {
                 Ok(s) => (Some(s), None),
                 Err(e) => (None, Some(stratum_off_reason(listen, &e))),
             };
+        let access = PoolAccess {
+            templates: templates.clone(),
+            sink,
+            stratum: stratum.as_ref().map(StratumServer::handle),
+        };
         let stratum_addr = stratum.as_ref().map(StratumServer::local_addr);
         // The main-chain view is filled before the P2P server starts, so the first peers' tips
         // are checked against the node's real chain.

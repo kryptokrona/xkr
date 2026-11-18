@@ -36,6 +36,7 @@ pub const STATE_DOMAIN: &[u8; 12] = b"xkr state v1";
 /// `xkrd db state-hashes --to 2617400` from a fully verified node (spans 0 to 638, heights 0 to
 /// 2 617 343); spans 0, 1 and 638 recomputed from a public node's `/getwalletsyncdata` and
 /// `/get_global_indexes_for_range` give the same values.
+#[rustfmt::skip]
 pub const MAINNET_STATE_HASHES: &[(u32, &str)] = &[
     (0, "0c3f20c7976c01262fed1e08f32866d7e418ec9674597bc9429b5c2a8b9d5ec5"),
     (1, "7595412fb8d5be82a227d6ba2ad7d5816b455e04382a2695d8727ad6c3cd4634"),

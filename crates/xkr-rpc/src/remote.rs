@@ -1,4 +1,4 @@
-//! The HTTP API of xkrd without the node (`xkrd --p2pool`): the main chain comes from remote
+//! The HTTP API of xkrd without the node (`xkrd --hugin`, `xkrd --p2pool`): the main chain comes from remote
 //! nodes over the Hyperswarm clients topic, so there is no chain to answer the C++ routes.
 //! Only `/status` and `/info` are served ([`crate::remote_router`]).
 
@@ -14,7 +14,7 @@ use tokio::sync::watch;
 use xkr_chain::unix_now;
 use xkr_consensus::Network;
 
-use crate::handlers::{STATUS_OK, from_loopback, hyper_json, p2pool_json};
+use crate::handlers::{STATUS_OK, from_loopback, hugin_json, hyper_json, p2pool_json};
 use crate::{HyperNetStatus, MiningStatus, NodeInfo, P2poolStatus};
 
 /// The remote nodes as `/status` `remote` shows them.
@@ -54,6 +54,8 @@ pub struct RemoteState {
     pub mode: String,
     /// The remote nodes.
     pub remote: watch::Receiver<Arc<RemoteStatus>>,
+    /// Counters of the Hugin relay (`None`: off).
+    pub hugin: Option<Arc<xkr_hugin::HuginStats>>,
     /// The built-in p2pool (`None`: off).
     pub p2pool: Option<watch::Receiver<Arc<P2poolStatus>>>,
     /// The Hyperswarm DHT node (`None` until it reports).
@@ -71,7 +73,8 @@ const fn network_name(network: Network) -> &'static str {
     }
 }
 
-/// `/status` without the node: mode, remote nodes, Hyperswarm, p2pool and miner.
+/// `/status` without the node: mode, remote nodes, Hyperswarm, the Hugin relay, p2pool and
+/// miner.
 /// `remote.nodes`, the Hyperswarm details and the p2pool payout are shown to a loopback
 /// client only, like the node's `/status`.
 pub async fn status(State(s): State<Arc<RemoteState>>, ext: Extensions) -> Response {
@@ -93,7 +96,7 @@ pub async fn status(State(s): State<Arc<RemoteState>>, ext: Extensions) -> Respo
         "remote": remote_json,
         "hyper": hyper_json(*s.hyper.borrow(), local),
         "mining": serde_json::to_value(s.mining.borrow().as_ref()).unwrap_or(Value::Null),
-        "hugin": Value::Null,
+        "hugin": s.hugin.as_deref().map_or(Value::Null, |h| hugin_json(h, local)),
         "p2pool": s.p2pool.as_ref().map_or(Value::Null, |p| p2pool_json(&p.borrow(), local)),
         "clients": Value::Null,
         "data_dir": (local && !s.info.data_dir.as_os_str().is_empty())

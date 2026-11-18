@@ -432,7 +432,7 @@ pub async fn get_status(State(s): State<Arc<RpcState>>, ext: Extensions) -> Resp
 /// `fee_address` (`null`: none, shares are not submitted), `fee_donation` (the default donation
 /// address) and `p2pool { host, connected }`. Without `local`, `fee_address` and `p2pool.host`
 /// are left out.
-fn hugin_json(stats: &xkr_hugin::HuginStats, local: bool) -> Value {
+pub(crate) fn hugin_json(stats: &xkr_hugin::HuginStats, local: bool) -> Value {
     let mut v = serde_json::to_value(stats.snapshot()).unwrap_or(Value::Null);
     if !local && let Some(o) = v.as_object_mut() {
         o.remove("fee_address");

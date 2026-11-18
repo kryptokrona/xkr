@@ -32,7 +32,8 @@ const LOGGING: &str = "Logging and console";
 const AFTER_HELP: &str = "Modes: without --node, --hugin or --p2pool xkrd runs the node, the \
                           Hugin relay and p2pool (p2pool not on the testnet; --no-hugin and \
                           --no-p2pool leave one out); with mode flags only the ones named \
-                          (--p2pool alone: p2pool on remote nodes, no database). \
+                          (--hugin or --p2pool without --node: the main chain from remote \
+                          nodes, no database). \
                           Console commands (typed while the node runs in a terminal): help, \
                           status, height, print_pl, set_log <0-4>, fee-address [<address>], \
                           start_mining <address>|p2pool [threads], stop_mining, invite [new], \
@@ -80,7 +81,9 @@ pub struct Args {
     pub node: bool,
 
     /// Run the Hugin relay for Hugin apps (`docs/hugin-relay.md`; needs the Hyperswarm
-    /// transport). The fee address is `--hugin-payout`.
+    /// transport). The fee address is `--hugin-payout`. Without `--node` the sync state and the
+    /// main-chain tip come from public xkrd nodes over Hyperswarm, and the jobs from the local
+    /// p2pool (`--p2pool`), `--hugin-p2pool`, then the stratum service of those nodes.
     #[arg(long, overrides_with = "hugin", help_heading = MODES)]
     pub hugin: bool,
 
@@ -446,7 +449,8 @@ pub struct Args {
     /// p2pool stratum node for the Hugin shares (repeatable, tried in order; the first is
     /// returned to when it is reachable again). Default: the local p2pool at 127.0.0.1:3333
     /// (on Linux only when its port is not held by another user), then the public p2pool nodes
-    /// built into xkrd. `stratum+ssl://host:port` uses TLS.
+    /// built into xkrd. `stratum+ssl://host:port` uses TLS. Without `--node` these come after
+    /// the built-in p2pool (`--p2pool`) and before the stratum service of remote nodes.
     #[arg(long = "hugin-p2pool", value_name = "HOST:PORT", help_heading = HUGIN)]
     pub hugin_p2pool: Vec<String>,
 
@@ -631,6 +635,7 @@ impl Args {
                 ("--fork13-height", self.fork13_height.is_some()),
                 ("--fork14-height", self.fork14_height.is_some()),
                 ("--fork14-grace", self.fork14_grace.is_some()),
+                ("--private", self.private),
             ];
             if let Some((flag, _)) = node_flags.into_iter().find(|&(_, given)| given) {
                 return Err(format!("{flag} needs the node (--node, or no mode flags)"));
@@ -728,19 +733,6 @@ impl Components {
         .filter_map(|(on, flag)| on.then_some(flag))
         .collect::<Vec<_>>()
         .join(" ")
-    }
-
-    /// Why these parts cannot run yet: the Hugin relay without the node (it needs the stratum
-    /// service of remote nodes, which is not there yet). p2pool without the node takes the main
-    /// chain from remote nodes (`crate::remote`). `None` when the parts can run.
-    #[must_use]
-    pub fn not_available(self) -> Option<String> {
-        (!self.node && self.hugin).then(|| {
-            format!(
-                "not available yet: {} without --node needs a remote node (coming); add --node",
-                self.mode_flags()
-            )
-        })
     }
 }
 
@@ -1521,21 +1513,12 @@ mod tests {
                 "testnet {flags:?}"
             );
             assert_eq!(main.label(), label, "{flags:?}");
-            assert_eq!(
-                main.not_available().is_none(),
-                main.node || !main.hugin,
-                "{flags:?}"
-            );
         }
         assert_eq!(
             parts(true, true, true).mode_flags(),
             "--node --hugin --p2pool"
         );
         assert_eq!(parts(false, true, true).mode_flags(), "--hugin --p2pool");
-        assert_eq!(
-            parts(false, true, false).not_available().unwrap(),
-            "not available yet: --hugin without --node needs a remote node (coming); add --node"
-        );
         assert_eq!(parts(false, false, false).label(), "nothing");
     }
 
@@ -1620,6 +1603,10 @@ mod tests {
                 "--fork14-grace needs the node (--node, or no mode flags)",
             ),
             (
+                &["--hugin", "--private"],
+                "--private needs the node (--node, or no mode flags)",
+            ),
+            (
                 &["--node", "--mine-p2pool"],
                 "--mine-p2pool needs the built-in p2pool (add --p2pool to the mode flags)",
             ),
@@ -1678,23 +1665,50 @@ mod tests {
         ] {
             assert!(parse(flags).checked_components().is_ok(), "{flags:?}");
         }
-        // the Hugin relay without the node parses and passes the flag checks; `main` stops it
-        // (`Components::not_available`)
-        for flags in [&["--hugin"][..], &["--hugin", "--p2pool", "--mine-p2pool"]] {
-            let c = parse(flags).checked_components().unwrap();
-            assert!(!c.node && c.not_available().is_some(), "{flags:?}");
-        }
-        // p2pool without the node runs: the main chain comes from remote nodes
-        for flags in [
-            &["--p2pool"][..],
-            &["--p2pool", "--mine-p2pool"],
-            &["--network", "testnet", "--p2pool", "--mine-p2pool"],
-            &["--p2pool", "--hyper-client-only"],
+        // the Hugin relay and p2pool without the node run: the main chain comes from remote
+        // nodes
+        for (flags, want, label) in [
+            (&["--hugin"][..], parts(false, true, false), "Hugin"),
+            (
+                &["--hugin", "--hugin-p2pool", "pool.example:3333"],
+                parts(false, true, false),
+                "Hugin",
+            ),
+            (
+                &["--network", "testnet", "--hugin", "--hugin-private"],
+                parts(false, true, false),
+                "Hugin",
+            ),
+            (
+                &["--hugin", "--p2pool"],
+                parts(false, true, true),
+                "Hugin + p2pool",
+            ),
+            (
+                &["--hugin", "--p2pool", "--mine-p2pool"],
+                parts(false, true, true),
+                "Hugin + p2pool",
+            ),
+            (&["--p2pool"], parts(false, false, true), "p2pool"),
+            (
+                &["--p2pool", "--mine-p2pool"],
+                parts(false, false, true),
+                "p2pool",
+            ),
+            (
+                &["--network", "testnet", "--p2pool", "--mine-p2pool"],
+                parts(false, false, true),
+                "p2pool",
+            ),
+            (
+                &["--p2pool", "--hyper-client-only"],
+                parts(false, false, true),
+                "p2pool",
+            ),
         ] {
             let c = parse(flags).checked_components().unwrap();
-            assert_eq!(c, parts(false, false, true), "{flags:?}");
-            assert_eq!(c.not_available(), None, "{flags:?}");
-            assert_eq!(c.label(), "p2pool");
+            assert_eq!(c, want, "{flags:?}");
+            assert_eq!(c.label(), label, "{flags:?}");
         }
     }
 }

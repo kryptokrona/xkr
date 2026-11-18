@@ -196,7 +196,8 @@ With the mode flags `--node`, `--hugin` and `--p2pool` only the ones named run:
 all three. `--no-p2pool` with mode flags is an error. The testnet runs p2pool only with
 `--p2pool` among the mode flags (`--network testnet --node --p2pool`) and needs its own
 sidechain (`--p2pool-config`). `xkrd --p2pool` alone runs p2pool without the node: the main
-chain comes from public xkrd nodes over Hyperswarm ("p2pool without the node" below).
+chain comes from public xkrd nodes over Hyperswarm ("p2pool without the node" below);
+`xkrd --hugin --p2pool` adds the Hugin relay, which mines on this p2pool first.
 
 * **When it runs.** The start-up step `p2pool` shows the sidechain, the stratum address and the
   payout (`sidechain default · stratum 127.0.0.1:3333 · payout nilsjr (donation)`). p2pool
@@ -211,7 +212,10 @@ chain comes from public xkrd nodes over Hyperswarm ("p2pool without the node" be
 * **Stratum.** `--p2pool-stratum <ip:port>` (default `127.0.0.1:3333`: local miners only; use
   `0.0.0.0:3333` for miners on the network), `--p2pool-stratum-ban-time <s>` (600),
   `--p2pool-no-autodiff`. xmrig, xkr-miner and the Hugin relay mine on it unchanged; with
-  p2pool and the relay in one node the relay uses this server directly.
+  p2pool and the relay in one node the relay uses this server directly. A node with p2pool
+  also serves it on the Hyperswarm clients topic (service `stratum`, `docs/hyper-transport.md`),
+  where chainless relays (`xkrd --hugin`) mine on it; their shares count for this node's
+  wallet like every share of its stratum server.
 * **Main chain.** Block templates come from the node's own chain: a new template on every new
   main-chain tip (pushed by the chain, no polling), on a new sidechain tip, on a payout change
   and every 20 s for new pool transactions. The transactions are those the node's own

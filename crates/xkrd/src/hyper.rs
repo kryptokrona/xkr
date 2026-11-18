@@ -87,6 +87,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use xkr_consensus::Network;
+use xkr_hugin::pool::PoolConnector;
 use xkr_hugin::relay::GOSSIP_MIN_DIFFICULTY;
 use xkr_hugin::{
     ChainTip, FeeInfo, HuginStats, NodeIdentity, P2poolConfig, P2poolInfo, P2poolSource, PeerMeta,
@@ -100,7 +101,7 @@ use xkr_p2p_hyper::{
     PrivateSecret, PrivateTopics, XkrNetwork, topic,
 };
 use xkr_p2p_legacy::{BoxedPeerStream, PeerError};
-use xkr_rpc::{HyperDhtState, HyperNat, HyperNetStatus, NetStatus};
+use xkr_rpc::{HyperDhtState, HyperNat, HyperNetStatus, NetStatus, RemoteStatus};
 use xkr_storage::pruning::{DEFAULT_STRIPES, PruningSeed};
 
 use crate::cli::Args;
@@ -267,6 +268,9 @@ pub struct HyperConfig {
     pub hugin_stats: Arc<HuginStats>,
     /// The P2P status, whose sync state gates the relay's jobs (set by `main`).
     pub net: Option<watch::Receiver<Arc<NetStatus>>>,
+    /// The remote nodes' status (xkrd without the node, set by `main`): the relay's sync state
+    /// and main-chain tip come from it instead of `net` ([`follow_remote_sync`]).
+    pub remote: Option<watch::Receiver<Arc<RemoteStatus>>>,
     /// The built-in p2pool's sidechain topic (set by `main` with p2pool on).
     pub p2pool: Option<P2poolTopic>,
     /// The private node's secret (set by `main` with `--private`).
@@ -336,6 +340,7 @@ impl HyperConfig {
                 .then(|| HuginSettings::from_args(args, data_dir)),
             hugin_stats: Arc::new(HuginStats::default()),
             net: None,
+            remote: None,
             p2pool: None,
             private: None,
             private_peers: args.private_peer.clone(),
@@ -584,7 +589,7 @@ pub struct HuginSettings {
     /// p2pool stratum nodes in order (`--hugin-p2pool`, used as given; else, with p2pool on,
     /// the built-in p2pool's stratum address and the public ones,
     /// [`crate::p2pool::relay_nodes`]; else the local one and the public ones,
-    /// [`default_p2pool_nodes`]).
+    /// [`default_p2pool_nodes`]). Without the node: [`remote_relay_nodes`].
     pub p2pool_nodes: Vec<String>,
     /// `--hugin-share-difficulty`: the app difficulty (`RelayConfig::app_difficulty`).
     pub share_difficulty: u64,
@@ -600,6 +605,9 @@ pub struct HuginSettings {
     /// The fee address handle (set by `main` once it is loaded; `None`: shares are not
     /// submitted).
     pub fee: Option<Arc<FeeAddress>>,
+    /// Opens the p2pool nodes that are not reached over TCP (set by `main` without the node:
+    /// [`crate::remote::RemoteStratum`] for [`crate::remote::REMOTE_STRATUM`]).
+    pub connector: Option<Arc<dyn PoolConnector>>,
 }
 
 impl HuginSettings {
@@ -613,21 +621,13 @@ impl HuginSettings {
                 .hugin_queue_budget_mb
                 .max(1)
                 .saturating_mul(1024 * 1024),
-            p2pool_nodes: if args.hugin_p2pool.is_empty() {
-                if args.p2pool_enabled() {
-                    // The built-in p2pool's own stratum server: known to be ours, no port check.
-                    crate::p2pool::relay_nodes(args.p2pool_stratum)
-                } else {
-                    default_p2pool_nodes()
-                }
-            } else {
-                args.hugin_p2pool.clone()
-            },
+            p2pool_nodes: relay_p2pool_nodes(args),
             share_difficulty: args.hugin_share_difficulty.max(1),
             private_only: args.hugin_private || args.private,
             private_node: args.private,
             hash_threads: (args.verify_thread_count() / 2).max(1),
             fee: None,
+            connector: None,
         }
     }
 
@@ -636,6 +636,50 @@ impl HuginSettings {
     pub fn identity_file(&self) -> PathBuf {
         self.dir.join(xkr_hugin::identity::IDENTITY_FILE)
     }
+}
+
+/// [`HuginSettings::p2pool_nodes`] of the command line.
+fn relay_p2pool_nodes(args: &Args) -> Vec<String> {
+    let given = !args.hugin_p2pool.is_empty();
+    if args.components().node {
+        if given {
+            args.hugin_p2pool.clone()
+        } else if args.p2pool_enabled() {
+            // The built-in p2pool's own stratum server: known to be ours, no port check.
+            crate::p2pool::relay_nodes(args.p2pool_stratum)
+        } else {
+            default_p2pool_nodes()
+        }
+    } else {
+        let hosts = if given {
+            args.hugin_p2pool.clone()
+        } else if args.p2pool_enabled() {
+            crate::p2pool::public_relay_nodes()
+        } else {
+            default_p2pool_nodes()
+        };
+        remote_relay_nodes(args.p2pool_enabled().then_some(args.p2pool_stratum), hosts)
+    }
+}
+
+/// The relay's job sources without the node, in this order: the built-in p2pool's stratum
+/// server (`local`, its listen address with `--p2pool`), `hosts` (`--hugin-p2pool`, else the
+/// default nodes), then the stratum service of the remote nodes on the clients topic
+/// ([`crate::remote::REMOTE_STRATUM`]). Each entry once.
+#[must_use]
+pub fn remote_relay_nodes(local: Option<SocketAddr>, hosts: Vec<String>) -> Vec<String> {
+    let local = local.and_then(|l| crate::p2pool::relay_nodes(l).into_iter().next());
+    let mut out: Vec<String> = Vec::new();
+    for n in local
+        .into_iter()
+        .chain(hosts)
+        .chain(std::iter::once(crate::remote::REMOTE_STRATUM.to_owned()))
+    {
+        if !out.contains(&n) {
+            out.push(n);
+        }
+    }
+    out
 }
 
 /// The default p2pool nodes: the local p2pool, then the public ones; on Linux the local one is
@@ -738,27 +782,41 @@ pub(crate) fn synced_now(net: &NetStatus) -> bool {
 
 /// The relay and its topics; lives across bridge restarts.
 #[derive(Debug)]
-struct HuginRuntime {
+pub(crate) struct HuginRuntime {
     relay: Relay,
     address: String,
     topics: Vec<HuginJoin>,
-    /// `true` while the node is synchronized.
+    /// `true` while the node (or, without it, the remote nodes) is synchronized.
     synced: watch::Receiver<bool>,
+    /// The main chain comes from remote nodes: the public-node topic is left again while they
+    /// are not synchronized.
+    remote_chain: bool,
 }
 
 impl HuginRuntime {
     /// Loads the identity, starts the p2pool client, the relay and the tasks that follow the
-    /// sync state, the fee address and the p2pool connection.
-    fn start(
+    /// sync state, the fee address and the p2pool connection. The sync state and the tip come
+    /// from `remote` when given (xkrd without the node), else from `net`.
+    pub(crate) fn start(
         s: &HuginSettings,
         network: Network,
         stats: Arc<HuginStats>,
         shutdown: &CancellationToken,
         net: Option<&watch::Receiver<Arc<NetStatus>>>,
+        remote: Option<&watch::Receiver<Arc<RemoteStatus>>>,
     ) -> Result<Self, String> {
         let identity = NodeIdentity::load_or_create(&s.identity_file())
             .map_err(|e| format!("Hugin identity: {e}"))?;
-        let synced = follow_sync(net.cloned(), shutdown);
+        let (synced, tip) = match remote {
+            Some(r) => (
+                follow_remote_sync(r.clone(), shutdown),
+                follow_remote_tip(r.clone(), shutdown),
+            ),
+            None => (
+                follow_sync(net.cloned(), shutdown),
+                follow_tip(net.cloned(), shutdown),
+            ),
+        };
         let fee = s.fee.as_ref().map(|f| f.get());
         let fee_address = fee.as_ref().and_then(|f| f.address.clone());
         let source = P2poolSource::spawn(
@@ -767,9 +825,10 @@ impl HuginRuntime {
                 fee_address: fee_address.clone(),
                 app_difficulty: s.share_difficulty,
                 agent: format!("xkrd/{}", env!("CARGO_PKG_VERSION")),
+                connector: s.connector.clone(),
             },
             synced.clone(),
-            follow_tip(net.cloned(), shutdown),
+            tip,
             shutdown,
         );
         stats.set_fee(FeeInfo {
@@ -832,15 +891,205 @@ impl HuginRuntime {
             ),
             address: identity.address,
             synced,
+            remote_chain: remote.is_some(),
         })
     }
 
-    fn role_of(&self, topic: &Key) -> Option<Role> {
+    /// Who connects on `topic`, if it is one of the relay's topics.
+    pub(crate) fn role_of(&self, topic: &Key) -> Option<Role> {
         self.topics
             .iter()
             .find(|t| t.topic.topic == *topic)
             .map(|t| t.role)
     }
+
+    /// The relay.
+    pub(crate) fn relay(&self) -> &Relay {
+        &self.relay
+    }
+
+    /// The keys of the relay's topics.
+    pub(crate) fn topic_keys(&self) -> Vec<Key> {
+        self.topics.iter().map(|t| t.topic.topic).collect()
+    }
+
+    /// Logs an announced topic (with the private node invite for the private topic).
+    pub(crate) fn log_announced(&self, label: &'static str, key: Option<Key>) {
+        tracing::info!(topic = label, key = %key.map_or_default(hex::encode), "Hugin topic announced on the DHT");
+        if label == PRIVATE_LABEL
+            && let Some(k) = key
+        {
+            tracing::info!(
+                invite = %format!("{}{}", self.address, hex::encode(k)),
+                "Hugin private node invite (node address + key)"
+            );
+        }
+    }
+
+    /// Announces the relay's topics on `bridge`, each retried until it works; every announce
+    /// goes to `events` as `event(label, local key)`. A topic with `after_sync` (the public-node
+    /// topic) waits until the node is synchronized; with the main chain from remote nodes it is
+    /// left again while they are not synchronized and announced again once they are, so apps
+    /// never find a relay that has no jobs to hand out.
+    pub(crate) fn spawn_announces<E: Send + 'static>(
+        &self,
+        bridge: &Bridge,
+        events: &mpsc::UnboundedSender<E>,
+        event: fn(&'static str, Option<Key>) -> E,
+    ) {
+        let remote = self.remote_chain;
+        for join in &self.topics {
+            let bridge = bridge.clone();
+            let events = events.clone();
+            let (label, topic, mode, mid) =
+                (join.label, join.topic.topic, join.mode, join.mid.clone());
+            let mut synced = join.after_sync.then(|| self.synced.clone());
+            tokio::spawn(async move {
+                loop {
+                    if let Some(rx) = &mut synced {
+                        if rx.wait_for(|s| *s).await.is_err() {
+                            return;
+                        }
+                        tracing::info!(
+                            topic = label,
+                            "{}",
+                            if remote {
+                                "remote nodes synchronized: announcing the Hugin topic"
+                            } else {
+                                "node synchronized: announcing the Hugin topic"
+                            }
+                        );
+                    }
+                    loop {
+                        match bridge.announce(topic, mode, Some(mid.clone())).await {
+                            Ok(ack) => {
+                                if events.send(event(label, ack.local_public_key())).is_err() {
+                                    return;
+                                }
+                                break;
+                            }
+                            Err(e) => {
+                                if bridge.error().is_some() || events.is_closed() {
+                                    return;
+                                }
+                                tracing::warn!(topic = label, error = %e, "announcing a Hugin topic failed; retrying");
+                                tokio::time::sleep(ANNOUNCE_RETRY).await;
+                            }
+                        }
+                    }
+                    let Some(rx) = synced.as_mut().filter(|_| remote) else {
+                        return;
+                    };
+                    if rx.wait_for(|s| !*s).await.is_err() {
+                        return;
+                    }
+                    tracing::info!(
+                        topic = label,
+                        "remote nodes not synchronized: leaving the Hugin topic until they are"
+                    );
+                    let _ = bridge.unannounce(topic).await;
+                    if bridge.error().is_some() || events.is_closed() {
+                        return;
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// The remote nodes' status counts as silent, and the relay as not synchronized, when it has
+/// not changed for this long (while a node answers it changes every few seconds: `tip_age`).
+pub(crate) const REMOTE_SILENT: Duration = crate::remote::STALE_AFTER;
+
+/// Whether the remote nodes' status lets the relay hand out jobs: a tip is in use and they are
+/// synchronized (`RemoteNodes`: a node answers and is synchronized, the tip was confirmed less
+/// than three minutes ago).
+fn remote_synced(s: &RemoteStatus) -> bool {
+    s.synced && s.height.is_some()
+}
+
+/// The tip in use of the remote nodes' status.
+fn remote_tip(s: &RemoteStatus) -> Option<ChainTip> {
+    let height = s.height?;
+    let hash: xkr_types::Hash = s.hash.as_deref()?.parse().ok()?;
+    Some(ChainTip {
+        height,
+        hash: hash.0,
+    })
+}
+
+/// [`follow_sync`] without the node: `false` at the start, then [`remote_synced`] of the remote
+/// nodes' status, and `false` again while the status has been silent for [`REMOTE_SILENT`].
+/// Stops with `shutdown`.
+pub(crate) fn follow_remote_sync(
+    remote: watch::Receiver<Arc<RemoteStatus>>,
+    shutdown: &CancellationToken,
+) -> watch::Receiver<bool> {
+    follow_remote_sync_after(remote, REMOTE_SILENT, shutdown)
+}
+
+/// [`follow_remote_sync`] with `silent_after` for [`REMOTE_SILENT`].
+fn follow_remote_sync_after(
+    mut remote: watch::Receiver<Arc<RemoteStatus>>,
+    silent_after: Duration,
+    shutdown: &CancellationToken,
+) -> watch::Receiver<bool> {
+    let (tx, rx) = watch::channel(false);
+    let shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        let mut silent = false;
+        let mut open = true;
+        loop {
+            let now = open && !silent && remote_synced(&remote.borrow_and_update());
+            if tx.send_if_modified(|v| std::mem::replace(v, now) != now) {
+                tracing::info!(
+                    synced = now,
+                    "{}",
+                    if now {
+                        "remote nodes synchronized: Hugin jobs go to apps"
+                    } else if silent {
+                        "remote nodes silent: no Hugin jobs until they answer again"
+                    } else {
+                        "remote nodes not synchronized: no Hugin jobs until they are"
+                    }
+                );
+            }
+            if !open {
+                return;
+            }
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                r = remote.changed() => {
+                    open = r.is_ok();
+                    silent = false;
+                }
+                () = tokio::time::sleep(silent_after), if !silent => silent = true,
+            }
+        }
+    });
+    rx
+}
+
+/// [`follow_tip`] without the node: `None` until the remote nodes have a tip in use (no height
+/// 0 before it), then their tip; a tip once known stays until the next. Stops with `shutdown`.
+pub(crate) fn follow_remote_tip(
+    mut remote: watch::Receiver<Arc<RemoteStatus>>,
+    shutdown: &CancellationToken,
+) -> watch::Receiver<Option<ChainTip>> {
+    let (tx, rx) = watch::channel(None);
+    let shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Some(now) = remote_tip(&remote.borrow_and_update()) {
+                tx.send_if_modified(|v| v.replace(now) != Some(now));
+            }
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                r = remote.changed() => if r.is_err() { return },
+            }
+        }
+    });
+    rx
 }
 
 /// A `bool` watch channel that follows [`synced_now`] of the node's P2P status (always `true`
@@ -1757,6 +2006,7 @@ impl Supervisor {
                 self.cfg.hugin_stats.clone(),
                 &self.shutdown,
                 self.cfg.net.as_ref(),
+                self.cfg.remote.as_ref(),
             ) {
                 Ok(rt) => {
                     if let Some(p) = &self.cfg.private {
@@ -2216,44 +2466,9 @@ impl Session<'_> {
 
     /// Joins the Hugin topics (each with its `mid` and identity), retrying like the XKR topic.
     fn spawn_hugin_announces(&self) {
-        let Some(h) = self.hugin else {
-            return;
-        };
-        for join in &h.topics {
-            let bridge = self.bridge.clone();
-            let events = self.event_tx.clone();
-            let (label, topic, mode, mid) =
-                (join.label, join.topic.topic, join.mode, join.mid.clone());
-            let mut synced = join.after_sync.then(|| h.synced.clone());
-            tokio::spawn(async move {
-                if let Some(rx) = &mut synced {
-                    let ready = rx.wait_for(|s| *s).await.is_ok();
-                    if !ready {
-                        return;
-                    }
-                    tracing::info!(
-                        topic = label,
-                        "node synchronized: announcing the Hugin topic"
-                    );
-                }
-                loop {
-                    match bridge.announce(topic, mode, Some(mid.clone())).await {
-                        Ok(ack) => {
-                            let _ = events.send(Event::HuginAnnounced {
-                                label,
-                                key: ack.local_public_key(),
-                            });
-                            return;
-                        }
-                        Err(e) => {
-                            if bridge.error().is_some() || events.is_closed() {
-                                return;
-                            }
-                            tracing::warn!(topic = label, error = %e, "announcing a Hugin topic failed; retrying");
-                            tokio::time::sleep(ANNOUNCE_RETRY).await;
-                        }
-                    }
-                }
+        if let Some(h) = self.hugin {
+            h.spawn_announces(&self.bridge, &self.event_tx, |label, key| {
+                Event::HuginAnnounced { label, key }
             });
         }
     }
@@ -2695,14 +2910,8 @@ impl Session<'_> {
                 }
             }
             Event::HuginAnnounced { label, key } => {
-                tracing::info!(topic = label, key = %key.map_or_default(hex::encode), "Hugin topic announced on the DHT");
-                if label == PRIVATE_LABEL
-                    && let (Some(h), Some(k)) = (self.hugin, key)
-                {
-                    tracing::info!(
-                        invite = %format!("{}{}", h.address, hex::encode(k)),
-                        "Hugin private node invite (node address + key)"
-                    );
+                if let Some(h) = self.hugin {
+                    h.log_announced(label, key);
                 }
             }
             Event::HuginDone { conn_id } => {
@@ -3990,6 +4199,219 @@ mod tests {
             .unwrap()
             .unwrap();
         shutdown.cancel();
+    }
+
+    /// A remote nodes' status with a tip at `height`.
+    fn remote_at(height: Option<u64>, synced: bool) -> Arc<RemoteStatus> {
+        Arc::new(RemoteStatus {
+            height,
+            hash: height.map(|_| "ab".repeat(32)),
+            synced,
+            tip_age: height.map(|_| 0),
+            ..RemoteStatus::default()
+        })
+    }
+
+    /// Without the node the relay's sync state comes from the remote nodes: not synchronized
+    /// at the start, before a tip is in use, while they say they are not, and while their
+    /// status is silent; synchronized again with the next status.
+    #[tokio::test]
+    async fn the_relay_follows_the_remote_nodes() {
+        let shutdown = CancellationToken::new();
+        let (tx, rx) = watch::channel(Arc::new(RemoteStatus::default()));
+        let silent = Duration::from_millis(300);
+        let mut synced = follow_remote_sync_after(rx.clone(), silent, &shutdown);
+        let mut tip = follow_remote_tip(rx, &shutdown);
+        let settle = Duration::from_millis(50);
+        tokio::time::sleep(settle).await;
+        assert!(!*synced.borrow(), "not synchronized at the start");
+        assert_eq!(*tip.borrow(), None, "no tip, not height 0");
+        // synchronized without a tip in use: still not
+        tx.send_replace(Arc::new(RemoteStatus {
+            synced: true,
+            ..RemoteStatus::default()
+        }));
+        tokio::time::sleep(settle).await;
+        assert!(!*synced.borrow());
+        tx.send_replace(remote_at(Some(41), true));
+        let wait = Duration::from_secs(5);
+        tokio::time::timeout(wait, synced.wait_for(|s| *s))
+            .await
+            .unwrap()
+            .unwrap();
+        let expected = ChainTip {
+            height: 41,
+            hash: [0xab; 32],
+        };
+        tokio::time::timeout(wait, tip.wait_for(|t| *t == Some(expected)))
+            .await
+            .unwrap()
+            .unwrap();
+        // the remote nodes say they are behind
+        tx.send_replace(remote_at(Some(41), false));
+        tokio::time::timeout(wait, synced.wait_for(|s| !*s))
+            .await
+            .unwrap()
+            .unwrap();
+        // synchronized, then nothing new for longer than `silent`
+        tx.send_replace(remote_at(Some(42), true));
+        tokio::time::timeout(wait, synced.wait_for(|s| *s))
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(wait, synced.wait_for(|s| !*s))
+            .await
+            .expect("silent remote nodes count as not synchronized")
+            .unwrap();
+        // the last tip stays
+        assert_eq!(tip.borrow().map(|t| t.height), Some(42));
+        tx.send_replace(remote_at(Some(42), true));
+        tokio::time::timeout(wait, synced.wait_for(|s| *s))
+            .await
+            .unwrap()
+            .unwrap();
+        // the status is gone: not synchronized
+        drop(tx);
+        let _ = tokio::time::timeout(wait, synced.wait_for(|s| !*s)).await;
+        assert!(!*synced.borrow());
+        shutdown.cancel();
+    }
+
+    /// Answers every login with job `1`.
+    async fn fake_pool(listener: tokio::net::TcpListener) {
+        use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+        while let Ok((sock, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (r, mut w) = sock.into_split();
+                let mut lines = BufReader::new(r).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    let blob = format!("0500{}{}", "01", "55".repeat(32));
+                    let job =
+                        serde_json::json!({ "job_id": "1", "blob": blob, "target": "ffffffff" });
+                    let resp = serde_json::json!({ "id": req["id"], "error": null,
+                        "result": { "id": "s", "job": job, "status": "OK" } });
+                    if w.write_all(format!("{resp}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    }
+
+    /// The relay's jobs without the node: none (`job_pending` for the apps) until the remote
+    /// nodes are synchronized, then p2pool's job, none again once they fall silent, and the
+    /// job again with their next status. Jobs are dated with the remote tip.
+    #[tokio::test]
+    async fn relay_jobs_wait_for_the_remote_nodes() {
+        use xkr_hugin::pool::JobSource as _;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        tokio::spawn(fake_pool(listener));
+        let shutdown = CancellationToken::new();
+        let (tx, rx) = watch::channel(Arc::new(RemoteStatus::default()));
+        let synced = follow_remote_sync_after(rx.clone(), Duration::from_millis(500), &shutdown);
+        let source = P2poolSource::spawn(
+            P2poolConfig {
+                nodes: vec![addr],
+                fee_address: Some("SEKRfee".into()),
+                app_difficulty: 200,
+                agent: "test".into(),
+                connector: None,
+            },
+            synced,
+            follow_remote_tip(rx, &shutdown),
+            &shutdown,
+        );
+        let mut status = source.status_changes();
+        let wait = Duration::from_secs(10);
+        tokio::time::timeout(wait, status.wait_for(|s| s.connected))
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut jobs = source.jobs();
+        assert!(
+            jobs.borrow().is_none(),
+            "no job before the remote nodes sync"
+        );
+        assert!(!source.is_ready());
+        assert_eq!(source.tip(), None);
+
+        tx.send_replace(remote_at(Some(7), true));
+        tokio::time::timeout(wait, jobs.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(source.is_ready());
+        assert_eq!(source.tip().map(|t| t.height), Some(7));
+
+        // nothing from the remote nodes for longer than the silence limit
+        tokio::time::timeout(wait, jobs.wait_for(Option::is_none))
+            .await
+            .expect("stale remote nodes: no jobs")
+            .unwrap();
+        assert!(!source.is_ready());
+        tx.send_replace(remote_at(Some(8), true));
+        tokio::time::timeout(wait, jobs.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .unwrap();
+        shutdown.cancel();
+    }
+
+    /// Without the node the relay takes its jobs from the built-in p2pool (`--p2pool`), then
+    /// `--hugin-p2pool` (else the default nodes), then the stratum service of the remote nodes.
+    #[test]
+    fn remote_relay_job_sources_in_order() {
+        let stratum = crate::remote::REMOTE_STRATUM;
+        let local: SocketAddr = "0.0.0.0:3400".parse().unwrap();
+        assert_eq!(
+            remote_relay_nodes(Some(local), vec!["pool.example:3333".into()]),
+            ["127.0.0.1:3400", "pool.example:3333", stratum]
+        );
+        assert_eq!(remote_relay_nodes(None, Vec::new()), [stratum]);
+        assert_eq!(
+            remote_relay_nodes(
+                Some("127.0.0.1:3333".parse().unwrap()),
+                vec!["127.0.0.1:3333".into(), stratum.into()]
+            ),
+            ["127.0.0.1:3333", stratum],
+            "each once"
+        );
+        let nodes = |flags: &[&str]| {
+            let mut all = vec!["xkrd"];
+            all.extend_from_slice(flags);
+            let args = Args::try_parse_from(all).expect("parse");
+            HyperConfig::from_args(&args, Network::Mainnet, Path::new("/d"))
+                .hugin
+                .expect("hugin")
+                .p2pool_nodes
+        };
+        let with_p2pool = nodes(&["--hugin", "--p2pool"]);
+        assert_eq!(
+            with_p2pool.first().map(String::as_str),
+            Some("127.0.0.1:3333")
+        );
+        assert_eq!(with_p2pool.last().map(String::as_str), Some(stratum));
+        assert_eq!(
+            with_p2pool.len(),
+            2 + xkr_hugin::p2pool::PUBLIC_P2POOL_NODES.len()
+        );
+        assert_eq!(
+            nodes(&["--hugin", "--p2pool", "--hugin-p2pool", "pool.example:3333"]),
+            ["127.0.0.1:3333", "pool.example:3333", stratum]
+        );
+        assert_eq!(
+            nodes(&["--hugin", "--hugin-p2pool", "pool.example:3333"]),
+            ["pool.example:3333", stratum]
+        );
+        let alone = nodes(&["--hugin"]);
+        assert_eq!(alone.last().map(String::as_str), Some(stratum));
+        assert!(alone.len() <= 2 + xkr_hugin::p2pool::PUBLIC_P2POOL_NODES.len());
+        // with the node: as before, no remote stratum
+        assert!(!nodes(&["--node", "--hugin"]).contains(&stratum.to_owned()));
     }
 
     #[test]

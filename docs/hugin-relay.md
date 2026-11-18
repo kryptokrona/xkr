@@ -312,10 +312,10 @@ The relay runs in every xkrd with the Hyperswarm transport; `--no-hugin` turns i
 does `--no-hyper` (one start-up line says so). With the mode flags `--node`, `--hugin` and
 `--p2pool` only the ones named run: `xkrd --node --hugin` is the node and the relay without
 p2pool, `xkrd --node --hugin --p2pool` all three; `--no-hugin` with mode flags and `--hugin`
-with `--no-hyper` stop the start with an error. The relay without the node (`xkrd --hugin` on a
-remote node) is not available yet: for now it stops the start with `not available yet`. The
-start-up step `Mode` shows what runs (`node + Hugin + p2pool`). `--hugin-relay` is still
-accepted and does nothing. `crates/xkrd/src/hyper.rs`:
+with `--no-hyper` stop the start with an error. The relay also runs without the node
+(`xkrd --hugin`, `xkrd --hugin --p2pool`; "The relay without the node" below). The start-up
+step `Mode` shows what runs (`node + Hugin + p2pool`, `Hugin (remote chain)`). `--hugin-relay`
+is still accepted and does nothing. `crates/xkrd/src/hyper.rs`:
 
 1. loads or creates `<data dir>/hugin/identity.json` (mode 0600) and opens
    `<data dir>/hugin/messages.jsonl`;
@@ -360,6 +360,41 @@ that wallet; the stratum login only names the user. The shares of a relay theref
 wallet of the p2pool node that receives them: run the local p2pool with
 `--wallet <fee address>` to have them paid to the fee address (`docs/mining.md`, "The Hugin
 relay as a p2pool miner").
+
+### The relay without the node
+
+`xkrd --hugin` and `xkrd --hugin --p2pool` run the relay without a database, sync or Levin P2P
+(`crates/xkrd/src/remote.rs`, `run_hyper`). The apps notice no difference: nothing they get from
+a relay depends on where its chain comes from (hello, jobs, messages, sync answers are the
+same). What changes:
+
+- **Sync state and tip.** The relay reads them from the remote nodes on the clients topic
+  (`RemoteNodes`, `docs/hyper-transport.md`, "Client role"), through `/status` `remote`
+  (`hyper::follow_remote_sync`, `follow_remote_tip`). At the start it is not synchronized and
+  has no tip (no jobs dated at height 0). It hands out jobs only while the remote nodes are
+  synchronized (a node answers and says it is synchronized, and the tip was confirmed less
+  than three minutes ago); a remote status that stops changing for three minutes (it changes
+  every few seconds while a node answers) counts as not synchronized. Until then, and again
+  after it, `job_request` is answered `job_pending`. Jobs are dated with the remote tip
+  (`stale_job` as with the node).
+- **Topics.** The node mesh and the private node topic are announced at once. The public-node
+  topic is announced only while the remote nodes are synchronized, and left again when they
+  are not, so a relay without a working chain is never found by new apps. `--private` needs the
+  node; `--hugin-private` works.
+- **Jobs**, in this order (`hyper::remote_relay_nodes`, the "Hugin relay" start-up step shows
+  the first): the built-in p2pool's stratum server (`--p2pool`; left out when its address cannot
+  be bound), the nodes of `--hugin-p2pool` (else the local p2pool `127.0.0.1:3333` and the
+  public nodes, as with the node), then `hyperswarm`: the stratum service of a connected remote
+  node that runs p2pool (`remote::RemoteStratum`, "Service stratum" in
+  `docs/hyper-transport.md`). The stratum client moves on when one cannot be reached and goes
+  back to the first every 30 s, as above. Nodes whose hello lists `stratum` and that have the
+  tip in use are tried first; the session runs on the connection that carries the chain.
+- **Payout.** Shares go to the p2pool that receives them, and p2pool pays every share to the
+  wallet it was started with (above). With `xkrd --hugin --p2pool` that is the relay's own
+  p2pool, paying the fee address (`--hugin-payout`). Shares submitted through a remote node's
+  stratum service count for that node's p2pool wallet; run `--p2pool` (or a p2pool of your
+  own with `--hugin-p2pool`) to have the relay's shares paid to its fee address.
+- **Status.** `/status` has `hugin` as with the node, next to `remote` and `p2pool`.
 
 ### Mining difficulty and the fee
 
@@ -673,4 +708,5 @@ topics with `--testnet`. An app that wants to use testnet relays needs the same 
 - The push-notification cluster (`push` packets are forwarded like hugin-node does, nothing
   more).
 - The public p2pool nodes (`PUBLIC_P2POOL_NODES`) are still to be chosen; until then the relay
-  uses the local p2pool only (or the nodes given with `--hugin-p2pool`).
+  uses the local p2pool only (or the nodes given with `--hugin-p2pool`), and without the node
+  also the stratum service of remote nodes.

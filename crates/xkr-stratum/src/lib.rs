@@ -2,7 +2,7 @@
 //!
 //! | Module | Content |
 //! |---|---|
-//! | [`client`] | [`StratumPool`]: a pool client with login, pushed jobs, submits, keepalive, TLS (`stratum+ssl://`), fail-over with an optional return to the first pool, a login that can change while it runs (hugin-node `PoolConnector`, `pools.js`) |
+//! | [`client`] | [`StratumPool`]: a pool client with login, pushed jobs, submits, keepalive, TLS (`stratum+ssl://`), fail-over with an optional return to the first pool, pools on other transports through a `PoolConnector`, a login that can change while it runs (hugin-node `PoolConnector`, `pools.js`) |
 //! | [`messages`] | the JSON messages (`login`, `job`, `submit`, `keepalived`, results and errors) as types, and the line framing, for pool servers |
 //! | [`blob`] | job blob fields: nonce offset, `prev_id`, major version (hugin-utils) |
 //! | [`target`] | compact share targets and the share check (hugin-utils `parseTarget` / `meetsTarget`) |
@@ -16,8 +16,9 @@ pub mod messages;
 pub mod target;
 
 pub use client::{
-    DEFAULT_POOL_PORT, Failover, LoginExtras, PoolAddr, PoolJob, PoolStatus, RECONNECT_DELAY,
-    ShareSubmit, StratumConfig, StratumPool, SubmitOutcome, VALID_JOBS, pool_addr, tls_connector,
+    DEFAULT_POOL_PORT, Failover, LoginExtras, PoolAddr, PoolConnector, PoolJob, PoolReader,
+    PoolStatus, PoolWriter, RECONNECT_DELAY, ShareSubmit, StratumConfig, StratumPool,
+    SubmitOutcome, VALID_JOBS, pool_addr, tls_connector,
 };
 pub use messages::{
     JobParams, KeepalivedParams, LoginParams, LoginResult, Message, MessageError, RpcError,

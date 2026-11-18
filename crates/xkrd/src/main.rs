@@ -12,10 +12,11 @@
 //!   (`crate::p2pool`; its CPU work on blocking threads), started once the node is synchronized;
 //! * while stopping, the shutdown steps (`crate::stopping`).
 //!
-//! Without the node (`xkrd --p2pool`, [`run_remote`]) there is no database, chain thread,
-//! transaction pool or Levin P2P: the Hyperswarm transport with the p2pool sidechain topic and
-//! the clients topic as a client, the remote nodes (`crate::remote`), p2pool, and an RPC server
-//! with `/status` and `/info` only.
+//! Without the node (`xkrd --hugin`, `xkrd --p2pool`, `xkrd --hugin --p2pool`, [`run_remote`])
+//! there is no database, chain thread, transaction pool or Levin P2P: the Hyperswarm transport
+//! with the Hugin topics and the p2pool sidechain topic, the clients topic as a client, the
+//! remote nodes (`crate::remote`), the Hugin relay, p2pool, and an RPC server with `/status` and
+//! `/info` only.
 
 mod bridge_check;
 mod chain_worker;
@@ -246,10 +247,7 @@ fn console_hint(style: term::Style) -> String {
 fn run(args: Args, mut ui: Ui) -> Result<(), Box<dyn Error>> {
     let network: Network = args.network.into();
     // Without the node there is no chain for the console to answer from.
-    if args
-        .checked_components()
-        .is_ok_and(|c| !c.node && c.not_available().is_none())
-    {
+    if args.checked_components().is_ok_and(|c| !c.node) {
         ui.console = false;
     }
     if !args.log_json {
@@ -300,12 +298,9 @@ fn run(args: Args, mut ui: Ui) -> Result<(), Box<dyn Error>> {
     ui.startup.begin();
 
     // What runs (`--node`, `--hugin`, `--p2pool`; none: all three). Flags that do not go
-    // together, and the Hugin relay without the node (not there yet), stop the start here.
+    // together stop the start here.
     let step = ui.step("Mode");
-    let checked = args
-        .checked_components()
-        .and_then(|c| c.not_available().map_or(Ok(c), Err));
-    let components = match checked {
+    let components = match args.checked_components() {
         Ok(c) => c,
         Err(e) => {
             step.fail(e.clone());
@@ -1034,7 +1029,9 @@ async fn async_main(
             stats.clone(),
             network,
             args.max_clients.max(1),
-            cfg.p2pool.as_ref().map(|p| p.ready.clone()),
+            pool_link
+                .clone()
+                .map(|l| Arc::new(l) as Arc<dyn clients::StratumSource>),
         ));
     }
     let step = ui.step("RPC server");
@@ -1294,7 +1291,7 @@ const REMOTE_WAIT: Duration = Duration::from_secs(60);
 /// How long the remote nodes get to close their connections.
 const REMOTE_STOP: Duration = Duration::from_secs(5);
 
-/// xkrd without the node (`xkrd --p2pool`): [`async_main_remote`] on the runtime, then the
+/// xkrd without the node (`--hugin`, `--p2pool`): [`async_main_remote`] on the runtime, then the
 /// runtime and bare-kit stop steps. Nothing to close on disk besides p2pool's peer list.
 fn run_remote(
     args: Args,
@@ -1334,8 +1331,8 @@ fn run_remote(
 }
 
 /// The tasks without the node: the RPC server (`/status`, `/info`), the Hyperswarm transport
-/// (`remote::run_hyper`), the remote nodes, the built-in miner (`--mine-p2pool`) and p2pool;
-/// until the stop, then their stop steps.
+/// (`remote::run_hyper`, with the Hugin relay), the remote nodes, the built-in miner
+/// (`--mine-p2pool`) and p2pool; until the stop, then their stop steps.
 async fn async_main_remote(
     args: Args,
     network: Network,
@@ -1347,33 +1344,65 @@ async fn async_main_remote(
     let start_time = unix_now();
     let shutdown = ui.shutdown.clone();
 
-    let mut settings = p2pool::P2poolSettings::from_args(&args, network, &data_dir)?;
-    let _ = settings.check_stratum();
-    // The payout address (`<data dir>/hugin/identity.json`, shared with the Hugin relay).
+    let mut settings = if components.p2pool {
+        Some(p2pool::P2poolSettings::from_args(
+            &args, network, &data_dir,
+        )?)
+    } else {
+        None
+    };
+    let stratum_bound = settings.as_mut().map(p2pool::P2poolSettings::check_stratum);
+    // The payout and fee address (`<data dir>/hugin/identity.json`), shared by the Hugin relay
+    // and p2pool.
     let fee = fee::FeeAddress::load(
         &fee::identity_file(&data_dir),
         network,
         args.hugin_payout.as_deref(),
     )?;
+    let remote = remote::RemoteNodes::new(remote::RemoteConfig::new(network, VERSION));
 
-    // The Hyperswarm side: the bridge for the dialer, the DHT state for `/status`, the p2pool
-    // sidechain topic.
+    // The Hyperswarm side: the bridge for the dialer, the DHT state for `/status`, the Hugin
+    // relay (sync state and tip from the remote nodes) and the p2pool sidechain topic.
     let (bridge_tx, bridge_rx) = watch::channel(None);
     let (dht_tx, dht_rx) = watch::channel(None);
-    let (conns_tx, conns_rx) = mpsc::unbounded_channel();
-    let (ready_tx, ready_rx) = watch::channel(false);
-    let hyper_side = remote::RemoteHyper {
-        cfg: hyper::HyperConfig::from_args(&args, network, &data_dir),
-        p2pool: Some(hyper::P2poolTopic {
-            topic: hyper::p2pool_topic(network, &settings.consensus_id),
+    let dialer: Arc<dyn remote::Dialer> = Arc::new(remote::BridgeDialer::new(bridge_rx, network));
+    let mut cfg = hyper::HyperConfig::from_args(&args, network, &data_dir);
+    cfg.remote = Some(remote.subscribe_status());
+    if let Some(h) = cfg.hugin.as_mut() {
+        h.fee = Some(fee.clone());
+        h.connector = Some(Arc::new(remote::RemoteStratum::new(remote.clone())));
+        // The built-in p2pool runs without its stratum server: the relay cannot use it.
+        if stratum_bound == Some(false)
+            && let Some(local) = p2pool::relay_nodes(args.p2pool_stratum).into_iter().next()
+        {
+            h.p2pool_nodes.retain(|n| *n != local);
+        }
+    }
+    let hugin_stats = cfg.hugin.as_ref().map(|_| cfg.hugin_stats.clone());
+    let hugin_p2pool = cfg
+        .hugin
+        .as_ref()
+        .and_then(|h| h.p2pool_nodes.first().cloned());
+    let mut p2pool_hyper = None;
+    let p2pool_topic = settings.as_ref().map(|s| {
+        let (conns_tx, conns_rx) = mpsc::unbounded_channel();
+        let (ready_tx, ready_rx) = watch::channel(false);
+        p2pool_hyper = Some(p2pool::HyperLink {
+            conns: conns_rx,
+            ready: ready_tx,
+        });
+        hyper::P2poolTopic {
+            topic: hyper::p2pool_topic(network, &s.consensus_id),
             conns: conns_tx,
             ready: ready_rx,
-        }),
+        }
+    });
+    let hyper_side = remote::RemoteHyper {
+        cfg,
+        p2pool: p2pool_topic,
         bridge: bridge_tx,
         dht: dht_tx,
     };
-    let remote = remote::RemoteNodes::new(remote::RemoteConfig::new(network, VERSION));
-    let dialer: Arc<dyn remote::Dialer> = Arc::new(remote::BridgeDialer::new(bridge_rx, network));
 
     // The built-in miner mines p2pool templates only (solo needs the node); no P2P manager
     // takes commands.
@@ -1386,10 +1415,12 @@ async fn async_main_remote(
         remote.net_status(),
         mining_tx,
         shutdown.clone(),
-        Some(pool_link.clone()),
+        settings.as_ref().map(|_| pool_link.clone()),
     ));
-    let (p2pool_status_tx, p2pool_status) =
-        watch::channel(Arc::new(xkr_rpc::P2poolStatus::default()));
+    let (p2pool_status_tx, p2pool_status) = settings
+        .as_ref()
+        .map(|_| watch::channel(Arc::new(xkr_rpc::P2poolStatus::default())))
+        .unzip();
     if shutdown.is_cancelled() {
         ui.startup.abort();
         return Ok(());
@@ -1406,7 +1437,8 @@ async fn async_main_remote(
             network,
             mode: components.label(),
             remote: remote.subscribe_status(),
-            p2pool: Some(p2pool_status),
+            hugin: hugin_stats.clone(),
+            p2pool: p2pool_status,
             hyper: dht_rx,
             mining: mining_rx,
             info: NodeInfo {
@@ -1473,34 +1505,48 @@ async fn async_main_remote(
         }
     }
 
-    let step = ui.step("p2pool");
-    if let Some(reason) = &settings.stratum_off {
-        if args.log_json {
-            tracing::warn!(reason, "p2pool: stratum off, running without it");
-        } else {
-            step.handle()
-                .note(&p2pool::stratum_off_line(ui.term.style(), reason));
-        }
-    }
-    step.done_with(p2pool::step_detail(&settings, &fee.get()));
     let p2pool_stop = CancellationToken::new();
-    let node = p2pool::P2poolNode {
-        source: Arc::new(remote.clone()),
-        net: remote.net_status(),
-        fee: fee.subscribe(),
-        status: p2pool_status_tx,
-        hyper: Some(p2pool::HyperLink {
-            conns: conns_rx,
-            ready: ready_tx,
-        }),
-        term: (!args.log_json).then(|| ui.term.clone()),
-        link: pool_link,
-    };
-    let p2pool_task = tokio::spawn(p2pool::run(settings, node, p2pool_stop.clone()));
+    let mut p2pool_task = None;
+    if let (Some(settings), Some(status)) = (settings, p2pool_status_tx) {
+        let step = ui.step("p2pool");
+        if let Some(reason) = &settings.stratum_off {
+            if args.log_json {
+                tracing::warn!(reason, "p2pool: stratum off, running without it");
+            } else {
+                step.handle()
+                    .note(&p2pool::stratum_off_line(ui.term.style(), reason));
+            }
+        }
+        step.done_with(p2pool::step_detail(&settings, &fee.get()));
+        let node = p2pool::P2poolNode {
+            source: Arc::new(remote.clone()),
+            net: remote.net_status(),
+            fee: fee.subscribe(),
+            status,
+            hyper: p2pool_hyper,
+            term: (!args.log_json).then(|| ui.term.clone()),
+            link: pool_link,
+        };
+        p2pool_task = Some(tokio::spawn(p2pool::run(
+            settings,
+            node,
+            p2pool_stop.clone(),
+        )));
+    }
+    if hugin_stats.is_some() {
+        let step = ui.step("Hugin relay");
+        step.handle()
+            .note("jobs once the remote nodes are synchronized");
+        step.done_with(hugin_step_detail(
+            args.hugin_max_clients,
+            &fee.get(),
+            hugin_p2pool.as_deref(),
+        ));
+    }
     if fee.get().donation {
         tracing::warn!(
             "{}. {}",
-            fee::donation_notice(false, true),
+            fee::donation_notice(hugin_stats.is_some(), p2pool_task.is_some()),
             fee::HOW_TO_CHANGE
         );
     }
@@ -1508,12 +1554,11 @@ async fn async_main_remote(
 
     shutdown.cancelled().await;
 
-    p2pool_stop.cancel();
-    if tokio::time::timeout(P2POOL_STOP, p2pool_task)
-        .await
-        .is_err()
-    {
-        stopping::step("p2pool").timed_out(P2POOL_STOP);
+    if let Some(task) = p2pool_task {
+        p2pool_stop.cancel();
+        if tokio::time::timeout(P2POOL_STOP, task).await.is_err() {
+            stopping::step("p2pool").timed_out(P2POOL_STOP);
+        }
     }
     if let Some(thread) = miner_control.take_thread() {
         let step = stopping::step("miner");
@@ -1532,7 +1577,8 @@ async fn async_main_remote(
         Ok(_) => step.done_with(format!("{nodes} connections closed")),
         Err(_) => step.timed_out(REMOTE_STOP),
     }
-    // Unannounce, let the Bare workers leave the DHT (bounded inside).
+    // Unannounce, close the Hugin connections, let the Bare workers leave the DHT (bounded
+    // inside).
     let step = stopping::step("Hyperswarm transport");
     match tokio::time::timeout(HYPER_STOP, hyper_task).await {
         Ok(_) => step.done(),
