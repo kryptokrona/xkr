@@ -210,6 +210,20 @@ mod tests {
         assert!(test.check(0, &genesis));
     }
 
+    /// The mainnet state hashes cover spans 0, 1, 2, … without gaps, each a 32-byte hex hash,
+    /// and the last span ends at or below the last checkpoint.
+    #[test]
+    fn state_hash_list_is_contiguous_and_below_the_last_checkpoint() {
+        use crate::state::MAINNET_STATE_HASHES;
+        for (i, (span, hash)) in MAINNET_STATE_HASHES.iter().enumerate() {
+            assert_eq!(*span as usize, i);
+            assert!(hash.parse::<Hash>().is_ok(), "span {span}");
+        }
+        let last = u64::from(MAINNET_STATE_HASHES.last().unwrap().0);
+        let last_checkpoint = Checkpoints::for_network(Network::Mainnet).last_height().unwrap();
+        assert!((last + 1) * STRIPE_SPAN - 1 <= last_checkpoint);
+    }
+
     #[test]
     fn alternative_blocks_are_refused_only_below_a_reached_checkpoint() {
         let cps = Checkpoints::from_list([(0, Hash::ZERO), (10, Hash::ZERO), (20, Hash::ZERO)]);
