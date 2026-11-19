@@ -437,7 +437,7 @@ impl StderrProgress {
     fn new(name: &'static str) -> Self {
         let dumb = std::env::var_os("TERM").is_some_and(|t| t == "dumb");
         let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-        let tty = std::io::stderr().is_terminal() && !dumb;
+        let tty = std::io::stderr().is_terminal() && !dumb && xkr_term::term::escapes_work();
         let now = Instant::now();
         Self {
             name,

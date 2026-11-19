@@ -2291,6 +2291,7 @@ version = "1.0.0"
 dependencies = [
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -13,3 +13,7 @@ workspace = true
 tracing            = { workspace = true }
 # `Term` is the text logs' writer (`fmt::MakeWriter`)
 tracing-subscriber = { workspace = true }
+
+# the console must be told to interpret escape sequences, and the window width
+[target.'cfg(windows)'.dependencies]
+windows-sys        = { workspace = true }

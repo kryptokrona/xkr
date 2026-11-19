@@ -153,6 +153,80 @@ fn dumb_terminal() -> bool {
     std::env::var_os("TERM").is_some_and(|t| t == "dumb")
 }
 
+/// Whether the console interprets escape sequences. Windows consoles only do with virtual
+/// terminal processing on: Windows Terminal turns it on itself, the classic console window
+/// (cmd, PowerShell) does not, so it is turned on here for stdout and stderr, once. A console
+/// that refuses it (Windows before 10) gets plain lines.
+#[must_use]
+pub fn escapes_work() -> bool {
+    #[cfg(windows)]
+    {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| {
+            use windows_sys::Win32::System::Console::{STD_ERROR_HANDLE, STD_OUTPUT_HANDLE};
+            let out = win::enable_escapes(STD_OUTPUT_HANDLE);
+            let err = win::enable_escapes(STD_ERROR_HANDLE);
+            out || err
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod win {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::{
+        CONSOLE_SCREEN_BUFFER_INFO, DISABLE_NEWLINE_AUTO_RETURN,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetConsoleScreenBufferInfo,
+        GetStdHandle, STD_HANDLE, STD_OUTPUT_HANDLE, SetConsoleMode,
+    };
+
+    /// Turns on virtual terminal processing for one standard handle; false when it is not a
+    /// console or the console refuses.
+    pub(super) fn enable_escapes(which: STD_HANDLE) -> bool {
+        // SAFETY: plain Win32 calls on the process's own standard handle; `mode` outlives them.
+        unsafe {
+            let handle = GetStdHandle(which);
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                return false;
+            }
+            let mut mode = 0;
+            if GetConsoleMode(handle, &raw mut mode) == 0 {
+                return false;
+            }
+            let wanted = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            if mode == wanted {
+                return true;
+            }
+            // Without DISABLE_NEWLINE_AUTO_RETURN a line of exactly the window's width wraps
+            // twice; consoles that do not know the flag refuse both, so try again without it.
+            SetConsoleMode(handle, wanted | DISABLE_NEWLINE_AUTO_RETURN) != 0
+                || SetConsoleMode(handle, wanted) != 0
+        }
+    }
+
+    /// The visible window's width of the console on stdout.
+    pub(super) fn columns() -> Option<usize> {
+        // SAFETY: as above; `info` is a plain C struct the call fills in.
+        unsafe {
+            let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                return None;
+            }
+            let mut info: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
+            if GetConsoleScreenBufferInfo(handle, &raw mut info) == 0 {
+                return None;
+            }
+            let width = i32::from(info.srWindow.Right) - i32::from(info.srWindow.Left) + 1;
+            usize::try_from(width).ok().filter(|&c| c > 0)
+        }
+    }
+}
+
 /// Whether the environment allows colours (`NO_COLOR`, `TERM=dumb`).
 fn colours_allowed() -> bool {
     let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
@@ -284,7 +358,7 @@ impl Term {
     /// Stdout, with colours when it is a terminal and the environment allows them.
     #[must_use]
     pub fn stdout() -> Self {
-        let tty = io::stdout().is_terminal() && !dumb_terminal();
+        let tty = io::stdout().is_terminal() && !dumb_terminal() && escapes_work();
         Self::new(tty, tty && colours_allowed())
     }
 
@@ -504,8 +578,8 @@ pub fn group(n: u64) -> String {
     out
 }
 
-/// Terminal width: `COLUMNS`, else the size `stty` reports for the controlling terminal, else
-/// 80.
+/// Terminal width: `COLUMNS`, else the size `stty` reports for the controlling terminal (the
+/// console window's width on Windows), else 80.
 #[must_use]
 pub fn columns() -> usize {
     std::env::var("COLUMNS")
@@ -534,7 +608,12 @@ fn tty_columns() -> Option<usize> {
         .filter(|&c| c > 0)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn tty_columns() -> Option<usize> {
+    win::columns()
+}
+
+#[cfg(not(any(unix, windows)))]
 fn tty_columns() -> Option<usize> {
     None
 }

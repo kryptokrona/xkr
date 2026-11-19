@@ -3,7 +3,9 @@
 //! region (live panels, progress lines), the block-font header, big digits, number and time
 //! formats ([`term`]) and the start-up / shutdown step reporter ([`steps`]).
 
-#![forbid(unsafe_code)]
+// Windows only: the console calls in `term::win` need `unsafe`, nothing else may.
+#![cfg_attr(not(windows), forbid(unsafe_code))]
+#![cfg_attr(windows, deny(unsafe_code))]
 
 pub mod steps;
 pub mod term;
