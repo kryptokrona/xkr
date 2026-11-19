@@ -42,5 +42,5 @@ mod sync;
 
 pub use args::Options;
 pub use input::Console;
-pub use session::{Nodes, NodeFactory, Session, SessionConfig, Timing};
+pub use session::{NodeFactory, Nodes, Session, SessionConfig, Timing};
 pub use shutdown::{ShutdownHandle, SignalOutcome};
