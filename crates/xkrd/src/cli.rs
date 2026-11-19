@@ -204,8 +204,8 @@ pub struct Args {
     )]
     pub private_peer: Vec<Invite>,
 
-    /// Most connections of programs that use this node over Hyperswarm (the clients topic:
-    /// chainless p2pool and Hugin relays).
+    /// Most connections of programs that use this node over Hyperswarm (the clients and wallets
+    /// topics: wallets, chainless p2pool and Hugin relays).
     #[arg(
         long,
         value_name = "N",
