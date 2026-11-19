@@ -19,10 +19,14 @@
 #   4. copy the shared library to target/bare-kit/lib: libbare-kit.so (Linux),
 #      libbare-kit.dylib (macOS) or bare-kit.dll with its import library bare-kit.lib (Windows).
 # npm fetches go through Socket Firewall ($(npm prefix -g)/bin/sfw) when it is installed.
+# XKR_BARE_KIT_DIR moves target/bare-kit elsewhere (scripts/build-linux-release.sh keeps its
+# glibc 2.35 build in target/linux-release/bare-kit); LIBBARE_DIR must then name its lib/.
 # Container image: NODE_IMAGE (default node:24-bookworm, a tag). To pin it, set NODE_IMAGE_DIGEST
 # (or pass --digest) to the image's `sha256:` digest, for example from
 # `docker buildx imagetools inspect node:24-bookworm`; the script then runs
-# NODE_IMAGE@<digest> and stops when the pulled image does not carry that digest.
+# NODE_IMAGE@<digest> and stops when the pulled image does not carry that digest. A NODE_IMAGE
+# of your own (a local image, such as xkr-linux-build:22.04 from packaging/linux/Dockerfile)
+# runs by its name unless NODE_IMAGE_DIGEST is set.
 # Needs git, Node.js with npm, network access, and docker for --docker. The build uses at most
 # 3 parallel jobs (CMAKE_BUILD_PARALLEL_LEVEL, default 3). --force rebuilds everything.
 set -euo pipefail
@@ -32,12 +36,15 @@ COMMIT=64ca2a9479db82fb3ce4d9e877c34e22cc492d72   # tag v3.1.0
 BARE_VERSION=1.37.1                                # fetched by bare-kit's CMakeLists.txt, by tag
 BARE_MAKE=bare-make@2.1.2
 # node:24-bookworm, pinned by digest (override with NODE_IMAGE_DIGEST or --digest).
-NODE_IMAGE=${NODE_IMAGE:-node:24-bookworm}
-NODE_IMAGE_DIGEST=${NODE_IMAGE_DIGEST:-sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496}
+if [[ -z "${NODE_IMAGE:-}" ]]; then
+  NODE_IMAGE=node:24-bookworm
+  NODE_IMAGE_DIGEST=${NODE_IMAGE_DIGEST:-sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496}
+fi
+NODE_IMAGE_DIGEST=${NODE_IMAGE_DIGEST:-}
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
-base=$root/target/bare-kit
+base=${XKR_BARE_KIT_DIR:-$root/target/bare-kit}
 src=$base/src
 tools=$base/tools
 lib=$base/lib
@@ -52,7 +59,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "--digest needs a value (sha256:<64 hex>)" >&2; exit 2; }
       NODE_IMAGE_DIGEST=$2; shift 2 ;;
     --digest=*) NODE_IMAGE_DIGEST=${1#--digest=}; shift ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
