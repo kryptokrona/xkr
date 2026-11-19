@@ -1490,11 +1490,11 @@ dependencies = [
 
 [[package]]
 name = "skein"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96a90a220ab98dbbfeabeae7c558a79f37839c10b9ef55c77082a741a463cab7"
+checksum = "8c0e3aac74371ed57c57e0406b65689e6fb4f58f90dfd54dd5fc1aba7f3ec481"
 dependencies = [
- "digest 0.10.7",
+ "digest 0.11.3",
  "threefish",
 ]
 
@@ -1604,9 +1604,9 @@ dependencies = [
 
 [[package]]
 name = "threefish"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a693d0c8cf16973fac5a93fbe47b8c6452e7097d4fcac49f3d7a18e39c76e62e"
+checksum = "d01bb3253ac4d5c6c7dbb6f4f66a8178a24deefe0067357ace6482db2f3ccc6e"
 
 [[package]]
 name = "tiny-keccak"
