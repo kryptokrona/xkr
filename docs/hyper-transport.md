@@ -412,9 +412,8 @@ Hyperswarm connections only from peers that hold its invite.
   `"hugin/mid" || DHT public key`. The topics have separate base keys because the bridge
   ties one topic to one base key. The identity seeds give the DHT key pairs the node listens
   with.
-- **Invite.** One line, `xkrinv2:` followed by 256 hex characters: the public keys of the sync,
-  Hugin and clients identities and the secret, 32 bytes each. Invites of the first version
-  (`xkrinv1:` + 192 hex: sync key, Hugin key, secret; no clients key) are still read. The node logs it
+- **Invite.** One line, `xkr:` followed by 256 hex characters: the public keys of the sync,
+  Hugin and clients identities and the secret, 32 bytes each. The node logs it
   once the sync identity is announced (`private node invite (console: invite)`, info level), and
   the console command `invite` prints it.
   With the Hugin relay on, the node also logs and prints a Hugin app invite
@@ -450,7 +449,7 @@ client, "Client role" below).
   `hugin_topic_on(network, base public key)`, `mid` signed by the base key;
   `topic::xkr_clients_topic`), so the topic gets its own DHT identity and its connections arrive
   tagged. A private node announces `PrivateTopics::of(secret).clients` with its clients identity
-  instead (key in the `xkrinv2:` invite).
+  instead (key in the `xkr:` invite).
 - **Who announces.** Every xkrd with the node and Hyperswarm, in mode `server`, once the node is
   synchronized (`synced` and not downloading); not with `--hyper-client-only` or `--private`
   (then only the private clients topic, announced at once). Clients look up and dial; they

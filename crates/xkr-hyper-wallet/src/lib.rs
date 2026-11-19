@@ -7,7 +7,7 @@
 //! * **public:** a lookup of `xkr/<network>/wallets/v1`, then the nodes found, in turn from a
 //!   rotating start, until one answers the hello as synchronized and with the state hash of
 //!   the built-in list (`xkr_consensus::state_hashes`) for the span it names;
-//! * **private:** the node of an invite (`xkrinv2:…`), on its private clients topic.
+//! * **private:** the node of an invite (`xkr:…`), on its private clients topic.
 //!
 //! The wallet tools pair it with `xkr_daemon_client::SwarmTransport`, which opens a new
 //! connection whenever the old one is closed.
@@ -126,9 +126,7 @@ impl WalletSwarm {
         let net = xkr_network(options.network);
         let target = match &options.invite {
             Some(invite) => Target::Private {
-                key: invite.clients_key.ok_or(
-                    "the invite has no clients key (an xkrinv1 invite; ask for a new one)",
-                )?,
+                key: invite.clients_key,
                 topic: invite.topics(net).clients,
             },
             None => Target::Public(topic::xkr_wallets_topic(net)),

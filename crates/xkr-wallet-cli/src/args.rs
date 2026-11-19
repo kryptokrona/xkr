@@ -6,7 +6,7 @@
 //! | `-h`, `--help` | |
 //! | `-v`, `--version` | |
 //! | `--debug` | off (zedwallet: write the engine's log to `xkrwallet.log`) |
-//! | `-r`, `--remote-daemon <host:port>` | `127.0.0.1:` + the network's RPC port when a node answers there, else a node found over Hyperswarm (`hyperswarm`, or a private node's invite `xkrinv2:…`, picks Hyperswarm) |
+//! | `-r`, `--remote-daemon <host:port>` | `127.0.0.1:` + the network's RPC port when a node answers there, else a node found over Hyperswarm (`hyperswarm`, or a private node's invite `xkr:…`, picks Hyperswarm) |
 //! | `-w`, `--wallet-file <file>` | none: the start menu asks |
 //! | `-p`, `--password <pass>` | none: asked when the wallet is opened |
 //! | `--network <mainnet\|testnet>` | `mainnet` |
@@ -28,7 +28,7 @@ pub struct Options {
     pub daemon_port: u16,
     /// Whether `--remote-daemon` was given (else the local node, or Hyperswarm without one).
     pub daemon_given: bool,
-    /// A private node's invite given as `--remote-daemon xkrinv2:…` (the host is then
+    /// A private node's invite given as `--remote-daemon xkr:…` (the host is then
     /// [`xkr_wallet::SWARM_HOST`]).
     pub invite: Option<String>,
     /// `--wallet-file`.
@@ -139,7 +139,7 @@ pub fn help(program: &str) -> String {
          -r, --remote-daemon <host:port>\n                                \
          The daemon <host:port> combination to use for node operations. (default: \
          {daemon} when a node answers there, else a node found over Hyperswarm; \
-         \"hyperswarm\" or a private node's invite xkrinv2:... use Hyperswarm)\n\n \
+         \"hyperswarm\" or a private node's invite xkr:... use Hyperswarm)\n\n \
          Wallet options:\n  \
          -w, --wallet-file <file>      Open the wallet <file>\n  \
          -p, --password <pass>         Use the password <pass> to open the wallet\n",
@@ -368,7 +368,7 @@ pub fn parse(args: &[String]) -> Command {
     let invite = raw
         .remote_daemon
         .as_deref()
-        .filter(|d| d.starts_with("xkrinv"))
+        .filter(|d| d.starts_with("xkr:"))
         .map(str::to_owned);
     let daemon = match (&invite, &raw.remote_daemon) {
         (Some(_), _) => xkr_wallet::SWARM_HOST.to_owned(),

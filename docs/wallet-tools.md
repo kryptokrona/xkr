@@ -54,7 +54,7 @@ stop following the chain at the fork height.
 | nothing, and a node answers on `127.0.0.1` at the network's RPC port | that local node |
 | nothing, and no local node answers | a node found over Hyperswarm on the wallets topic (`docs/hyper-transport.md`, "Wallets topic") |
 | the daemon host `hyperswarm` | a node found over Hyperswarm |
-| `xkrwallet -r xkrinv2:…` (a private node's invite) | that private node, over Hyperswarm |
+| `xkrwallet -r xkr:…` (a private node's invite) | that private node, over Hyperswarm |
 
 Over Hyperswarm the wallet takes a node that says it is synchronized and whose state hash
 matches the one built into the wallet (`docs/storage.md`, "State hashes"); if the connection

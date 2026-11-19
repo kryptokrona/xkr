@@ -40,9 +40,7 @@
 //! One line: [`INVITE_PREFIX`] followed by 256 hex characters, `sync key || Hugin key ||
 //! clients key || secret` (the public keys of the three identities and the secret, 32 bytes
 //! each). A peer that holds it derives the topic keys, signs its own `mid` with them and dials
-//! the keys directly. Invites of the first version ([`INVITE_V1_PREFIX`], 192 hex characters,
-//! no clients key) are still read. A new secret (and identity) makes every earlier invite
-//! useless.
+//! the keys directly. A new secret (and identity) makes every earlier invite useless.
 
 use std::fmt;
 use std::io::{self, Write as _};
@@ -57,17 +55,11 @@ use crate::topic::{self, HuginTopic, XkrNetwork};
 /// The secret file in the data directory.
 pub const PRIVATE_FILE: &str = "hyper-private.json";
 
-/// Start of every invite string (version 2).
-pub const INVITE_PREFIX: &str = "xkrinv2:";
+/// Start of every invite string.
+pub const INVITE_PREFIX: &str = "xkr:";
 
 /// Hex characters after [`INVITE_PREFIX`]: four 32-byte values.
 pub const INVITE_HEX_LEN: usize = 4 * 64;
-
-/// Start of a version-1 invite (no clients key), still read.
-pub const INVITE_V1_PREFIX: &str = "xkrinv1:";
-
-/// Hex characters after [`INVITE_V1_PREFIX`]: three 32-byte values.
-pub const INVITE_V1_HEX_LEN: usize = 3 * 64;
 
 /// Length of the XKR address at the start of a Hugin app invite.
 pub const APP_INVITE_ADDRESS_LEN: usize = 99;
@@ -268,9 +260,7 @@ impl PrivateSecret {
         Invite {
             sync_key: topic::ed25519_public_from_seed(&self.sync_identity_seed()),
             hugin_key: topic::ed25519_public_from_seed(&self.hugin_identity_seed()),
-            clients_key: Some(topic::ed25519_public_from_seed(
-                &self.clients_identity_seed(),
-            )),
+            clients_key: topic::ed25519_public_from_seed(&self.clients_identity_seed()),
             secret: self.secret,
         }
     }
@@ -322,9 +312,9 @@ fn write_file(path: &Path, s: &PrivateSecret, create_new: bool) -> io::Result<()
 /// Why an invite string was not accepted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InviteError {
-    #[error("an invite starts with xkrinv2: (or xkrinv1:)")]
+    #[error("an invite starts with xkr:")]
     Prefix,
-    #[error("an invite has 256 hex characters after xkrinv2: (192 after xkrinv1:), not {0}")]
+    #[error("an invite has 256 hex characters after xkr:, not {0}")]
     Length(usize),
     #[error("an invite is hex after its prefix")]
     Hex,
@@ -337,8 +327,8 @@ pub struct Invite {
     pub sync_key: [u8; 32],
     /// Public key of the node's Hugin identity.
     pub hugin_key: [u8; 32],
-    /// Public key of the node's clients identity (`None` in a version-1 invite).
-    pub clients_key: Option<[u8; 32]>,
+    /// Public key of the node's clients identity.
+    pub clients_key: [u8; 32],
     /// The node's secret.
     pub secret: [u8; 32],
 }
@@ -352,25 +342,15 @@ impl fmt::Debug for Invite {
 }
 
 impl fmt::Display for Invite {
-    /// Version 2; an invite read from version 1 (no clients key) is written as version 1.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.clients_key {
-            Some(clients) => write!(
-                f,
-                "{INVITE_PREFIX}{}{}{}{}",
-                hex::encode(self.sync_key),
-                hex::encode(self.hugin_key),
-                hex::encode(clients),
-                hex::encode(self.secret)
-            ),
-            None => write!(
-                f,
-                "{INVITE_V1_PREFIX}{}{}{}",
-                hex::encode(self.sync_key),
-                hex::encode(self.hugin_key),
-                hex::encode(self.secret)
-            ),
-        }
+        write!(
+            f,
+            "{INVITE_PREFIX}{}{}{}{}",
+            hex::encode(self.sync_key),
+            hex::encode(self.hugin_key),
+            hex::encode(self.clients_key),
+            hex::encode(self.secret)
+        )
     }
 }
 
@@ -379,20 +359,11 @@ impl FromStr for Invite {
 
     /// Surrounding white space is ignored; hex digits may be upper or lower case.
     fn from_str(s: &str) -> Result<Self, InviteError> {
-        let s = s.trim();
-        let (rest, v2) = if let Some(rest) = s.strip_prefix(INVITE_PREFIX) {
-            (rest, true)
-        } else if let Some(rest) = s.strip_prefix(INVITE_V1_PREFIX) {
-            (rest, false)
-        } else {
-            return Err(InviteError::Prefix);
-        };
-        let want = if v2 {
-            INVITE_HEX_LEN
-        } else {
-            INVITE_V1_HEX_LEN
-        };
-        if rest.len() != want {
+        let rest = s
+            .trim()
+            .strip_prefix(INVITE_PREFIX)
+            .ok_or(InviteError::Prefix)?;
+        if rest.len() != INVITE_HEX_LEN {
             return Err(InviteError::Length(rest.len()));
         }
         let bytes = hex::decode(rest).map_err(|_| InviteError::Hex)?;
@@ -401,20 +372,11 @@ impl FromStr for Invite {
             out.copy_from_slice(&bytes[i * 32..(i + 1) * 32]);
             out
         };
-        Ok(if v2 {
-            Self {
-                sync_key: part(0),
-                hugin_key: part(1),
-                clients_key: Some(part(2)),
-                secret: part(3),
-            }
-        } else {
-            Self {
-                sync_key: part(0),
-                hugin_key: part(1),
-                clients_key: None,
-                secret: part(2),
-            }
+        Ok(Self {
+            sync_key: part(0),
+            hugin_key: part(1),
+            clients_key: part(2),
+            secret: part(3),
         })
     }
 }
@@ -442,7 +404,7 @@ mod tests {
     fn invite_round_trip() {
         let invite = sample().invite();
         let text = invite.to_string();
-        assert!(text.starts_with("xkrinv2:"));
+        assert!(text.starts_with("xkr:"));
         assert_eq!(text.len(), INVITE_PREFIX.len() + INVITE_HEX_LEN);
         assert!(text.ends_with(&"11".repeat(32)), "the secret comes last");
         assert_eq!(text.parse::<Invite>(), Ok(invite));
@@ -486,12 +448,8 @@ mod tests {
         let good = sample().invite().to_string();
         let hex_part = &good[INVITE_PREFIX.len()..];
         assert_eq!(
-            format!("xkrinv3:{hex_part}").parse::<Invite>(),
+            format!("xkrinv:{hex_part}").parse::<Invite>(),
             Err(InviteError::Prefix)
-        );
-        assert_eq!(
-            format!("xkrinv1:{hex_part}").parse::<Invite>(),
-            Err(InviteError::Length(INVITE_HEX_LEN))
         );
         assert_eq!(hex_part.parse::<Invite>(), Err(InviteError::Prefix));
         assert_eq!("".parse::<Invite>(), Err(InviteError::Prefix));
@@ -507,40 +465,22 @@ mod tests {
             format!("{}zz", &good[..good.len() - 2]).parse::<Invite>(),
             Err(InviteError::Hex)
         );
-        assert_eq!("xkrinv2:".parse::<Invite>(), Err(InviteError::Length(0)));
-        assert_eq!("xkrinv1:".parse::<Invite>(), Err(InviteError::Length(0)));
+        assert_eq!("xkr:".parse::<Invite>(), Err(InviteError::Length(0)));
     }
 
-    /// A version-1 invite (sync key, Hugin key, secret) is still read, without a clients key,
-    /// and written back unchanged.
+    /// The clients key is the third value of the invite.
     #[test]
-    fn version_1_invites_are_read() {
+    fn the_invite_carries_the_clients_key() {
         let s = sample();
-        let v2 = s.invite();
-        let v1_text = format!(
-            "{INVITE_V1_PREFIX}{}{}{}",
-            hex::encode(v2.sync_key),
-            hex::encode(v2.hugin_key),
-            hex::encode(v2.secret)
-        );
-        let v1: Invite = v1_text.parse().expect("v1");
-        assert_eq!(v1.sync_key, v2.sync_key);
-        assert_eq!(v1.hugin_key, v2.hugin_key);
-        assert_eq!(v1.secret, v2.secret);
-        assert_eq!(v1.clients_key, None);
-        assert_eq!(v1.to_string(), v1_text);
+        let invite = s.invite();
         assert_eq!(
-            v1.topics(XkrNetwork::Mainnet),
-            v2.topics(XkrNetwork::Mainnet)
+            invite.clients_key,
+            topic::ed25519_public_from_seed(&s.clients_identity_seed())
         );
-        assert_eq!(
-            v2.clients_key,
-            Some(topic::ed25519_public_from_seed(&s.clients_identity_seed()))
-        );
-        let text = v2.to_string();
+        let text = invite.to_string();
         assert_eq!(
             &text[INVITE_PREFIX.len() + 128..INVITE_PREFIX.len() + 192],
-            hex::encode(v2.clients_key.unwrap())
+            hex::encode(invite.clients_key)
         );
     }
 

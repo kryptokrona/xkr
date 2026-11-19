@@ -193,7 +193,7 @@ pub struct Args {
     #[arg(long, conflicts_with = "no_hyper", help_heading = HYPER)]
     pub private: bool,
 
-    /// Connect to a private node with its invite (`xkrinv2:...`, or `xkrinv1:...` of earlier nodes) and stay connected, redialing
+    /// Connect to a private node with its invite (`xkr:...`) and stay connected, redialing
     /// when the connection drops; repeatable. Works with or without --private.
     #[arg(
         long = "private-peer",
@@ -1239,7 +1239,7 @@ mod tests {
         let peer_only = Args::try_parse_from(["xkrd", "--private-peer", &one.to_string()]).unwrap();
         assert!(!peer_only.private);
         assert_eq!(peer_only.private_peer, [one]);
-        for bad in ["xkrinv1:00", "SEKRabc", ""] {
+        for bad in ["xkr:00", "SEKRabc", ""] {
             assert!(
                 Args::try_parse_from(["xkrd", "--private-peer", bad]).is_err(),
                 "{bad}"
