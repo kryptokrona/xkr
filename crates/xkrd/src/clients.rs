@@ -1176,6 +1176,47 @@ mod tests {
         Client::connect(client_end, Hello::new("testnet", service, "wallet-test/1")).await
     }
 
+    /// Opens wallet connections to a test node's wallets door.
+    struct WalletDoor(Arc<ClientsServer>, std::sync::atomic::AtomicU8);
+
+    impl xkr_daemon_client::ClientSource for WalletDoor {
+        fn connect(
+            &self,
+        ) -> BoxFuture<'static, Result<(Client, String), xkr_daemon_client::TransportError>>
+        {
+            let k = [self.1.fetch_add(1, Ordering::Relaxed); 32];
+            let server = self.0.clone();
+            async move {
+                connect_door(&server, k, Door::Wallets, Service::Wallet)
+                    .await
+                    .map(|c| (c, "test node".to_owned()))
+                    .map_err(|e| xkr_daemon_client::TransportError::Connection(e.to_string()))
+            }
+            .boxed()
+        }
+    }
+
+    /// A wallet's daemon client over the wallets topic answers and syncs as over HTTP.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_wallet_daemon_client_works_over_the_wallets_topic() {
+        use xkr_daemon_client::{DaemonClient, SwarmTransport, WalletSyncRequest};
+        let n = node("walletclient", None, 8, ServerLimits::default());
+        let tip = n.tc.chain().tip();
+        let source = Arc::new(WalletDoor(n.server.clone(), 10.into()));
+        let daemon = DaemonClient::new(SwarmTransport::new(source));
+        assert_eq!(daemon.info().await.unwrap().height, tip.height + 1);
+        let blocks = daemon
+            .wallet_sync_data(&WalletSyncRequest {
+                checkpoints: Vec::new(),
+                start_height: 0,
+                start_timestamp: 0,
+                block_count: Some(3),
+            })
+            .await
+            .unwrap();
+        assert_eq!(blocks.len(), 3);
+    }
+
     /// The wallets topic offers only `wallet`; its `http` method answers the allowlisted daemon
     /// paths as the HTTP server does and refuses the others.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -58,6 +58,8 @@ serde_json         = { workspace = true }
 xkr-stratum        = { path = "../xkr-stratum" }
 # a fixed random source for templates built twice (crate::p2pool tests)
 rand_core          = { workspace = true }
+# a wallet's daemon client over the wallets topic (crate::clients tests)
+xkr-daemon-client  = { path = "../xkr-daemon-client" }
 
 [lints]
 workspace = true

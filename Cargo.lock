@@ -2030,6 +2030,7 @@ name = "xkr-daemon-client"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "futures",
  "hex",
  "http-body-util",
  "hyper",
@@ -2047,6 +2048,7 @@ dependencies = [
  "xkr-chain",
  "xkr-consensus",
  "xkr-crypto",
+ "xkr-hyper-rpc",
  "xkr-rpc",
  "xkr-serialization",
  "xkr-storage",
@@ -2466,6 +2468,7 @@ dependencies = [
  "xkr-chain",
  "xkr-consensus",
  "xkr-crypto",
+ "xkr-daemon-client",
  "xkr-hugin",
  "xkr-hyper-rpc",
  "xkr-miner",
