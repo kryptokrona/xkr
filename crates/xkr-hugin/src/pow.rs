@@ -142,7 +142,7 @@ pub fn verify_share(job: &PowJob, nonce: &str, result: &str) -> bool {
     let Some(blob) = insert_nonce(&job.blob, &nonce_bytes) else {
         return false;
     };
-    let hash = xkr_crypto::cn_turtle_lite_slow_hash_v2(&blob);
+    let hash = xkr_crypto::cn_turtle_lite_slow_hash_v2_reused(&blob);
     hex::encode(hash.0) == result && meets_target(&hash.0, &job.target)
 }
 

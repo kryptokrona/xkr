@@ -13,10 +13,11 @@
 #              wallet WC, sidechain P2P 22790, stratum 22343, fork heights from the environment
 #       ^ sidechain TCP: R1 dials C (--p2pool-addpeers)
 #   xkrd R1    RPC 22789, Levin to X only (--add-peer, no listener), Hyperswarm on a local DHT,
-#              --p2pool: stratum 22344, sidechain TCP listener 22791, payout WR1 (--hugin)
+#              --node --p2pool: stratum 22344, sidechain TCP listener 22791, payout WR1
+#              (--hugin-payout)
 #       ^ Hyperswarm only: the main chain (Levin) and the sidechain topic
 #   xkrd R2    RPC 22779, no legacy peer at all (--p2p-bind-port 0, dead seed, --out-peers 0),
-#              --p2pool: stratum 22345, no TCP listener, no --p2pool-addpeers, payout WR2
+#              --node --p2pool: stratum 22345, no TCP listener, no --p2pool-addpeers, payout WR2
 #   miners     xmrig (container xkr-suite-xmrig-mixed-c) on C's stratum; xkr-miner on R1's
 #              stratum, and on R2's with R2_MINER=1
 #
@@ -267,18 +268,19 @@ done
 start_p2pool "$C" "$P2POOL_IMAGE" "$WC" "$PORT_PM_POOL_C" "$PORT_PM_STRATUM_C"
 wait_for 120 pool_api_ready "$C" || die 1 "p2pool C wrote no local API within 120 s (log $(pool_log "$C"): $(pool_first "$C" 'RPC response|Couldn|error'))"
 
-HYPER=(--hyper-bridge-dir "$ROOT/bridge" --no-hugin --hyper-bootstrap "$BOOT")
-P2POOL_ARGS=(--p2pool --p2pool-config "$SIDECHAIN_JSON" --p2pool-uncapped-pplns --p2pool-allow-same-ip)
+HYPER=(--hyper-bridge-dir "$ROOT/bridge" --hyper-bootstrap "$BOOT")
+# --node --p2pool: the node and p2pool, no Hugin relay
+P2POOL_ARGS=(--node --p2pool --p2pool-config "$SIDECHAIN_JSON" --p2pool-uncapped-pplns --p2pool-allow-same-ip)
 start_xkrd pm-r1 "$PORT_PM_R1_RPC" "$SD/xkrd-r1" "$R1_LOG" "${FORK_ARGS[@]}" "${HYPER[@]}" \
     --p2p-bind-port 0 --add-peer "127.0.0.1:$PORT_PM_X_P2P" --seed-node "$DEAD_PEER" \
     "${P2POOL_ARGS[@]}" --p2pool-p2p "127.0.0.1:$PORT_PM_POOL_R1" \
     --p2pool-stratum "127.0.0.1:$PORT_PM_STRATUM_R1" --p2pool-addpeers "127.0.0.1:$PORT_PM_POOL_C" \
-    --hugin "$WR1"
+    --hugin-payout "$WR1"
 # R2: no legacy peers (dead seed, --out-peers 0, no listener) and no sidechain TCP peers (no
 # listener, no --p2pool-addpeers; the custom sidechain has no seeds)
 start_xkrd pm-r2 "$PORT_PM_R2_RPC" "$SD/xkrd-r2" "$R2_LOG" "${FORK_ARGS[@]}" "${HYPER[@]}" \
     --p2p-bind-port 0 --seed-node "$DEAD_PEER" --out-peers 0 \
-    "${P2POOL_ARGS[@]}" --p2pool-stratum "127.0.0.1:$PORT_PM_STRATUM_R2" --hugin "$WR2"
+    "${P2POOL_ARGS[@]}" --p2pool-stratum "127.0.0.1:$PORT_PM_STRATUM_R2" --hugin-payout "$WR2"
 watch pm-r1 pm-r2
 
 wait_same_top "$R1_RPC" "$X_RPC" || die 1 "R1 [$(top_of "$R1_RPC")] did not reach X's top [$(top_of "$X_RPC")] over Levin within ${TIMEOUT}s"

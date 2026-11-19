@@ -99,13 +99,14 @@ For the desktop app (node and miner run as one sidecar) and the testnet. Two mod
   hands its results to the same share path as a stratum miner of the node: a result at the
   sidechain difficulty goes into the sidechain and to the peers ("Share found" line), one at
   the main-chain difficulty also goes to the node as a block ("Block found by p2pool"). Shares
-  pay the node's p2pool payout address, the fee address the Hugin relay uses (`--hugin`,
+  pay the node's p2pool payout address, the fee address the Hugin relay uses (`--hugin-payout`,
   console `fee-address`); while that is still the donation default, the start says so and how
   to change it. The job target is the stratum template target (the easier of the two
   difficulties), the extra nonce a fixed value outside the stratum range in use, one share per
   template (the next job comes with the template p2pool builds on its new tip). While p2pool
   waits for the node to synchronize the miner waits too; `start_mining p2pool` refuses with
-  `--no-p2pool` (on the testnet: without `--p2pool`) or when p2pool failed.
+  p2pool off (`--no-p2pool`, mode flags without `--p2pool`, the testnet without `--p2pool`) or
+  when p2pool failed; `--mine-p2pool` with p2pool off stops the start.
 
 The console's `stop_mining` stops the miner (its threads are joined); `start_mining` refuses
 while one runs. Threads default to half of the available cores in both.
@@ -188,16 +189,22 @@ xkr-miner --daemon-host 127.0.0.1 --daemon-rpc-port 11898 --address SEKR…
 ## Built-in p2pool
 
 xkrd runs the Kryptokrona p2pool itself (crate `xkr-p2pool`, the same shares, sidechain rules
-and P2P protocol as the C++ p2pool, so both share one sidechain). On by default on mainnet;
-`--no-p2pool` turns it off, `--p2pool` on (the later flag wins). The testnet needs `--p2pool`
-and its own sidechain (`--p2pool-config`).
+and P2P protocol as the C++ p2pool, so both share one sidechain). On by default on mainnet:
+plain `xkrd` runs the node, the Hugin relay and p2pool, and `--no-p2pool` leaves p2pool out.
+With the mode flags `--node`, `--hugin` and `--p2pool` only the ones named run:
+`xkrd --node --p2pool` is the node and p2pool without the relay, `xkrd --node --hugin --p2pool`
+all three. `--no-p2pool` with mode flags is an error. The testnet runs p2pool only with
+`--p2pool` among the mode flags (`--network testnet --node --p2pool`) and needs its own
+sidechain (`--p2pool-config`). `xkrd --p2pool` alone runs p2pool without the node: the main
+chain comes from public xkrd nodes over Hyperswarm ("p2pool without the node" below);
+`xkrd --hugin --p2pool` adds the Hugin relay, which mines on this p2pool first.
 
 * **When it runs.** The start-up step `p2pool` shows the sidechain, the stratum address and the
   payout (`sidechain default · stratum 127.0.0.1:3333 · payout nilsjr (donation)`). p2pool
   itself starts once the node is synchronized, prints `p2pool running · stratum …`, and stops
   in the node's stopping steps (stratum, P2P with the peer list written, sidechain).
 * **Payout.** Every share pays the node's fee address, the same address the Hugin relay uses
-  (`--hugin <address>`, console `fee-address <address>`, saved in
+  (`--hugin-payout <address>`, console `fee-address <address>`, saved in
   `<data dir>/hugin/identity.json`). Until you set your own it is the donation address of
   nilsjr; the node says so at start-up and asks once (one question for the relay and p2pool).
   A new address applies to the next block template at once. Miners log in with any user name;
@@ -205,7 +212,10 @@ and its own sidechain (`--p2pool-config`).
 * **Stratum.** `--p2pool-stratum <ip:port>` (default `127.0.0.1:3333`: local miners only; use
   `0.0.0.0:3333` for miners on the network), `--p2pool-stratum-ban-time <s>` (600),
   `--p2pool-no-autodiff`. xmrig, xkr-miner and the Hugin relay mine on it unchanged; with
-  `--p2pool` the relay uses this server directly.
+  p2pool and the relay in one node the relay uses this server directly. A node with p2pool
+  also serves it on the Hyperswarm clients topic (service `stratum`, `docs/hyper-transport.md`),
+  where chainless relays (`xkrd --hugin`) mine on it; their shares count for this node's
+  wallet like every share of its stratum server.
 * **Main chain.** Block templates come from the node's own chain: a new template on every new
   main-chain tip (pushed by the chain, no polling), on a new sidechain tip, on a payout change
   and every 20 s for new pool transactions. The transactions are those the node's own
@@ -236,6 +246,47 @@ and its own sidechain (`--p2pool-config`).
   `payout_address` and `stratum` only for local clients). With `--log-level info` the log has
   the `p2pool: …` lines (`consensus id`, `new tip`, `share added`, `share found`,
   `block found`, `peer … rejected`, `synchronized`).
+
+### p2pool without the node: `xkrd --p2pool`
+
+No database, no sync, no Levin P2P: xkrd keeps up to three connections to public xkrd nodes on
+the Hyperswarm clients topic (`xkr/<network>/clients/v1`, `docs/hyper-transport.md`, "Clients
+topic") and builds its templates from them. The data directory holds only `p2pool/` (the peer
+list), `hugin/identity.json` (the payout address) and `hyper-keypair.json`. It needs the
+Hyperswarm transport (not with `--no-hyper`); node flags such as `--prune`, `--fast-sync` or
+`--mine <address>` stop the start (`--mine-p2pool` works, on the same templates).
+
+```
+  ✔ Mode               p2pool (remote chain)
+  ✔ RPC server         127.0.0.1:11898, /status and /info
+  ✔ Hyperswarm         Bare workers started
+  ✔ Remote nodes       2.3 s  3 nodes, height 2 641 203
+  ✔ p2pool             sidechain default · stratum 127.0.0.1:3333 · payout …
+```
+
+* **Nodes.** xkrd looks the clients topic up and dials what it finds (it never announces the
+  topic), up to three nodes with different keys. A node that closes the connection, does not
+  answer a `getinfo` after a minute without news, or cannot be dialed is replaced by another
+  one; it is dialed again after a back-off (5 s doubling to 10 min).
+* **Tip.** The main-chain tip is the highest one that at least two connected (synchronized)
+  nodes have or build on; with one node, its tip. Before a new tip is used, xkrd reads the
+  headers since the previous one (the newest four at most) and checks that each names the one
+  before as its previous block, and that each block hashes to its header's id and meets its
+  header's difficulty with its proof of work (one hash per block, about every 90 s). Nodes
+  whose blocks fail this, or whose stable state hash (in the hello) differs from the one built
+  into xkrd or, above that list, from the one most connected nodes name, are dropped and not
+  dialed for an hour.
+* **Templates and blocks.** Miner data comes from a node at the chosen tip, the PPLNS headers
+  from the same node. A block found by p2pool goes to every connected node (`submitblock`).
+* **Synchronized** means: at least one connected node answers and is synchronized, and a node
+  confirmed the tip less than three minutes ago. p2pool starts, and the built-in miner mines,
+  only then; a tip older than that pauses both.
+* **Status.** The RPC port answers `/status` (`mode`, `chain: "remote"`, `height`,
+  `top_block_hash`, `synced`, `remote { nodes [{ key, height, synced, on_tip }], height, hash,
+  synced, tip_age }`, `hyper`, `mining`, `p2pool`; `remote.nodes` and the p2pool payout only for
+  local clients) and `/info` (`height`, `synced`, `remote_nodes`, `mode`); the C++ routes are
+  not served without the node. There is no console in this mode; Ctrl-C stops it (p2pool,
+  miner, remote nodes, Hyperswarm, RPC server).
 
 ## External p2pool
 

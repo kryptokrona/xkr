@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rand_core::RngCore as _;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
@@ -262,6 +263,15 @@ impl StratumServer {
         lock(&self.inner.clients).len()
     }
 
+    /// A handle that serves miners on other streams than the listening socket
+    /// ([`StratumHandle::serve_stream`]).
+    #[must_use]
+    pub fn handle(&self) -> StratumHandle {
+        StratumHandle {
+            inner: self.inner.clone(),
+        }
+    }
+
     /// Stops accepting and closes every connection.
     pub fn shutdown(&self) {
         self.inner.stop.send_replace(true);
@@ -272,6 +282,61 @@ impl StratumServer {
 impl Drop for StratumServer {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// How a miner connection served by [`StratumHandle::serve_stream`] ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamEnd {
+    /// The miner or the server closed it.
+    Closed,
+    /// The miner broke the rules (a bad line, no login in time, too many bad shares): the
+    /// caller refuses it for the ban time, as the server bans a TCP miner's address.
+    Banned,
+}
+
+/// Serves miners of a [`StratumServer`] on any byte stream, with the same line protocol, checks
+/// and limits as on its TCP socket. Cheap to clone; sessions end when the server stops.
+#[derive(Clone)]
+pub struct StratumHandle {
+    inner: Arc<Inner>,
+}
+
+impl fmt::Debug for StratumHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StratumHandle")
+            .field("inner", &self.inner)
+            .finish()
+    }
+}
+
+impl StratumHandle {
+    /// One miner on `stream` until it ends. `addr` is the miner's address when known: it is
+    /// checked against the bans and banned when the miner breaks the rules; without one the
+    /// worker list shows `0.0.0.0:0` and the caller bans ([`StreamEnd::Banned`]).
+    pub async fn serve_stream<S>(&self, stream: S, addr: Option<SocketAddr>) -> StreamEnd
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+    {
+        if *self.inner.stop.borrow() {
+            return StreamEnd::Closed;
+        }
+        if let Some(a) = addr
+            && self.inner.is_banned(a.ip())
+        {
+            return StreamEnd::Banned;
+        }
+        let shown = addr.unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
+        match session::run(self.inner.clone(), stream, shown, addr.is_some()).await {
+            session::End::Ban => StreamEnd::Banned,
+            session::End::Close => StreamEnd::Closed,
+        }
+    }
+
+    /// Whether the server has stopped.
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        *self.inner.stop.borrow()
     }
 }
 
@@ -286,7 +351,7 @@ async fn accept_loop(inner: Arc<Inner>, listener: TcpListener, mut stop: watch::
                         continue;
                     }
                     let _ = stream.set_nodelay(true);
-                    tokio::spawn(session::run(inner.clone(), stream, addr));
+                    tokio::spawn(session::run(inner.clone(), stream, addr, true));
                 }
                 Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
             },

@@ -21,7 +21,7 @@ mod transaction;
 pub use block::{Block, BlockHeader, ParentBlock, RawBlock};
 pub use extra::{
     ExtraError, ExtraField, MergeMiningTag, merge_mining_tag, parse_extra, parse_extra_partial,
-    payment_id, tx_public_key,
+    payment_id, tx_public_key, wallet_tx_public_key,
 };
 pub use keys::{
     EcScalar, Hash, HexError, KeyDerivation, KeyImage, PublicKey, SecretKey, Signature,

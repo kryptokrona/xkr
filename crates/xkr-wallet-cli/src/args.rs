@@ -6,7 +6,7 @@
 //! | `-h`, `--help` | |
 //! | `-v`, `--version` | |
 //! | `--debug` | off (zedwallet: write the engine's log to `xkrwallet.log`) |
-//! | `-r`, `--remote-daemon <host:port>` | `127.0.0.1:` + the network's RPC port |
+//! | `-r`, `--remote-daemon <host:port>` | `127.0.0.1:` + the network's RPC port when a node answers there, else a node found over Hyperswarm (`hyperswarm`, or a private node's invite `xkr:…`, picks Hyperswarm) |
 //! | `-w`, `--wallet-file <file>` | none: the start menu asks |
 //! | `-p`, `--password <pass>` | none: asked when the wallet is opened |
 //! | `--network <mainnet\|testnet>` | `mainnet` |
@@ -26,6 +26,11 @@ pub struct Options {
     pub daemon_host: String,
     /// Daemon port (`--remote-daemon`).
     pub daemon_port: u16,
+    /// Whether `--remote-daemon` was given (else the local node, or Hyperswarm without one).
+    pub daemon_given: bool,
+    /// A private node's invite given as `--remote-daemon xkr:…` (the host is then
+    /// [`xkr_wallet::SWARM_HOST`]).
+    pub invite: Option<String>,
     /// `--wallet-file`.
     pub wallet_file: Option<String>,
     /// `--password` (an empty password counts as given).
@@ -41,6 +46,8 @@ impl std::fmt::Debug for Options {
         f.debug_struct("Options")
             .field("daemon_host", &self.daemon_host)
             .field("daemon_port", &self.daemon_port)
+            .field("daemon_given", &self.daemon_given)
+            .field("invite_given", &self.invite.is_some())
             .field("wallet_file", &self.wallet_file)
             .field("password_given", &self.password.is_some())
             .field("network", &self.network)
@@ -131,7 +138,8 @@ pub fn help(program: &str) -> String {
          Daemon options:\n  \
          -r, --remote-daemon <host:port>\n                                \
          The daemon <host:port> combination to use for node operations. (default: \
-         {daemon})\n\n \
+         {daemon} when a node answers there, else a node found over Hyperswarm; \
+         \"hyperswarm\" or a private node's invite xkr:... use Hyperswarm)\n\n \
          Wallet options:\n  \
          -w, --wallet-file <file>      Open the wallet <file>\n  \
          -p, --password <pass>         Use the password <pass> to open the wallet\n",
@@ -357,10 +365,16 @@ pub fn parse(args: &[String]) -> Command {
         return Command::Print(format!("{}\n  {}\n", header(), version_line()));
     }
     let default_port = network.params().rpc_port;
-    let daemon = raw
+    let invite = raw
         .remote_daemon
-        .clone()
-        .unwrap_or_else(|| default_daemon(network));
+        .as_deref()
+        .filter(|d| d.starts_with("xkr:"))
+        .map(str::to_owned);
+    let daemon = match (&invite, &raw.remote_daemon) {
+        (Some(_), _) => xkr_wallet::SWARM_HOST.to_owned(),
+        (None, Some(d)) => d.clone(),
+        (None, None) => default_daemon(network),
+    };
     let Some((daemon_host, daemon_port)) = parse_daemon_address(&daemon, default_port) else {
         return Command::Fail(
             "There was an error parsing the --remote-daemon you specified".to_owned(),
@@ -369,6 +383,8 @@ pub fn parse(args: &[String]) -> Command {
     Command::Run(Options {
         daemon_host,
         daemon_port,
+        daemon_given: raw.remote_daemon.is_some(),
+        invite,
         wallet_file: raw.wallet_file,
         password: raw.password,
         network,

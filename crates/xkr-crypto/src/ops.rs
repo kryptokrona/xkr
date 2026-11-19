@@ -309,7 +309,40 @@ pub fn generate_key_image(public: &PublicKey, sec: &SecretKey) -> KeyImage {
 /// A key image that does not decode returns `false` (the transaction is rejected).
 #[must_use]
 pub fn key_image_in_prime_subgroup(image: &KeyImage) -> bool {
-    decompress(&image.0).is_some_and(|p| point_in_prime_subgroup(&p))
+    CheckedKeyImage::new(image).is_some()
+}
+
+/// A key image that decodes to a point of the prime-order subgroup
+/// ([`key_image_in_prime_subgroup`]), with that point. [`CheckedKeyImage::new`] is the only way
+/// to build one; [`crate::check_ring_signature_checked`] and [`crate::clsag_verify_checked`]
+/// take it in place of the key image bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckedKeyImage {
+    image: KeyImage,
+    point: EdwardsPoint,
+}
+
+impl CheckedKeyImage {
+    /// `image` with its point, if it decodes and lies in the prime-order subgroup.
+    #[must_use]
+    pub fn new(image: &KeyImage) -> Option<Self> {
+        let point = decompress(&image.0)?;
+        point_in_prime_subgroup(&point).then_some(Self {
+            image: *image,
+            point,
+        })
+    }
+
+    /// The key image bytes.
+    #[must_use]
+    pub const fn key_image(&self) -> &KeyImage {
+        &self.image
+    }
+
+    /// The decoded point.
+    pub(crate) const fn point(&self) -> &EdwardsPoint {
+        &self.point
+    }
 }
 
 /// `l * P == identity`, computed as `(l - 1) * P + P` (see [`key_image_in_prime_subgroup`]).
@@ -438,6 +471,13 @@ mod tests {
         let bad = KeyImage((point + torsion).compress().to_bytes());
         assert!(!key_image_in_prime_subgroup(&bad));
         assert!(key_image_in_prime_subgroup(&ki));
+        assert!(CheckedKeyImage::new(&bad).is_none());
+        let checked = CheckedKeyImage::new(&ki).unwrap();
+        assert_eq!(checked.key_image(), &ki);
+        assert_eq!(*checked.point(), point);
+        let mut undecodable = [0xffu8; 32];
+        undecodable[31] = 0x7f;
+        assert!(CheckedKeyImage::new(&KeyImage(undecodable)).is_none());
     }
 
     #[test]

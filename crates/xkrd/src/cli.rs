@@ -7,7 +7,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use xkr_consensus::Network;
 use xkr_p2p_hyper::Invite;
 
-/// `--help` headings (the groups of the C++ `kryptokronad --help`, plus Hyperswarm and Hugin).
+/// `--help` headings (the modes, the groups of the C++ `kryptokronad --help`, plus Hyperswarm
+/// and Hugin).
+const MODES: &str = "Modes (none: all three)";
 const P2P: &str = "P2P (legacy Levin/TCP)";
 const HYPER: &str = "P2P (Hyperswarm)";
 const RPC: &str = "RPC";
@@ -17,8 +19,9 @@ const MINING: &str = "Mining";
 const P2POOL: &str = "P2Pool (built-in)";
 const HUGIN: &str = "Hugin relay";
 
-/// Whether the built-in p2pool runs on mainnet without `--p2pool` / `--no-p2pool`
-/// ([`Args::p2pool_enabled`]). The testnet needs `--p2pool` (and its own sidechain).
+/// Whether the built-in p2pool runs on mainnet without mode flags and without `--no-p2pool`
+/// ([`Args::components`]). On the testnet it runs only with `--p2pool` among the mode flags
+/// (and its own sidechain).
 pub const P2POOL_DEFAULT: bool = true;
 /// Whether the built-in p2pool also uses TCP to other p2pool nodes (C++ nodes) when neither
 /// `--p2pool-tcp` nor `--no-p2pool-tcp` is given. Hyperswarm is always used.
@@ -26,7 +29,12 @@ pub const P2POOL_TCP_DEFAULT: bool = true;
 const LOGGING: &str = "Logging and console";
 
 /// Shown after the flags in `--help`.
-const AFTER_HELP: &str = "Console commands (typed while the node runs in a terminal): help, \
+const AFTER_HELP: &str = "Modes: without --node, --hugin or --p2pool xkrd runs the node, the \
+                          Hugin relay and p2pool (p2pool not on the testnet; --no-hugin and \
+                          --no-p2pool leave one out); with mode flags only the ones named \
+                          (--hugin or --p2pool without --node: the main chain from remote \
+                          nodes, no database). \
+                          Console commands (typed while the node runs in a terminal): help, \
                           status, height, print_pl, set_log <0-4>, fee-address [<address>], \
                           start_mining <address>|p2pool [threads], stop_mining, invite [new], \
                           exit. \
@@ -65,6 +73,28 @@ pub struct Args {
     /// Network and RPC runtime threads (default: min(available cores, 4)).
     #[arg(long, value_name = "N")]
     pub io_threads: Option<usize>,
+
+    // ------------------------------------------------------------------ modes
+    /// Run the node: sync and verify the chain, store it, serve the RPC. With mode flags only
+    /// the ones named run (`--node --hugin`, `--node --p2pool`, ...); without any, all three.
+    #[arg(long, overrides_with = "node", help_heading = MODES)]
+    pub node: bool,
+
+    /// Run the Hugin relay for Hugin apps (`docs/hugin-relay.md`; needs the Hyperswarm
+    /// transport). The fee address is `--hugin-payout`. Without `--node` the sync state and the
+    /// main-chain tip come from public xkrd nodes over Hyperswarm, and the jobs from the local
+    /// p2pool (`--p2pool`), `--hugin-p2pool`, then the stratum service of those nodes. The relay's
+    /// fee reaches `--hugin-payout` only through the built-in p2pool: add `--p2pool`.
+    #[arg(long, overrides_with = "hugin", help_heading = MODES)]
+    pub hugin: bool,
+
+    /// Run the built-in p2pool (`docs/mining.md`, "Built-in p2pool"): the Kryptokrona sidechain,
+    /// a stratum server for local miners and the sidechain P2P network (outgoing TCP to other
+    /// p2pool nodes and Hyperswarm). It starts once the node is synchronized and pays every share
+    /// to the node's fee address (`--hugin-payout`, console `fee-address`). Without `--node` the
+    /// main chain comes from public xkrd nodes over Hyperswarm (no database, no sync).
+    #[arg(long, overrides_with = "p2pool", help_heading = MODES)]
+    pub p2pool: bool,
 
     // ------------------------------------------------------------------ P2P (legacy)
     /// Peer to connect to and keep connected (repeatable), `host:port`.
@@ -163,7 +193,7 @@ pub struct Args {
     #[arg(long, conflicts_with = "no_hyper", help_heading = HYPER)]
     pub private: bool,
 
-    /// Connect to a private node with its invite (`xkrinv1:...`) and stay connected, redialing
+    /// Connect to a private node with its invite (`xkr:...`) and stay connected, redialing
     /// when the connection drops; repeatable. Works with or without --private.
     #[arg(
         long = "private-peer",
@@ -173,6 +203,16 @@ pub struct Args {
         help_heading = HYPER
     )]
     pub private_peer: Vec<Invite>,
+
+    /// Most connections of programs that use this node over Hyperswarm (the clients and wallets
+    /// topics: wallets, chainless p2pool and Hugin relays).
+    #[arg(
+        long,
+        value_name = "N",
+        default_value_t = crate::clients::DEFAULT_MAX_CLIENTS,
+        help_heading = HYPER
+    )]
+    pub max_clients: usize,
 
     // ------------------------------------------------------------------ RPC
     /// RPC listen address. The RPC has no authentication: with 0.0.0.0 anyone who can reach
@@ -264,7 +304,7 @@ pub struct Args {
     #[arg(long, help_heading = CHAIN)]
     pub fast_sync: bool,
 
-    /// Verification threads for proof of work and signatures (default: available cores - 1).
+    /// Verification threads for proof of work and signatures (default: all available cores).
     #[arg(long, value_name = "N", help_heading = CHAIN)]
     pub verify_threads: Option<usize>,
 
@@ -295,9 +335,10 @@ pub struct Args {
     #[arg(long, value_name = "ADDRESS", help_heading = MINING)]
     pub mine: Option<String>,
 
-    /// Mine with the built-in CPU miner via the built-in p2pool (on unless --no-p2pool; starts
-    /// once p2pool runs). Shares pay the node's p2pool payout address, the fee address
-    /// (`--hugin`, console `fee-address`). Console: `start_mining p2pool`.
+    /// Mine with the built-in CPU miner via the built-in p2pool (needs p2pool: no mode flags on
+    /// mainnet, or `--p2pool` among them; starts once p2pool runs). Shares pay the node's p2pool
+    /// payout address, the fee address (`--hugin-payout`, console `fee-address`). Console:
+    /// `start_mining p2pool`.
     #[arg(long, conflicts_with = "mine", help_heading = MINING)]
     pub mine_p2pool: bool,
 
@@ -306,16 +347,9 @@ pub struct Args {
     pub mine_threads: Option<usize>,
 
     // ------------------------------------------------------------------ p2pool
-    /// Run the built-in p2pool (`docs/mining.md`, "Built-in p2pool"): the Kryptokrona sidechain,
-    /// a stratum server for local miners and the sidechain P2P network (outgoing TCP to other
-    /// p2pool nodes and Hyperswarm). It starts once the node is synchronized and pays every share
-    /// to the node's fee address (`--hugin`, console `fee-address`). On by default on mainnet;
-    /// the testnet needs this flag.
-    #[arg(long, overrides_with_all = ["p2pool", "no_p2pool"], help_heading = P2POOL)]
-    pub p2pool: bool,
-
-    /// Do not run the built-in p2pool.
-    #[arg(long, overrides_with_all = ["p2pool", "no_p2pool"], help_heading = P2POOL)]
+    /// Do not run the built-in p2pool (without mode flags; with them p2pool runs only with
+    /// `--p2pool`).
+    #[arg(long, overrides_with = "no_p2pool", help_heading = P2POOL)]
     pub no_p2pool: bool,
 
     /// Stratum listen address of the built-in p2pool, `ip:port`. The default takes local miners
@@ -396,12 +430,13 @@ pub struct Args {
     pub p2pool_uncapped_pplns: bool,
 
     // ------------------------------------------------------------------ Hugin
-    /// Do not run the Hugin relay. By default every node with the Hyperswarm transport is also a
+    /// Do not run the Hugin relay (without mode flags; with them the relay runs only with
+    /// `--hugin`). Without mode flags every node with the Hyperswarm transport is also a
     /// hugin-node relay for Hugin apps (`docs/hugin-relay.md`); `--no-hyper` turns it off too.
-    #[arg(long, help_heading = HUGIN)]
+    #[arg(long, overrides_with = "no_hugin", help_heading = HUGIN)]
     pub no_hugin: bool,
 
-    /// The relay is on by default; this flag is accepted and does nothing.
+    /// The relay is on without mode flags; this flag is accepted and does nothing.
     #[arg(long, hide = true, help_heading = HUGIN)]
     pub hugin_relay: bool,
 
@@ -409,13 +444,14 @@ pub struct Args {
     /// Saved in `<data-dir>/hugin/identity.json` and used from then on (`fee-address` in the
     /// console changes it while the node runs). Without one the fee goes to the default
     /// donation address (nilsjr). A standard `SEKR…` or `Xkr…` address.
-    #[arg(long = "hugin", alias = "hugin-payout", value_name = "ADDRESS", help_heading = HUGIN)]
-    pub hugin: Option<String>,
+    #[arg(long, value_name = "ADDRESS", help_heading = HUGIN)]
+    pub hugin_payout: Option<String>,
 
     /// p2pool stratum node for the Hugin shares (repeatable, tried in order; the first is
     /// returned to when it is reachable again). Default: the local p2pool at 127.0.0.1:3333
     /// (on Linux only when its port is not held by another user), then the public p2pool nodes
-    /// built into xkrd. `stratum+ssl://host:port` uses TLS.
+    /// built into xkrd. `stratum+ssl://host:port` uses TLS. Without `--node` these come after
+    /// the built-in p2pool (`--p2pool`) and before the stratum service of remote nodes.
     #[arg(long = "hugin-p2pool", value_name = "HOST:PORT", help_heading = HUGIN)]
     pub hugin_p2pool: Vec<String>,
 
@@ -518,12 +554,117 @@ impl Args {
         }
     }
 
-    /// Whether the built-in p2pool runs: `--p2pool` or `--no-p2pool` (the later one on the
-    /// command line wins), else [`P2POOL_DEFAULT`] on mainnet and off on the testnet.
+    /// Whether any mode flag (`--node`, `--hugin`, `--p2pool`) is given.
+    #[must_use]
+    pub const fn mode_given(&self) -> bool {
+        self.node || self.hugin || self.p2pool
+    }
+
+    /// What this xkrd runs: with mode flags the ones named, else the node, the Hugin relay
+    /// (unless `--no-hugin` or `--no-hyper`) and p2pool (unless `--no-p2pool`;
+    /// [`P2POOL_DEFAULT`] on mainnet, off on the testnet). Does not check the combination
+    /// ([`Args::checked_components`]).
+    #[must_use]
+    pub fn components(&self) -> Components {
+        if self.mode_given() {
+            Components {
+                node: self.node,
+                hugin: self.hugin,
+                p2pool: self.p2pool,
+            }
+        } else {
+            let default = P2POOL_DEFAULT && matches!(self.network, NetworkArg::Mainnet);
+            Components {
+                node: true,
+                hugin: !self.no_hugin && !self.no_hyper,
+                p2pool: !self.no_p2pool && default,
+            }
+        }
+    }
+
+    /// [`Args::components`], or why the flags do not go together: `--no-hugin` / `--no-p2pool`
+    /// with mode flags, `--hugin` or no node with `--no-hyper`, node flags without the node,
+    /// `--mine-p2pool` without p2pool.
+    ///
+    /// # Errors
+    /// The message for the operator.
+    pub fn checked_components(&self) -> Result<Components, String> {
+        let c = self.components();
+        if self.mode_given() {
+            for (off, off_given, on, on_given, what) in [
+                (
+                    "--no-hugin",
+                    self.no_hugin,
+                    "--hugin",
+                    self.hugin,
+                    "the Hugin relay",
+                ),
+                (
+                    "--no-p2pool",
+                    self.no_p2pool,
+                    "--p2pool",
+                    self.p2pool,
+                    "p2pool",
+                ),
+            ] {
+                if off_given {
+                    return Err(if on_given {
+                        format!("{off} with {on}: give one of them")
+                    } else {
+                        format!("{off} with {}: {what} is already off", c.mode_flags())
+                    });
+                }
+            }
+        }
+        if self.no_hyper && self.hugin {
+            return Err("--hugin needs the Hyperswarm transport (not with --no-hyper)".to_owned());
+        }
+        if self.no_hyper && !c.node {
+            return Err(format!(
+                "{} without --node needs the Hyperswarm transport (not with --no-hyper)",
+                c.mode_flags()
+            ));
+        }
+        if !c.node {
+            let node_flags = [
+                ("--fast-sync", self.fast_sync),
+                ("--prune", self.prune),
+                ("--prune-stripes", self.prune_stripes.is_some()),
+                ("--mine", self.mine.is_some()),
+                ("--explorer", self.explorer),
+                ("--no-db-maintenance", self.no_db_maintenance),
+                ("--fork13-height", self.fork13_height.is_some()),
+                ("--fork14-height", self.fork14_height.is_some()),
+                ("--fork14-grace", self.fork14_grace.is_some()),
+                ("--private", self.private),
+            ];
+            if let Some((flag, _)) = node_flags.into_iter().find(|&(_, given)| given) {
+                return Err(format!("{flag} needs the node (--node, or no mode flags)"));
+            }
+        }
+        if self.mine_p2pool && !c.p2pool {
+            let how = if self.mode_given() {
+                "add --p2pool to the mode flags"
+            } else if self.no_p2pool {
+                "not with --no-p2pool"
+            } else {
+                "testnet: --node --hugin --p2pool"
+            };
+            return Err(format!("--mine-p2pool needs the built-in p2pool ({how})"));
+        }
+        Ok(c)
+    }
+
+    /// Whether the built-in p2pool runs ([`Args::components`]).
     #[must_use]
     pub fn p2pool_enabled(&self) -> bool {
-        let default = P2POOL_DEFAULT && matches!(self.network, NetworkArg::Mainnet);
-        p2pool_choice(self.p2pool, self.no_p2pool, default)
+        self.components().p2pool
+    }
+
+    /// Whether the Hugin relay runs ([`Args::components`]; off with `--no-hyper`).
+    #[must_use]
+    pub fn hugin_enabled(&self) -> bool {
+        self.components().hugin
     }
 
     /// Whether the built-in p2pool uses TCP besides Hyperswarm: the flag given last, else
@@ -532,11 +673,68 @@ impl Args {
     pub const fn p2pool_tcp_enabled(&self) -> bool {
         p2pool_choice(self.p2pool_tcp, self.no_p2pool_tcp, P2POOL_TCP_DEFAULT)
     }
+
+    /// The verification pool size: `--verify-threads`, else all available cores; at least 1.
+    #[must_use]
+    pub fn verify_thread_count(&self) -> usize {
+        self.verify_threads
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get)
+            })
+            .max(1)
+    }
 }
 
-/// `--p2pool` / `--no-p2pool` (at most one is set, clap resets the other) over the default.
+/// `--p2pool-tcp` / `--no-p2pool-tcp` (at most one is set, clap resets the other) over the
+/// default.
 const fn p2pool_choice(on: bool, off: bool, default: bool) -> bool {
     on || (!off && default)
+}
+
+/// What one xkrd runs ([`Args::components`]): the node (sync, storage, RPC), the Hugin relay,
+/// the built-in p2pool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Components {
+    /// The node: chain sync and verification, the database, the legacy P2P, the RPC.
+    pub node: bool,
+    /// The Hugin relay.
+    pub hugin: bool,
+    /// The built-in p2pool.
+    pub p2pool: bool,
+}
+
+impl Components {
+    /// For the start-up step: `node + Hugin + p2pool`, `node`, `Hugin + p2pool`, ...
+    #[must_use]
+    pub fn label(self) -> String {
+        let parts: Vec<&str> = [
+            (self.node, "node"),
+            (self.hugin, "Hugin"),
+            (self.p2pool, "p2pool"),
+        ]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect();
+        if parts.is_empty() {
+            "nothing".to_owned()
+        } else {
+            parts.join(" + ")
+        }
+    }
+
+    /// The mode flags that select these parts: `--node --hugin`, `--p2pool`, ...
+    #[must_use]
+    pub fn mode_flags(self) -> String {
+        [
+            (self.node, "--node"),
+            (self.hugin, "--hugin"),
+            (self.p2pool, "--p2pool"),
+        ]
+        .into_iter()
+        .filter_map(|(on, flag)| on.then_some(flag))
+        .collect::<Vec<_>>()
+        .join(" ")
+    }
 }
 
 /// `--log-level`: a C++ level number or a tracing filter.
@@ -672,6 +870,19 @@ pub enum DbCommand {
         #[arg(long, value_name = "HEIGHT")]
         to: Option<u64>,
     },
+    /// Print the state hash of every complete stripe span (`docs/storage.md` "State hashes")
+    /// as lines of the Rust list `MAINNET_STATE_HASHES` (`    (span, "hash"),`) on stdout;
+    /// progress goes to stderr.
+    StateHashes {
+        #[command(flatten)]
+        db: DbArgs,
+        /// Only spans whose last block is at or below this height (default: the top block).
+        #[arg(long, value_name = "HEIGHT")]
+        to: Option<u64>,
+    },
+    /// Recompute the state hash of every complete stripe span and compare it with the hashes
+    /// the node stored and with the built-in list; exit code 1 on any difference.
+    VerifyState(DbArgs),
     /// Copy a schema v1 database (the per-transaction layout) into a new v2 database without
     /// re-verifying it, then run maintenance: before/after numbers on the same chain.
     Convert {
@@ -875,7 +1086,7 @@ mod tests {
         let help = Args::command().render_long_help().to_string();
         let mut at = 0;
         for heading in [
-            P2P, HYPER, RPC, STORAGE, CHAIN, MINING, P2POOL, HUGIN, LOGGING,
+            MODES, P2P, HYPER, RPC, STORAGE, CHAIN, MINING, P2POOL, HUGIN, LOGGING,
         ] {
             let pos = help[at..]
                 .find(&format!("{heading}:"))
@@ -889,18 +1100,29 @@ mod tests {
             "--add-peer",
             "--no-hugin",
             "--hugin-p2pool",
+            "--hugin-payout",
+            "--node",
+            "--hugin",
+            "--p2pool",
         ] {
             assert!(help.contains(flag), "{flag}");
         }
         assert!(help.contains("Console commands"));
         assert!(help.contains("fee-address"));
-        // the hidden alias and the no-op flag still parse
+        assert!(help.contains("Modes:"));
+        // the hidden no-op flag still parses
         assert!(!help.contains("--hugin-relay"));
-        assert!(!help.contains("--hugin-payout"));
         let old =
             Args::try_parse_from(["xkrd", "--hugin-relay", "--hugin-payout", "SEKRx"]).unwrap();
-        assert!(old.hugin_relay && !old.no_hugin);
-        assert_eq!(old.hugin.as_deref(), Some("SEKRx"));
+        assert!(old.hugin_relay && !old.no_hugin && !old.hugin);
+        assert_eq!(old.hugin_payout.as_deref(), Some("SEKRx"));
+        assert_eq!(
+            old.checked_components().unwrap().label(),
+            "node + Hugin + p2pool"
+        );
+        // `--hugin` is the mode flag and takes no address
+        assert!(Args::try_parse_from(["xkrd", "--hugin", "SEKRx"]).is_err());
+        assert!(Args::try_parse_from(["xkrd", "--hugin=SEKRx"]).is_err());
     }
 
     /// `--port`: the one UDP port of the Hyperswarm network, `--hyper-udp-port` as a hidden
@@ -951,14 +1173,16 @@ mod tests {
     #[test]
     fn hugin_flags() {
         let plain = Args::try_parse_from(["xkrd"]).unwrap();
-        assert!(!plain.no_hugin);
-        assert_eq!(plain.hugin, None);
+        assert!(!plain.no_hugin && !plain.hugin);
+        assert!(plain.hugin_enabled());
+        assert_eq!(plain.hugin_payout, None);
         assert!(plain.hugin_p2pool.is_empty());
         assert_eq!(
             plain.hugin_share_difficulty,
             xkr_hugin::relay::DEFAULT_APP_DIFFICULTY
         );
         assert_eq!(plain.hugin_max_clients, 200);
+        assert_eq!(plain.max_clients, 200);
         assert_eq!(plain.hugin_sync_slots, 8);
         assert_eq!(plain.hugin_queue_budget_mb, 256);
         assert_eq!(
@@ -968,7 +1192,7 @@ mod tests {
         let a = Args::try_parse_from([
             "xkrd",
             "--no-hugin",
-            "--hugin",
+            "--hugin-payout",
             "SEKRfee",
             "--hugin-p2pool",
             "127.0.0.1:3334",
@@ -976,8 +1200,8 @@ mod tests {
             "stratum+ssl://pool.example:4443",
         ])
         .unwrap();
-        assert!(a.no_hugin);
-        assert_eq!(a.hugin.as_deref(), Some("SEKRfee"));
+        assert!(a.no_hugin && !a.hugin_enabled());
+        assert_eq!(a.hugin_payout.as_deref(), Some("SEKRfee"));
         assert_eq!(
             a.hugin_p2pool,
             ["127.0.0.1:3334", "stratum+ssl://pool.example:4443"]
@@ -1015,7 +1239,7 @@ mod tests {
         let peer_only = Args::try_parse_from(["xkrd", "--private-peer", &one.to_string()]).unwrap();
         assert!(!peer_only.private);
         assert_eq!(peer_only.private_peer, [one]);
-        for bad in ["xkrinv1:00", "SEKRabc", ""] {
+        for bad in ["xkr:00", "SEKRabc", ""] {
             assert!(
                 Args::try_parse_from(["xkrd", "--private-peer", bad]).is_err(),
                 "{bad}"
@@ -1028,8 +1252,9 @@ mod tests {
         );
     }
 
-    /// `--p2pool` / `--no-p2pool` (the later one wins; without either on for mainnet, off for
-    /// the testnet) and the p2pool settings with their C++ defaults.
+    /// Whether p2pool runs (without mode flags on for mainnet unless `--no-p2pool`, off for the
+    /// testnet; with them only with `--p2pool`) and the p2pool settings with their C++
+    /// defaults.
     #[test]
     fn p2pool_flags() {
         let plain = Args::try_parse_from(["xkrd"]).unwrap();
@@ -1038,7 +1263,7 @@ mod tests {
         let testnet = Args::try_parse_from(["xkrd", "--network", "testnet"]).unwrap();
         assert!(!testnet.p2pool_enabled());
         let testnet_on =
-            Args::try_parse_from(["xkrd", "--network", "testnet", "--p2pool"]).unwrap();
+            Args::try_parse_from(["xkrd", "--network", "testnet", "--node", "--p2pool"]).unwrap();
         assert!(testnet_on.p2pool_enabled());
         assert_eq!(plain.p2pool_tcp_enabled(), P2POOL_TCP_DEFAULT);
         let hyper_only = Args::try_parse_from(["xkrd", "--p2pool-tcp", "--no-p2pool-tcp"]).unwrap();
@@ -1062,10 +1287,11 @@ mod tests {
             Args::try_parse_from(all).unwrap().p2pool_enabled()
         };
         assert!(on(&["--p2pool"]));
+        assert!(on(&["--node", "--p2pool"]));
+        assert!(!on(&["--node"]));
         assert!(!on(&["--no-p2pool"]));
-        assert!(!on(&["--p2pool", "--no-p2pool"]));
-        assert!(on(&["--no-p2pool", "--p2pool"]));
         assert!(on(&["--p2pool", "--p2pool"]));
+        assert!(!on(&["--no-p2pool", "--no-p2pool"]));
         // the default only applies without either flag
         assert!(p2pool_choice(false, false, true));
         assert!(!p2pool_choice(false, true, true));
@@ -1074,6 +1300,7 @@ mod tests {
 
         let a = Args::try_parse_from([
             "xkrd",
+            "--node",
             "--p2pool",
             "--p2pool-stratum",
             "0.0.0.0:3334",
@@ -1135,13 +1362,21 @@ mod tests {
         }
         // the built-in miner: solo to an address, or via p2pool, not both
         assert!(!plain.mine_p2pool && plain.mine.is_none());
-        let pool =
-            Args::try_parse_from(["xkrd", "--p2pool", "--mine-p2pool", "--mine-threads", "2"])
-                .unwrap();
+        let pool = Args::try_parse_from([
+            "xkrd",
+            "--node",
+            "--p2pool",
+            "--mine-p2pool",
+            "--mine-threads",
+            "2",
+        ])
+        .unwrap();
         assert!(pool.mine_p2pool && pool.p2pool_enabled());
+        assert!(pool.checked_components().is_ok());
         assert_eq!((pool.mine.as_deref(), pool.mine_threads), (None, Some(2)));
-        let solo = Args::try_parse_from(["xkrd", "--p2pool", "--mine", "SEKRx"]).unwrap();
+        let solo = Args::try_parse_from(["xkrd", "--node", "--p2pool", "--mine", "SEKRx"]).unwrap();
         assert!(!solo.mine_p2pool);
+        assert!(solo.checked_components().is_ok());
         assert_eq!(solo.mine.as_deref(), Some("SEKRx"));
         assert!(Args::try_parse_from(["xkrd", "--mine", "SEKRx", "--mine-p2pool"]).is_err());
 
@@ -1155,6 +1390,326 @@ mod tests {
             "--p2pool-mini",
         ] {
             assert!(help.contains(flag), "{flag}");
+        }
+    }
+
+    fn parse(args: &[&str]) -> Args {
+        let mut all = vec!["xkrd"];
+        all.extend_from_slice(args);
+        Args::try_parse_from(all).unwrap_or_else(|e| panic!("{args:?}: {e}"))
+    }
+
+    const fn parts(node: bool, hugin: bool, p2pool: bool) -> Components {
+        Components {
+            node,
+            hugin,
+            p2pool,
+        }
+    }
+
+    /// Every row of the mode table, on mainnet and on the testnet (where p2pool is off
+    /// without mode flags), with its start-up label.
+    #[test]
+    fn components_table() {
+        let table: &[(&[&str], Components, Components, &str)] = &[
+            (
+                &[][..],
+                parts(true, true, true),
+                parts(true, true, false),
+                "node + Hugin + p2pool",
+            ),
+            (
+                &["--node"],
+                parts(true, false, false),
+                parts(true, false, false),
+                "node",
+            ),
+            (
+                &["--hugin"],
+                parts(false, true, false),
+                parts(false, true, false),
+                "Hugin",
+            ),
+            (
+                &["--p2pool"],
+                parts(false, false, true),
+                parts(false, false, true),
+                "p2pool",
+            ),
+            (
+                &["--node", "--hugin"],
+                parts(true, true, false),
+                parts(true, true, false),
+                "node + Hugin",
+            ),
+            (
+                &["--node", "--p2pool"],
+                parts(true, false, true),
+                parts(true, false, true),
+                "node + p2pool",
+            ),
+            (
+                &["--hugin", "--p2pool"],
+                parts(false, true, true),
+                parts(false, true, true),
+                "Hugin + p2pool",
+            ),
+            (
+                &["--p2pool", "--node", "--hugin"],
+                parts(true, true, true),
+                parts(true, true, true),
+                "node + Hugin + p2pool",
+            ),
+            // the shortcuts from "all three"
+            (
+                &["--no-hugin"],
+                parts(true, false, true),
+                parts(true, false, false),
+                "node + p2pool",
+            ),
+            (
+                &["--no-p2pool"],
+                parts(true, true, false),
+                parts(true, true, false),
+                "node + Hugin",
+            ),
+            (
+                &["--no-hugin", "--no-p2pool"],
+                parts(true, false, false),
+                parts(true, false, false),
+                "node",
+            ),
+            // the relay needs Hyperswarm
+            (
+                &["--no-hyper"],
+                parts(true, false, true),
+                parts(true, false, false),
+                "node + p2pool",
+            ),
+            (
+                &["--node", "--no-hyper"],
+                parts(true, false, false),
+                parts(true, false, false),
+                "node",
+            ),
+            // a repeated mode flag is the same mode
+            (
+                &["--node", "--node"],
+                parts(true, false, false),
+                parts(true, false, false),
+                "node",
+            ),
+        ];
+        for &(flags, main, test, label) in table {
+            let a = parse(flags);
+            assert_eq!(a.checked_components(), Ok(main), "{flags:?}");
+            assert_eq!(a.components(), main, "{flags:?}");
+            assert_eq!(a.p2pool_enabled(), main.p2pool, "{flags:?}");
+            assert_eq!(a.hugin_enabled(), main.hugin, "{flags:?}");
+            let mut on_test = vec!["--network", "testnet"];
+            on_test.extend_from_slice(flags);
+            assert_eq!(
+                parse(&on_test).checked_components(),
+                Ok(test),
+                "testnet {flags:?}"
+            );
+            assert_eq!(main.label(), label, "{flags:?}");
+        }
+        assert_eq!(
+            parts(true, true, true).mode_flags(),
+            "--node --hugin --p2pool"
+        );
+        assert_eq!(parts(false, true, true).mode_flags(), "--hugin --p2pool");
+        assert_eq!(parts(false, false, false).label(), "nothing");
+    }
+
+    /// Every combination that does not go together stops the start with its message.
+    #[test]
+    fn components_errors() {
+        let table: &[(&[&str], &str)] = &[
+            (
+                &["--node", "--no-hugin"][..],
+                "--no-hugin with --node: the Hugin relay is already off",
+            ),
+            (
+                &["--node", "--p2pool", "--no-hugin"],
+                "--no-hugin with --node --p2pool: the Hugin relay is already off",
+            ),
+            (
+                &["--hugin", "--no-hugin"],
+                "--no-hugin with --hugin: give one of them",
+            ),
+            (
+                &["--node", "--no-p2pool"],
+                "--no-p2pool with --node: p2pool is already off",
+            ),
+            (
+                &["--node", "--hugin", "--no-p2pool"],
+                "--no-p2pool with --node --hugin: p2pool is already off",
+            ),
+            (
+                &["--p2pool", "--no-p2pool"],
+                "--no-p2pool with --p2pool: give one of them",
+            ),
+            (
+                &["--no-p2pool", "--node", "--p2pool"],
+                "--no-p2pool with --p2pool: give one of them",
+            ),
+            (
+                &["--node", "--no-hugin", "--no-p2pool"],
+                "--no-hugin with --node: the Hugin relay is already off",
+            ),
+            (
+                &["--node", "--hugin", "--no-hyper"],
+                "--hugin needs the Hyperswarm transport (not with --no-hyper)",
+            ),
+            (
+                &["--p2pool", "--no-hyper"],
+                "--p2pool without --node needs the Hyperswarm transport (not with --no-hyper)",
+            ),
+            (
+                &["--hugin", "--fast-sync"],
+                "--fast-sync needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--p2pool", "--prune"],
+                "--prune needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--p2pool", "--prune", "--prune-stripes", "3"],
+                "--prune needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--hugin", "--p2pool", "--mine", "SEKRx"],
+                "--mine needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--hugin", "--explorer"],
+                "--explorer needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--p2pool", "--no-db-maintenance"],
+                "--no-db-maintenance needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--p2pool", "--fork13-height", "16"],
+                "--fork13-height needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--p2pool", "--fork14-height", "24"],
+                "--fork14-height needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--p2pool", "--fork14-grace", "5"],
+                "--fork14-grace needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--hugin", "--private"],
+                "--private needs the node (--node, or no mode flags)",
+            ),
+            (
+                &["--node", "--mine-p2pool"],
+                "--mine-p2pool needs the built-in p2pool (add --p2pool to the mode flags)",
+            ),
+            (
+                &["--hugin", "--mine-p2pool"],
+                "--mine-p2pool needs the built-in p2pool (add --p2pool to the mode flags)",
+            ),
+            (
+                &["--no-p2pool", "--mine-p2pool"],
+                "--mine-p2pool needs the built-in p2pool (not with --no-p2pool)",
+            ),
+            (
+                &["--network", "testnet", "--mine-p2pool"],
+                "--mine-p2pool needs the built-in p2pool (testnet: --node --hugin --p2pool)",
+            ),
+        ];
+        for &(flags, message) in table {
+            assert_eq!(
+                parse(flags).checked_components(),
+                Err(message.to_owned()),
+                "{flags:?}"
+            );
+        }
+        // the node flags are fine with the node, and --mine-p2pool with p2pool
+        for flags in [
+            &["--fast-sync", "--prune", "--no-db-maintenance"][..],
+            &[
+                "--node",
+                "--fast-sync",
+                "--prune",
+                "--prune-stripes",
+                "3",
+                "--mine",
+                "SEKRx",
+            ],
+            &["--node", "--hugin", "--explorer"],
+            &[
+                "--network",
+                "testnet",
+                "--node",
+                "--fork13-height",
+                "16",
+                "--fork14-grace",
+                "5",
+            ],
+            &["--mine-p2pool"],
+            &["--node", "--hugin", "--p2pool", "--mine-p2pool"],
+            &[
+                "--network",
+                "testnet",
+                "--node",
+                "--p2pool",
+                "--mine-p2pool",
+            ],
+            &["--no-hyper", "--no-hugin"],
+        ] {
+            assert!(parse(flags).checked_components().is_ok(), "{flags:?}");
+        }
+        // the Hugin relay and p2pool without the node run: the main chain comes from remote
+        // nodes
+        for (flags, want, label) in [
+            (&["--hugin"][..], parts(false, true, false), "Hugin"),
+            (
+                &["--hugin", "--hugin-p2pool", "pool.example:3333"],
+                parts(false, true, false),
+                "Hugin",
+            ),
+            (
+                &["--network", "testnet", "--hugin", "--hugin-private"],
+                parts(false, true, false),
+                "Hugin",
+            ),
+            (
+                &["--hugin", "--p2pool"],
+                parts(false, true, true),
+                "Hugin + p2pool",
+            ),
+            (
+                &["--hugin", "--p2pool", "--mine-p2pool"],
+                parts(false, true, true),
+                "Hugin + p2pool",
+            ),
+            (&["--p2pool"], parts(false, false, true), "p2pool"),
+            (
+                &["--p2pool", "--mine-p2pool"],
+                parts(false, false, true),
+                "p2pool",
+            ),
+            (
+                &["--network", "testnet", "--p2pool", "--mine-p2pool"],
+                parts(false, false, true),
+                "p2pool",
+            ),
+            (
+                &["--p2pool", "--hyper-client-only"],
+                parts(false, false, true),
+                "p2pool",
+            ),
+        ] {
+            let c = parse(flags).checked_components().unwrap();
+            assert_eq!(c, want, "{flags:?}");
+            assert_eq!(c.label(), label, "{flags:?}");
         }
     }
 }

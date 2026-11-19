@@ -18,7 +18,8 @@ use tokio::sync::broadcast;
 use xkr_consensus::Network;
 use xkr_crypto::{generate_keys, os_rng};
 use xkr_daemon_client::{
-    DaemonClient, DaemonError, DaemonUrl, HttpConfig, HttpTransport, Transport,
+    AnyTransport, ClientSource, DaemonClient, DaemonError, DaemonUrl, HttpConfig, HttpTransport,
+    SwarmTransport, Transport,
 };
 use xkr_serialization::decode_transaction;
 use xkr_types::{Hash, PublicKey, SecretKey};
@@ -44,9 +45,13 @@ use crate::state::{
 use crate::sync::{self, DaemonStatus, SyncConfig, SyncTasks};
 use crate::validate::validate_address;
 
+/// The host a wallet reports for a daemon reached over Hyperswarm ([`Node::swarm`]); given as
+/// the daemon host (`--remote-daemon hyperswarm`, wallet-api `daemonHost`) it picks Hyperswarm.
+pub const SWARM_HOST: &str = "hyperswarm";
+
 /// A daemon to talk to, with the host and port wallet-api reports (`GET /node`).
 #[derive(Debug)]
-pub struct Node<T = HttpTransport> {
+pub struct Node<T = AnyTransport> {
     /// The client.
     pub client: DaemonClient<T>,
     /// Host as given.
@@ -55,7 +60,7 @@ pub struct Node<T = HttpTransport> {
     pub port: u16,
 }
 
-impl Node<HttpTransport> {
+impl Node<AnyTransport> {
     /// A daemon at `host:port` over HTTP (`Nigel(daemonHost, daemonPort)`). A `host` with a
     /// scheme (`https://node.example/prefix`) is used as the whole URL.
     pub fn http(host: &str, port: u16) -> Result<Self, WalletError> {
@@ -68,11 +73,62 @@ impl Node<HttpTransport> {
         let transport = HttpTransport::with_url(url, &HttpConfig::default())
             .map_err(|e| WalletError::new(ErrorCode::DaemonOffline).with_detail(e.to_string()))?;
         Ok(Self {
-            client: DaemonClient::new(transport),
+            client: DaemonClient::new(AnyTransport::Http(transport)),
             host: host.to_owned(),
             port,
         })
     }
+
+    /// A node found over Hyperswarm through `source` (reported as host [`SWARM_HOST`], port 0).
+    #[must_use]
+    pub fn swarm(source: Arc<dyn ClientSource>) -> Self {
+        Self {
+            client: DaemonClient::new(AnyTransport::Swarm(SwarmTransport::new(source))),
+            host: SWARM_HOST.to_owned(),
+            port: 0,
+        }
+    }
+
+    /// The daemon of `host:port`: Hyperswarm through `swarm` when `host` is [`SWARM_HOST`],
+    /// else HTTP.
+    ///
+    /// # Errors
+    /// [`SWARM_HOST`] without a `swarm`, or an address that does not parse.
+    pub fn connect(
+        host: &str,
+        port: u16,
+        swarm: Option<&Arc<dyn ClientSource>>,
+    ) -> Result<Self, WalletError> {
+        if host == SWARM_HOST {
+            return swarm.map(|s| Self::swarm(s.clone())).ok_or_else(|| {
+                WalletError::new(ErrorCode::DaemonOffline)
+                    .with_detail("Hyperswarm is not available in this build".to_owned())
+            });
+        }
+        Self::http(host, port)
+    }
+}
+
+/// How long [`local_node_answers`] waits.
+pub const LOCAL_PROBE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Whether a node answers `/info` on `127.0.0.1:port` within [`LOCAL_PROBE`]: the wallet tools
+/// use a local node when one runs and Hyperswarm otherwise, unless a daemon address is given.
+pub async fn local_node_answers(port: u16) -> bool {
+    let Ok(transport) = HttpTransport::with_url(
+        match DaemonUrl::from_host_port("127.0.0.1", port) {
+            Ok(u) => u,
+            Err(_) => return false,
+        },
+        &HttpConfig {
+            request_timeout: LOCAL_PROBE,
+            connect_timeout: LOCAL_PROBE,
+            ..HttpConfig::default()
+        },
+    ) else {
+        return false;
+    };
+    DaemonClient::new(transport).info().await.is_ok()
 }
 
 impl<T: Transport> Node<T> {
@@ -194,7 +250,7 @@ impl<T> Shared<T> {
 }
 
 /// An open wallet.
-pub struct Wallet<T = HttpTransport> {
+pub struct Wallet<T = AnyTransport> {
     shared: Arc<Shared<T>>,
     tasks: Mutex<Option<SyncTasks>>,
     autosave: Mutex<Option<AutosaveTask>>,

@@ -46,6 +46,24 @@ Details that stay the same:
 The tools work with `xkrd`. Point them at an `xkrd` node before fork 14 (section 5): C++ nodes
 stop following the chain at the fork height.
 
+### Which node a wallet uses
+
+| given | node used |
+|---|---|
+| a daemon address (`xkrwallet -r host:port`, `xkr-walletd --daemon-address/--daemon-port` or the same keys in its config file, wallet-api `daemonHost`/`daemonPort`) | that address, over HTTP, as the C++ tools do |
+| nothing, and a node answers on `127.0.0.1` at the network's RPC port | that local node |
+| nothing, and no local node answers | a node found over Hyperswarm on the wallets topic (`docs/hyper-transport.md`, "Wallets topic") |
+| the daemon host `hyperswarm` | a node found over Hyperswarm |
+| `xkrwallet -r xkr:…` (a private node's invite) | that private node, over Hyperswarm |
+
+Over Hyperswarm the wallet takes a node that says it is synchronized and whose state hash
+matches the one built into the wallet (`docs/storage.md`, "State hashes"); if the connection
+ends, the next request finds a node again. The Bare worker for this starts only when a wallet
+uses Hyperswarm; the programs then need `libbare-kit` and `bridge/` next to them, as `xkrd`
+does (the release archive has both). `XKR_HYPER_BOOTSTRAP=host:port[,...]` sets other DHT
+bootstrap nodes (a local test DHT). wallet-api reports the node as host `hyperswarm`, port 0
+(`GET /node`).
+
 ## 3. Wallet files
 
 The Rust tools open both kinds of wallet file the C++ tools write:

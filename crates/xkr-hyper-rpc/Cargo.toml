@@ -1,0 +1,23 @@
+[package]
+name = "xkr-hyper-rpc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Wire protocol of xkrd's clients topic on Hyperswarm (length-prefixed JSON frames, hello, calls and pushes): the server driver xkrd uses and the client that chainless xkrd modes and wallet tools use."
+
+[dependencies]
+futures    = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+tokio      = { workspace = true }
+
+[dev-dependencies]
+# paused clock in the rate-limit tests
+tokio      = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

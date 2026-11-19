@@ -282,6 +282,22 @@ fn pruning_json(raw: u32, net: &NetStatus) -> Value {
     })
 }
 
+/// `/status` `state`: the newest stored state hash (`span`, `hash`; `null` before the first
+/// stable span) and the first span whose hash differs from the built-in list (`mismatch`:
+/// `{ span, expected, found }`, `null` when none does).
+pub(crate) fn state_json(view: &xkr_chain::StateView) -> Value {
+    let latest = view.latest();
+    json!({
+        "span": latest.map(|(span, _)| span),
+        "hash": latest.map(|(_, hash)| hash.to_string()),
+        "mismatch": view.mismatch.map(|m| json!({
+            "span": m.span,
+            "expected": m.expected.to_string(),
+            "found": m.found.to_string(),
+        })),
+    })
+}
+
 /// Transaction versions the block at `height` accepts, ascending (version 0 counts as 1).
 fn tx_versions(forks: &xkr_consensus::ForkSchedule, height: u64) -> Vec<u8> {
     let allowed = forks.tx_versions_at(height);
@@ -318,7 +334,9 @@ pub async fn get_peers(State(s): State<Arc<RpcState>>) -> Response {
 /// `/status`: xkr's own status for the desktop app. `hyper` is the Hyperswarm network's DHT node
 /// ([`crate::HyperNetStatus`]: `state`, `udp_port`, `port_fixed`, `firewalled`, `nat`,
 /// `private`), `null` with `--no-hyper`. `p2pool` is the built-in p2pool
-/// ([`crate::P2poolStatus`]), `null` while it is off. `hyper.udp_port`, `hyper.firewalled`, `hyper.nat`, `hugin.fee_address`,
+/// ([`crate::P2poolStatus`]), `null` while it is off. `clients` is the Hyperswarm clients topic
+/// (`{ connections, served_calls }`, [`crate::ClientStatsSnapshot`]), `null` when the node does
+/// not serve it. `hyper.udp_port`, `hyper.firewalled`, `hyper.nat`, `hugin.fee_address`,
 /// `hugin.p2pool.host`, `p2pool.payout_address`, `p2pool.stratum` and `p2pool.stratum_off` are
 /// part of the answer only for a client on a loopback address ([`from_loopback`]); other clients get the rest.
 #[allow(clippy::cast_precision_loss)]
@@ -377,6 +395,9 @@ pub async fn get_status(State(s): State<Arc<RpcState>>, ext: Extensions) -> Resp
             "mining": serde_json::to_value(s.mining.borrow().as_ref()).unwrap_or(Value::Null),
             "hugin": s.hugin.as_deref().map_or(Value::Null, |h| hugin_json(h, local)),
             "p2pool": s.p2pool.as_ref().map_or(Value::Null, |p| p2pool_json(&p.borrow(), local)),
+            "clients": s.clients.as_deref().map_or(Value::Null, |c| {
+                serde_json::to_value(c.snapshot()).unwrap_or(Value::Null)
+            }),
             "white_peerlist_size": net.white_peers.len(),
             "gray_peerlist_size": net.gray_peers.len(),
             "download": {
@@ -389,6 +410,7 @@ pub async fn get_status(State(s): State<Arc<RpcState>>, ext: Extensions) -> Resp
             "fork": fork_json,
             "block_rate": rate_json,
             "pruning": pruning,
+            "state": state_json(&s.chain.state_view()),
             "db_size": db_size,
             "data_dir": (!s.info.data_dir.as_os_str().is_empty())
                 .then(|| s.info.data_dir.display().to_string()),
@@ -410,7 +432,7 @@ pub async fn get_status(State(s): State<Arc<RpcState>>, ext: Extensions) -> Resp
 /// `fee_address` (`null`: none, shares are not submitted), `fee_donation` (the default donation
 /// address) and `p2pool { host, connected }`. Without `local`, `fee_address` and `p2pool.host`
 /// are left out.
-fn hugin_json(stats: &xkr_hugin::HuginStats, local: bool) -> Value {
+pub(crate) fn hugin_json(stats: &xkr_hugin::HuginStats, local: bool) -> Value {
     let mut v = serde_json::to_value(stats.snapshot()).unwrap_or(Value::Null);
     if !local && let Some(o) = v.as_object_mut() {
         o.remove("fee_address");
@@ -423,7 +445,7 @@ fn hugin_json(stats: &xkr_hugin::HuginStats, local: bool) -> Value {
 
 /// `/status` `p2pool` ([`crate::P2poolStatus`], field names as there); without `local`,
 /// `payout_address`, `stratum` and `stratum_off` are left out.
-fn p2pool_json(status: &crate::P2poolStatus, local: bool) -> Value {
+pub(crate) fn p2pool_json(status: &crate::P2poolStatus, local: bool) -> Value {
     let mut v = serde_json::to_value(status).unwrap_or(Value::Null);
     if !local && let Some(o) = v.as_object_mut() {
         o.remove("payout_address");
@@ -435,7 +457,7 @@ fn p2pool_json(status: &crate::P2poolStatus, local: bool) -> Value {
 
 /// `/status` `hyper` ([`crate::HyperNetStatus`], `null` without the Hyperswarm network);
 /// without `local`, `udp_port`, `firewalled` and `nat` are left out.
-fn hyper_json(hyper: Option<crate::HyperNetStatus>, local: bool) -> Value {
+pub(crate) fn hyper_json(hyper: Option<crate::HyperNetStatus>, local: bool) -> Value {
     let mut v = serde_json::to_value(hyper).unwrap_or(Value::Null);
     if !local && let Some(o) = v.as_object_mut() {
         for key in ["udp_port", "firewalled", "nat"] {
@@ -448,7 +470,7 @@ fn hyper_json(hyper: Option<crate::HyperNetStatus>, local: bool) -> Value {
 /// Whether the request came from a loopback address: the connection's remote address
 /// (`ConnectInfo`, set by [`crate::serve`]) or a `MockConnectInfo` layer in tests. A request
 /// without either does not count as one.
-fn from_loopback(ext: &Extensions) -> bool {
+pub(crate) fn from_loopback(ext: &Extensions) -> bool {
     ext.get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0)
         .or_else(|| ext.get::<MockConnectInfo<SocketAddr>>().map(|c| c.0))
@@ -915,6 +937,33 @@ mod tests {
         assert_eq!(recent["recent_only"], json!(true));
         assert_eq!(recent["stripes"], Value::Null);
         assert_eq!(recent["stripe"], Value::Null);
+    }
+
+    /// `/status.state` before the first span, with a stored span, and with a mismatch.
+    #[test]
+    fn state_status_names_the_newest_span_and_a_mismatch() {
+        let empty = state_json(&xkr_chain::StateView::default());
+        assert_eq!(
+            empty,
+            json!({ "span": null, "hash": null, "mismatch": null })
+        );
+        let view = xkr_chain::StateView {
+            hashes: vec![
+                (Hash([1; 32]), Hash([9; 32])),
+                (Hash([2; 32]), Hash([9; 32])),
+            ],
+            mismatch: Some(xkr_chain::StateMismatch {
+                span: 2,
+                expected: Hash([3; 32]),
+                found: Hash([4; 32]),
+            }),
+        };
+        let v = state_json(&view);
+        assert_eq!(v["span"], json!(1));
+        assert_eq!(v["hash"], json!("02".repeat(32)));
+        assert_eq!(v["mismatch"]["span"], json!(2));
+        assert_eq!(v["mismatch"]["expected"], json!("03".repeat(32)));
+        assert_eq!(v["mismatch"]["found"], json!("04".repeat(32)));
     }
 
     /// A pruned block is its own error (404 per item), never an internal error.

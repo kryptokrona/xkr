@@ -27,8 +27,11 @@
 //! | `/get_transaction_hashes_by_payment_id` | `onGetTransactionHashesByPaymentId` |
 //! | `/queryblockslite` | `on_query_blocks_lite` (C++ walletd / xkrwallet sync) |
 //! | `/get_blocks_hashes_by_timestamps` | `onGetBlocksHashesByTimestamps` |
-//! | `/json_rpc` | `getblockcount`, `on_getblockhash`, `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`, `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`, `submitblock`, `f_blocks_list_json`, `f_block_json`, `f_transaction_json`, `f_on_transactions_pool_json` (the `f_*` methods only on a node started with `--explorer`, [`RpcState::explorer`]) |
-//! | `/status` | xkr only: sync, peer, mining, Hugin relay and p2pool state for the desktop app |
+//! | `/json_rpc` | `getblockcount`, `on_getblockhash`, `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`, `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`, `submitblock`, `getstatehash` (xkr), `f_blocks_list_json`, `f_block_json`, `f_transaction_json`, `f_on_transactions_pool_json` (the `f_*` methods only on a node started with `--explorer`, [`RpcState::explorer`]) |
+//! | `/status` | xkr only: sync, peer, mining, Hugin relay, p2pool and clients-topic state for the desktop app |
+//!
+//! Without the node (`xkrd --p2pool`: the main chain comes from remote nodes) [`serve_remote`]
+//! answers only `/status` and `/info` ([`RemoteState`]), with the same access rules and limits.
 //!
 //! Like the C++ server, every path accepts GET and POST (the C++ HTTP server ignores the
 //! method). Storage reads run on `spawn_blocking`.
@@ -53,14 +56,18 @@
 mod details;
 mod explorer;
 mod handlers;
+pub mod inproc;
 mod jsonrpc;
 mod listing;
 mod mining;
 mod node_proxy;
+mod remote;
 mod wallet;
 
 pub use details::MAX_DETAILS_ANSWER_BYTES;
+pub use jsonrpc::{CallError, call};
 pub use mining::{parse_miner_address, submit_mined_block};
+pub use remote::{RemoteNodeStatus, RemoteState, RemoteStatus};
 
 use std::future::Future;
 use std::io;
@@ -68,6 +75,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -125,6 +133,33 @@ pub struct NetStatus {
     pub missing_stripe: Option<u32>,
     /// The Hyperswarm network's DHT node (`/status` `hyper`); `None` with `--no-hyper`.
     pub hyper_net: Option<HyperNetStatus>,
+}
+
+/// Counters of the Hyperswarm clients topic (`xkrd`, `docs/hyper-transport.md` "Clients
+/// topic"), shared by the server and `/status`.
+#[derive(Debug, Default)]
+pub struct ClientStats {
+    /// Client connections open now (from arrival to close).
+    pub connections: AtomicUsize,
+    /// Calls answered by a service (errors of the method included, refusals by the limits not).
+    pub served_calls: AtomicU64,
+}
+
+/// [`ClientStats`] at one moment: `/status` `clients`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ClientStatsSnapshot {
+    pub connections: usize,
+    pub served_calls: u64,
+}
+
+impl ClientStats {
+    #[must_use]
+    pub fn snapshot(&self) -> ClientStatsSnapshot {
+        ClientStatsSnapshot {
+            connections: self.connections.load(Ordering::Relaxed),
+            served_calls: self.served_calls.load(Ordering::Relaxed),
+        }
+    }
 }
 
 /// State of the node's HyperDHT node.
@@ -304,6 +339,9 @@ pub struct RpcState {
     /// The built-in p2pool, shown by `/status` as `p2pool`; `None` (`"p2pool": null`) when it
     /// is off.
     pub p2pool: Option<watch::Receiver<Arc<P2poolStatus>>>,
+    /// Counters of the Hyperswarm clients topic, shown by `/status` as `clients`; `None`
+    /// (`"clients": null`) when the node does not serve it.
+    pub clients: Option<Arc<ClientStats>>,
     /// Whether the block explorer methods (`f_blocks_list_json`, `f_block_json`,
     /// `f_transaction_json`, `f_on_transactions_pool_json`) are answered (`xkrd --explorer`,
     /// C++ `--enable-blockexplorer`). Off, `/json_rpc` reports them as not found.
@@ -563,6 +601,25 @@ pub fn router_with_access(state: Arc<RpcState>, access: AccessPolicy) -> Router 
         .with_state(state)
 }
 
+/// The router of xkrd without the node: `/status` and `/info` from a [`RemoteState`], with the
+/// [`AccessPolicy`], the request limits and the CORS layer of [`router_with_access`].
+pub fn remote_router(state: Arc<RemoteState>, access: AccessPolicy) -> Router {
+    let cors = access.cors.clone();
+    Router::new()
+        .route("/status", get(remote::status).post(remote::status))
+        .route("/info", get(remote::info).post(remote::info))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
+            limits_layer,
+        ))
+        .layer(middleware::from_fn_with_state(Arc::new(cors), cors_layer))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(access),
+            access_layer,
+        ))
+        .with_state(state)
+}
+
 /// [`AccessPolicy`]: `403` for a foreign `Host` or a web `Origin` that is not allowed.
 async fn access_layer(
     State(policy): State<Arc<AccessPolicy>>,
@@ -730,6 +787,29 @@ pub async fn serve(
     axum::serve(
         listener,
         router_with_access(state, access).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
+}
+
+/// [`serve`] for xkrd without the node: [`remote_router`] on `cfg.bind`, with the same
+/// connection cap and write-stall timeout.
+pub async fn serve_remote(
+    cfg: RpcConfig,
+    state: Arc<RemoteState>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    let listener = TcpListener::bind(cfg.bind).await?;
+    tracing::info!(addr = %cfg.bind, "RPC server listening (status only, no node)");
+    let access = AccessPolicy::from_config(&cfg);
+    let listener = CappedListener {
+        inner: listener,
+        slots: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+    };
+    let listener = listener.tap_io(|_: &mut StallGuard<TcpStream>| {});
+    axum::serve(
+        listener,
+        remote_router(state, access).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown)
     .await

@@ -33,4 +33,4 @@ pub mod params;
 pub mod respond;
 pub mod server;
 
-pub use server::{ApiConfig, App, HttpNodes, NodeFactory, router};
+pub use server::{ApiConfig, App, NodeFactory, Nodes, router};

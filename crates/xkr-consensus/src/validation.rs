@@ -12,7 +12,7 @@ use std::hash::BuildHasher;
 
 use xkr_crypto::tree_hash::tree_hash_from_branch;
 use xkr_crypto::{
-    check_hash, check_key, check_ring_signature, clsag_verify, key_image_in_prime_subgroup,
+    CheckedKeyImage, check_hash, check_key, check_ring_signature_checked, clsag_verify_checked,
 };
 use xkr_serialization::{
     DecodeError, MAX_PARENT_BLOCK_SIZE, ParentBlockMode, aux_block_header_hash, block_long_hash,
@@ -309,6 +309,12 @@ pub struct AcceptedBlock {
 /// already guarantees it for decoded transactions, so version-1 behaviour is unchanged). Which
 /// versions a height accepts is [`check_transaction_version`].
 pub fn validate_semantic(tx: &Transaction) -> Result<u64, TxError> {
+    validate_semantic_checked(tx).map(|(fee, _)| fee)
+}
+
+/// [`validate_semantic`], also returning the checked key images, one per input in input order
+/// (for [`validate_transaction_checked`] and the ring signatures).
+pub fn validate_semantic_checked(tx: &Transaction) -> Result<(u64, Vec<CheckedKeyImage>), TxError> {
     let p = &tx.prefix;
     if p.inputs.is_empty() {
         return Err(TxError::EmptyInputs);
@@ -331,6 +337,7 @@ pub fn validate_semantic(tx: &Transaction) -> Result<u64, TxError> {
     }
     let mut inputs_sum: u64 = 0;
     let mut images: HashSet<KeyImage> = HashSet::with_capacity(p.inputs.len());
+    let mut checked = Vec::with_capacity(p.inputs.len());
     for input in &p.inputs {
         let TxInput::Key {
             amount,
@@ -347,9 +354,10 @@ pub fn validate_semantic(tx: &Transaction) -> Result<u64, TxError> {
             return Err(TxError::InputEmptyOutputUsage);
         }
         // scalarmultKey(keyImage, L) == I
-        if !key_image_in_prime_subgroup(key_image) {
+        let Some(image) = CheckedKeyImage::new(key_image) else {
             return Err(TxError::InputInvalidDomainKeyImages);
-        }
+        };
+        checked.push(image);
         // packed indexes: the first may be zero, the deltas may not
         if output_indexes[1..].contains(&0) {
             return Err(TxError::InputIdenticalOutputIndexes);
@@ -361,7 +369,7 @@ pub fn validate_semantic(tx: &Transaction) -> Result<u64, TxError> {
     if outputs_sum > inputs_sum {
         return Err(TxError::WrongAmount);
     }
-    Ok(inputs_sum - outputs_sum)
+    Ok((inputs_sum - outputs_sum, checked))
 }
 
 /// The fork-14 version rules for a non-coinbase transaction in the block at `height`
@@ -399,18 +407,41 @@ pub fn check_transaction_version(
 /// Version-2 transactions (`docs/tx-v2.md`) are checked the same way, except that every key
 /// input must carry a CLSAG signature with one response per ring member (always, not only from
 /// `TRANSACTION_SIGNATURE_COUNT_VALIDATION_HEIGHT`) that verifies against the resolved ring
-/// ([`clsag_verify`]). Key images are the same `x * H_p(P)` in both versions, so the spent set
-/// (and `seen_key_images`) catches double spends across versions.
+/// ([`xkr_crypto::clsag_verify`]). Key images are the same `x * H_p(P)` in both versions, so
+/// the spent set (and `seen_key_images`) catches double spends across versions.
 pub fn validate_transaction<S: BuildHasher>(
     tx: &BlockTransaction<'_>,
     previous_block_index: u32,
     in_checkpoint_zone: bool,
     seen_key_images: &mut HashSet<KeyImage, S>,
 ) -> Result<u64, TxError> {
-    let fee = validate_semantic(tx.tx)?;
+    let (fee, key_images) = validate_semantic_checked(tx.tx)?;
+    validate_transaction_checked(
+        tx,
+        &key_images,
+        previous_block_index,
+        in_checkpoint_zone,
+        seen_key_images,
+    )?;
+    Ok(fee)
+}
+
+/// The part of [`validate_transaction`] after [`validate_semantic_checked`], with the key images
+/// that call returned for `tx`: every input's key image must be the checked one at its index
+/// (`InputInvalidDomainKeyImages` otherwise).
+pub fn validate_transaction_checked<S: BuildHasher>(
+    tx: &BlockTransaction<'_>,
+    key_images: &[CheckedKeyImage],
+    previous_block_index: u32,
+    in_checkpoint_zone: bool,
+    seen_key_images: &mut HashSet<KeyImage, S>,
+) -> Result<(), TxError> {
     for (i, input) in tx.tx.prefix.inputs.iter().enumerate() {
         let TxInput::Key { key_image, .. } = input else {
             return Err(TxError::InputUnknownType);
+        };
+        let Some(image) = key_images.get(i).filter(|c| c.key_image() == key_image) else {
+            return Err(TxError::InputInvalidDomainKeyImages);
         };
         if !seen_key_images.insert(*key_image) {
             return Err(TxError::InputKeyImageAlreadySpent);
@@ -436,7 +467,7 @@ pub fn validate_transaction<S: BuildHasher>(
             if sig.s.len() != ring.len() {
                 return Err(TxError::InputInvalidSignaturesCount);
             }
-            if !clsag_verify(&tx.prefix_hash, ring, key_image, sig) {
+            if !clsag_verify_checked(&tx.prefix_hash, ring, image, sig) {
                 return Err(TxError::InputInvalidSignatures);
             }
             continue;
@@ -447,11 +478,11 @@ pub fn validate_transaction<S: BuildHasher>(
         {
             return Err(TxError::InputInvalidSignaturesCount);
         }
-        if !check_ring_signature(&tx.prefix_hash, key_image, ring, sigs) {
+        if !check_ring_signature_checked(&tx.prefix_hash, image, ring, sigs) {
             return Err(TxError::InputInvalidSignatures);
         }
     }
-    Ok(fee)
+    Ok(())
 }
 
 /// C++ `Core::validateBlock(cachedBlock, cache, minerReward)`: header, parent block, timestamp

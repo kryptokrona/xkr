@@ -1,12 +1,12 @@
 //! The node operator's fee address: where the node's shares are paid to.
 //!
 //! The Hugin relay submits its apps' shares to p2pool under this address
-//! (`docs/hugin-relay.md` §11), and the built-in p2pool (`--p2pool`, `crate::p2pool`) builds
+//! (`docs/hugin-relay.md` §11), and the built-in p2pool (`crate::p2pool`) builds
 //! its block templates with it as the payout wallet; both take it from the same handle
 //! ([`FeeAddress::subscribe`]), which is loaded once when either runs.
 //!
-//! Precedence: `--hugin <address>` (saved at once), then the saved address, then the default
-//! donation address [`DEFAULT_FEE_ADDRESS`] ("nilsjr"). The value is stored in
+//! Precedence: `--hugin-payout <address>` (saved at once), then the saved address, then the
+//! default donation address [`DEFAULT_FEE_ADDRESS`] ("nilsjr"). The value is stored in
 //! `<data dir>/hugin/identity.json` (`feeAddress`, `feeAsked`; mode 0600, written atomically),
 //! and only this module reads and writes it there. The console changes it while the node runs
 //! (`fee-address <address>`); the change reaches every subscriber at once.
@@ -124,12 +124,13 @@ pub struct FeeAddress {
 
 impl FeeAddress {
     /// Loads the saved address from `file` (`identity.json`; created with a new node identity
-    /// if missing). `flag` (`--hugin <address>`) wins and is saved at once.
+    /// if missing). `flag` (`--hugin-payout <address>`) wins and is saved at once.
     pub fn load(file: &Path, network: Network, flag: Option<&str>) -> Result<Arc<Self>, String> {
         let mut id =
             NodeIdentity::load_or_create(file).map_err(|e| format!("{}: {e}", file.display()))?;
         if let Some(text) = flag {
-            let address = parse_fee_address(text, network).map_err(|e| format!("--hugin: {e}"))?;
+            let address =
+                parse_fee_address(text, network).map_err(|e| format!("--hugin-payout: {e}"))?;
             if id.fee_address.as_deref() != Some(address.as_str()) || !id.fee_asked {
                 id.fee_address = Some(address);
                 id.fee_asked = true;
@@ -240,7 +241,7 @@ pub fn donation_notice(hugin: bool, p2pool: bool) -> String {
 pub const QUESTION: [&str; 1] = ["Change it? Type fee-address <address>, or Enter to keep."];
 
 /// Under the notice once the question was answered, and after the notice without a terminal.
-pub const HOW_TO_CHANGE: &str = "Change it: fee-address <address>, or start with --hugin <address>";
+pub const HOW_TO_CHANGE: &str = "Change it: fee-address <address>, or --hugin-payout <address>";
 
 #[cfg(test)]
 mod tests {
@@ -389,7 +390,7 @@ mod tests {
         assert!(
             FeeAddress::load(&file, Network::Mainnet, Some("bogus"))
                 .unwrap_err()
-                .starts_with("--hugin:")
+                .starts_with("--hugin-payout:")
         );
         assert_eq!(
             FeeAddress::load(&file, Network::Mainnet, None)

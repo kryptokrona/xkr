@@ -26,6 +26,8 @@ xkr-crypto        = { path = "../xkr-crypto" }
 xkr-consensus     = { path = "../xkr-consensus" }
 xkr-daemon-client = { path = "../xkr-daemon-client" }
 xkr-wallet        = { path = "../xkr-wallet" }
+# a node over Hyperswarm when no local node runs and no --remote-daemon is given
+xkr-hyper-wallet  = { path = "../xkr-hyper-wallet" }
 # mnemonic check, Address (alternate prefix form)
 xkr-wallet-core   = { path = "../xkr-wallet-core" }
 # .addressBook.json in both forms

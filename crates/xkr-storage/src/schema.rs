@@ -25,7 +25,7 @@
 //! | [`ALT_BLOCKS`] | `hash: [u8;32]` | [`AltBlockHeader`] + framed zstd(raw block) | alternative chains |
 //! | [`ALT_BLOCK_HEIGHTS`] | `(height: u64, hash: [u8;32])` | `()` | expiring alt blocks |
 //! | [`META`] | `&str` | `u64` | `schema_version`, `top_height`, `pruned_below`, `pruning_seed`, `sealed_below`, `seal_lag` |
-//! | [`META_BLOBS`] | `&str` | bytes | `zstd_dictionary`, `zstd_dictionary_prev` |
+//! | [`META_BLOBS`] | `&str` | bytes | `zstd_dictionary`, `zstd_dictionary_prev`, `state_hashes` |
 //!
 //! Blocks below `META["sealed_below"]` (a multiple of [`CHUNK_BLOCKS`]) live in
 //! [`BODY_PARTS`]/[`SIG_PARTS`]; the newer ones in [`HOT_BLOCKS`]/[`HOT_SIGS`]. A chunk is sealed
@@ -81,6 +81,11 @@ pub mod meta {
     pub const ZSTD_DICTIONARY: &str = "zstd_dictionary";
     /// `META_BLOBS` key of the previous dictionary while a re-compression is in progress.
     pub const ZSTD_DICTIONARY_PREV: &str = "zstd_dictionary_prev";
+    /// `META_BLOBS` key of the state hashes of the stable stripe spans
+    /// ([`crate::Store::state_hashes`]): 64 bytes per span from span 0, the span's state hash
+    /// followed by the hash of its last block. Added to schema 2 without a version bump: older
+    /// files simply have no entry.
+    pub const STATE_HASHES: &str = "state_hashes";
 }
 
 pub const BLOCK_INFOS: TableDefinition<u32, BlockInfoRow> = TableDefinition::new("block_infos");

@@ -32,6 +32,19 @@ pub enum ChainError {
     /// its ring signatures (`docs/storage.md` "Stripe pruning").
     #[error("block {0} is pruned on this node (its ring signatures were dropped)")]
     Pruned(u64),
+    /// The state hash of a span differs from the compiled-in one (`crate::state`): the chain
+    /// takes no more blocks.
+    #[error(
+        "state hash of span {span} is {found}, the built-in one is {expected}; the chain takes          no more blocks (check the database with `xkrd db verify-state`)"
+    )]
+    StateMismatch {
+        /// The span.
+        span: u64,
+        /// The compiled-in hash.
+        expected: Hash,
+        /// The hash computed from this database.
+        found: Hash,
+    },
 }
 
 impl ChainError {

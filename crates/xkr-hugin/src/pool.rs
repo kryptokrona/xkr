@@ -19,8 +19,9 @@ use futures::future::BoxFuture;
 use tokio::sync::watch;
 
 pub use xkr_stratum::client::{
-    DEFAULT_POOL_PORT, Failover, LoginExtras, PoolAddr, PoolJob, PoolStatus, ShareSubmit,
-    StratumConfig, StratumPool, SubmitOutcome, VALID_JOBS, pool_addr, tls_connector,
+    DEFAULT_POOL_PORT, Failover, LoginExtras, PoolAddr, PoolConnector, PoolJob, PoolReader,
+    PoolStatus, PoolWriter, ShareSubmit, StratumConfig, StratumPool, SubmitOutcome, VALID_JOBS,
+    pool_addr, tls_connector,
 };
 
 /// The node's main-chain tip: what a job is dated with (`docs/hugin-relay.md` §11).

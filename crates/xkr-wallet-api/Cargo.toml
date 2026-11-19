@@ -17,6 +17,8 @@ xkr-types         = { path = "../xkr-types" }
 xkr-consensus     = { path = "../xkr-consensus" }
 xkr-daemon-client = { path = "../xkr-daemon-client" }
 xkr-wallet        = { path = "../xkr-wallet" }
+# a node over Hyperswarm when no local node runs and no daemon is given
+xkr-hyper-wallet  = { path = "../xkr-hyper-wallet" }
 # scalar reduction of imported private keys
 xkr-crypto        = { path = "../xkr-crypto" }
 axum              = { workspace = true }

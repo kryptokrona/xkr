@@ -18,6 +18,7 @@ pub mod forks;
 pub mod genesis;
 pub mod params;
 pub mod reward;
+pub mod state_hashes;
 pub mod validation;
 pub mod version;
 
@@ -31,6 +32,7 @@ pub use reward::get_block_reward;
 pub use validation::{
     AcceptedBlock, BlockError, BlockTransaction, ChainContext, ConsensusError, ResolvedInput,
     RingLookupError, TxError, check_proof_of_work, check_proof_of_work_with_hash,
-    check_transaction_version, validate_block, validate_semantic, validate_transaction,
+    check_transaction_version, validate_block, validate_semantic, validate_semantic_checked,
+    validate_transaction, validate_transaction_checked,
 };
 pub use version::{PowVariant, block_major_version_for_height, pow_variant_for};

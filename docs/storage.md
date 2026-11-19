@@ -63,7 +63,9 @@ the redb 4.5 source:
 `meta`: `schema_version` = 2, `top_height`, `sealed_below` (a multiple of 64), `pruned_below`
 (a multiple of 4 096 with stripe pruning, of 64 otherwise), `pruning_seed` (absent = 0, added
 to schema 2 without a version bump), `seal_lag` (default 1 024). `meta_blobs`:
-`zstd_dictionary`, `zstd_dictionary_prev` (only while a re-compression runs).
+`zstd_dictionary`, `zstd_dictionary_prev` (only while a re-compression runs), `state_hashes`
+(64 B per stable span from span 0: the state hash, then the hash of the span's last block; see
+"State hashes"; added to schema 2 without a version bump, absent = none computed).
 
 ### Records and chunks (`codec.rs`)
 
@@ -201,6 +203,84 @@ file):
 
 Deleted parts become free pages; `xkrd db compact` (or the automatic maintenance after a long
 sync) shrinks the file.
+
+## State hashes
+
+One hash per stripe span over the data every node keeps, also a stripe-pruned or completely
+pruned one (pruning drops only ring signatures), so nodes and wallets can check that a node
+holds the same chain without downloading it whole. Code: `crates/xkr-chain/src/state.rs`
+(`span_digest`, `chain_state`, `Chain::update_state_hashes`), `Reader::block_prefixes`,
+`Store::state_hashes`.
+
+**Definition.** Span `k` covers heights `4096k ..= 4096k + 4095` (`STRIPE_SPAN`). `H` is
+`cn_fast_hash` (Keccak-256 with the original `0x01` padding). `u64` is 8 bytes little-endian,
+hashes and keys are their 32 raw bytes.
+
+```
+S_{-1} = 32 zero bytes
+S_k    = H("xkr state v1" || S_{k-1} || D_k)        "xkr state v1" = 12 ASCII bytes, no terminator
+D_k    = H(block(4096k) || block(4096k + 1) || ... || block(4096k + 4095))
+
+block(h) = u64 height h
+           [32] block hash                     /getwalletsyncdata blockHash
+           u64  timestamp                      blockTimestamp
+           u64  transaction count n            1 + transactions.length (the coinbase counts)
+           tx(coinbase) || tx(t_1) || ... || tx(t_{n-1})   coinbaseTX, then transactions in order
+
+tx       = [32] transaction hash               hash
+           [32] transaction public key         txPublicKey (32 zero bytes when none)
+           u64  unlock time                    unlockTime
+           u64  output count m                 outputs.length
+           output_1 || ... || output_m         in output order
+           u64  input count                    inputs.length; coinbase: 1
+           input_1 || ...                      in input order
+
+output   = [32] output key                     outputs[i].key
+           u64  amount                         outputs[i].amount
+           u8   1 if the output has a view tag, else 0
+           u8   the view tag, 0 when there is none        outputs[i].view_tag
+           u64  global output index            /get_global_indexes_for_range value[i]
+
+input    = [32] key image                      inputs[j].k_image
+coinbase input = u64 its height                (the block height; coinbaseTX has no inputs field)
+```
+
+Field sources, exactly as the RPC returns them:
+
+* *transaction hash*: the coinbase's hash recomputed from the block (`transaction_hash`), the
+  others from the block's `tx_hashes`; `/get_global_indexes_for_range` keys its entries by it.
+* *transaction public key*: `xkr_types::wallet_tx_public_key` (C++ `Core::getPubKeyFromExtra`):
+  the first public-key field of `extra` read in order, else the 32 bytes after the first `0x01`
+  byte, else 32 zeros. Exactly the `txPublicKey` hex.
+* *amount*: the output's `amount` field as stored and returned, also for version-2 (fork 14)
+  outputs.
+* *view tag*: version-2 tagged outputs (target `0x03`) carry `view_tag` (two hex digits);
+  version 0/1 outputs (target `0x02`) have none and hash as `00 00`.
+* *global output index*: per amount (the n-th output of amount `a` ever created has index `n`),
+  the `value` list of `/get_global_indexes_for_range` for the transaction, one per output.
+* *inputs*: every input of a non-coinbase transaction is a key input (consensus), so the count
+  equals the `inputs` array of `/getwalletsyncdata`; the coinbase has exactly one coinbase input
+  whose height equals the block height (consensus), which a wallet writes as count 1 and
+  `u64 blockHeight`.
+
+A wallet that synced the 4 096 blocks of a span through `/getwalletsyncdata` (all fields above)
+and `/get_global_indexes_for_range` (the global indexes) recomputes `D_k`, chains `S_k` from
+`S_{k-1}` and compares it with the built-in list or with `getstatehash` of other nodes.
+
+**In the node.** A span is hashed once its last block is at least `max_reorg_depth` below the
+tip (`Chain::stable_spans`), by the state thread `xkr-state` next to the chain thread
+(`Chain::update_state_hashes`, 8 spans per call so a first start on a long chain hashes the
+backlog without holding up blocks). The hashes go to `meta_blobs.state_hashes` with the hash of
+each span's last block; on every call the stored list is cut back to the last span whose last
+block is still on the main chain (only a reorg deeper than `max_reorg_depth` can change one).
+Each new hash is compared with the compiled-in list (`MAINNET_STATE_HASHES` /
+`TESTNET_STATE_HASHES` in `state.rs`, `(span, "hash")` pairs, generated with
+`xkrd db state-hashes --to <height>` on a fully verified node), and so is every stored hash
+when the chain opens. On a difference the node logs an error, `/status.state.mismatch` names
+the span, `Chain::add_blocks` / `add_block` answer `ChainError::StateMismatch`, and the
+downloader stops requesting blocks. RPC: `getstatehash { span | height }` (`docs/node-architecture.md`).
+`xkrd db verify-state` recomputes every complete span and compares it with the stored hashes
+and the built-in list (exit code 1 on a difference).
 
 ## Durability and maintenance
 

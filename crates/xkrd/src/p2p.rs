@@ -943,12 +943,21 @@ impl P2pManager {
                                 self.drop_older_fork(culprit, &detail);
                             }
                         }
+                        let t = &r.times;
+                        let blocks = r.added_main + r.added_alt;
                         tracing::debug!(
                             start,
                             count,
                             added = r.added_main,
                             alt = r.added_alt,
                             ms = elapsed.as_millis() as u64,
+                            prepare_ms = t.prepare.as_millis() as u64,
+                            context_ms = t.context.as_millis() as u64,
+                            sigs_ms = t.signatures.as_millis() as u64,
+                            write_ms = t.write.as_millis() as u64,
+                            commit_ms = t.commit.as_millis() as u64,
+                            blocks,
+                            blocks_per_sec = %format!("{:.1}", per_sec(blocks, elapsed)),
                             "batch verified"
                         );
                         if r.switched {
@@ -1887,6 +1896,11 @@ impl P2pManager {
 
     /// Lets the downloader request, buffer and submit; closes finished rounds.
     fn drive(&mut self) {
+        // A state hash differed from the built-in list: the chain takes no more blocks, so
+        // nothing is downloaded (`Chain::state_mismatch`).
+        if self.chain.state_mismatch().is_some() {
+            return;
+        }
         let slots = self.peer_slots();
         let mut out = Vec::new();
         if self.downloader.needs_chain() && !slots.is_empty() {
@@ -2289,6 +2303,13 @@ fn admit_blocking(chain: &Chain, txs: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
         }
     }
     accepted
+}
+
+/// `n` per second over `elapsed` (0 for no time).
+#[allow(clippy::cast_precision_loss)]
+fn per_sec(n: usize, elapsed: Duration) -> f64 {
+    let secs = elapsed.as_secs_f64();
+    if secs > 0.0 { n as f64 / secs } else { 0.0 }
 }
 
 /// Splits `txs` into groups of at most `max` bytes (a larger blob forms a group of its own).

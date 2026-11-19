@@ -29,6 +29,8 @@ xkr-rpc            = { path = "../xkr-rpc" }
 # scripts/build-bare-kit.sh once (.cargo/config.toml points LIBBARE_DIR at its output);
 # docs/hyper-transport.md, "Building"
 xkr-p2p-hyper      = { path = "../xkr-p2p-hyper" }
+# the clients topic's wire protocol (crate::clients)
+xkr-hyper-rpc      = { path = "../xkr-hyper-rpc" }
 # hugin-node relay on the Hugin topics (crate::hyper)
 xkr-hugin          = { path = "../xkr-hugin" }
 # built-in miner (crate::miner): the shared hashing threads and miner loop
@@ -54,6 +56,10 @@ serde_json         = { workspace = true }
 [dev-dependencies]
 # the built-in p2pool test mines a share through the stratum client (crate::p2pool tests)
 xkr-stratum        = { path = "../xkr-stratum" }
+# a fixed random source for templates built twice (crate::p2pool tests)
+rand_core          = { workspace = true }
+# a wallet's daemon client over the wallets topic (crate::clients tests)
+xkr-daemon-client  = { path = "../xkr-daemon-client" }
 
 [lints]
 workspace = true

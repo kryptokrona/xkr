@@ -14,14 +14,17 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use xkr_daemon_client::{DaemonClient, DaemonUrl, HttpConfig, HttpTransport};
-use xkr_wallet::{AutosaveConfig, FileFormat, Node, SyncConfig, Wallet, WalletConfig};
+use xkr_hyper_wallet::{LazySwarm, SwarmOptions};
+use xkr_wallet::{AutosaveConfig, FileFormat, Node, SWARM_HOST, SyncConfig, Wallet, WalletConfig};
 
 use crate::config::{self, Cli, Config, Fatal, LOG_INFO, Startup};
 use crate::container::{self, Generated};
 use crate::errors::AppError;
 use crate::rpc;
 use crate::service::{RpcSettings, Service};
+
+/// The least time a node over Hyperswarm gets to be found and answer at the start.
+const SWARM_INIT: Duration = Duration::from_mins(1);
 
 /// `cryptonote::getProjectCLIHeader`.
 #[must_use]
@@ -117,26 +120,39 @@ async fn serve(config: &Config) -> ExitCode {
         config.init_timeout
     );
     let port = config.daemon_port as u16;
-    let url = if config.daemon_address.contains("://") {
-        DaemonUrl::parse(&config.daemon_address)
-    } else {
-        DaemonUrl::from_host_port(&config.daemon_address, port)
+    // Without --daemon-address/--daemon-port: the local node when one answers, else a node
+    // found over Hyperswarm (a daemon address `hyperswarm` picks it too).
+    let swarm = (config.daemon_address == SWARM_HOST
+        || (!config.daemon_given && !xkr_wallet::local_node_answers(port).await))
+        .then(|| {
+            LazySwarm::new(SwarmOptions::from_env(
+                config.network,
+                None,
+                concat!("xkr-walletd/", env!("CARGO_PKG_VERSION")),
+            ))
+        });
+    let node = match &swarm {
+        Some(s) => {
+            tracing::info!(
+                "No daemon address and no local node: using a node found over Hyperswarm"
+            );
+            Node::swarm(Arc::new(s.clone()))
+        }
+        None => match Node::http(&config.daemon_address, port) {
+            Ok(n) => n,
+            Err(e) => return fatal(&e.to_string()),
+        },
     };
-    let transport = match url.and_then(|u| HttpTransport::with_url(u, &HttpConfig::default())) {
-        Ok(t) => t,
-        Err(e) => return fatal(&e.to_string()),
-    };
-    let client = DaemonClient::new(transport.clone());
-    // `NodeRpcProxy::init`: the first status poll must finish within the timeout
-    let timeout = Duration::from_secs(u64::try_from(config.init_timeout).unwrap_or(0));
+    let client = node.client.clone();
+    // `NodeRpcProxy::init`: the first status poll must finish within the timeout (a node over
+    // Hyperswarm gets at least SWARM_INIT to be found)
+    let mut timeout = Duration::from_secs(u64::try_from(config.init_timeout).unwrap_or(0));
+    if swarm.is_some() {
+        timeout = timeout.max(SWARM_INIT);
+    }
     if tokio::time::timeout(timeout, client.info()).await.is_err() {
         return fatal("Operation timed out");
     }
-    let node = Node::new(
-        DaemonClient::new(transport),
-        config.daemon_address.clone(),
-        port,
-    );
 
     tracing::info!("Loading wallet");
     let wallet = match Wallet::open(

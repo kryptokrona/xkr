@@ -314,7 +314,7 @@ pub fn cn_fast_hash(data: &str) -> CryptoResult<String> {
 /// major version 5 and later, and of Hugin message shares).
 pub fn cn_turtle_lite_slow_hash_v2(data: &str) -> CryptoResult<String> {
     let bytes = parse_bytes("data", data)?;
-    Ok(xkr_crypto::cn_turtle_lite_slow_hash_v2(&bytes).to_hex())
+    Ok(xkr_crypto::cn_turtle_lite_slow_hash_v2_reused(&bytes).to_hex())
 }
 
 /// The CryptoNight families of kryptokrona-crypto's `cn_*_slow_hash_v{0,1,2}` methods.

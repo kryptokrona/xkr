@@ -11,9 +11,9 @@
 #         every app share is also a p2pool share). fake: bridge/test/fake-stratum-pool.js
 #         (127.0.0.1, difficulty 100, prints every login and submit; the default app
 #         difficulty 200, every app share meets the pool target)
-#   A     xkrd (relay by default) --hugin FEE_A: node mesh + public-node + private-node topics,
+#   A     xkrd (relay by default) --hugin-payout FEE_A: node mesh + public-node + private-node topics,
 #         RPC 22899
-#   B     xkrd --hugin-private, no --hugin: node mesh + private-node topic only; the default
+#   B     xkrd --hugin-private, no --hugin-payout: node mesh + private-node topic only; the default
 #         donation address, said once as a warning (no terminal)
 #   app   bridge/test/hugin-client-sim.js --testnet: a Hugin app doing what hugin-desktop and
 #         hugin-native do, on the testnet Hugin topics (domain `hugin/testnet/topic`)
@@ -128,7 +128,7 @@ COMMON=(--hyper-bridge-dir "$ROOT/bridge" --hyper-bootstrap "$BOOT" --p2p-bind-p
 if [ "$HUGIN_JOBS" = p2pool ]; then
     COMMON+=(--hugin-share-difficulty 1000)
 fi
-start_a() { start_xkrd hugin-a "$PORT_PP_A_RPC" "$SD/a" "$SD/a.log" "${COMMON[@]}" --hugin "$FEE_A"; }
+start_a() { start_xkrd hugin-a "$PORT_PP_A_RPC" "$SD/a" "$SD/a.log" "${COMMON[@]}" --hugin-payout "$FEE_A"; }
 start_a
 start_xkrd hugin-b 0 "$SD/b" "$SD/b.log" "${COMMON[@]}" --hugin-private
 watch hugin-a hugin-b hugin-dht hugin-pool
@@ -136,7 +136,7 @@ if [ "$HUGIN_JOBS" = p2pool ]; then
     start_p2pool a "$P2POOL_IMAGE" "$FEE_A" "$PORT_PP_POOL_A" "$PORT_PP_STRATUM_A"
     wait_for 120 pool_api_ready a || die setup "p2pool A wrote no local API within 120 s (log $(pool_log a))"
 fi
-note "A: $XKRD --hugin FEE_A, log $SD/a.log; B: --hugin-private (default fee), log $SD/b.log"
+note "A: $XKRD --hugin-payout FEE_A, log $SD/a.log; B: --hugin-private (default fee), log $SD/b.log"
 
 wait_count "$SD/a.log" 3 "Hugin topic announced" 120 || die topics "A did not announce its 3 Hugin topics: $(plain "$SD/a.log" | tail -n 5 | tr '\n' ' ')"
 wait_count "$SD/b.log" 2 "Hugin topic announced" 120 || die topics "B did not announce its 2 Hugin topics: $(plain "$SD/b.log" | tail -n 5 | tr '\n' ' ')"
@@ -161,7 +161,7 @@ if [ "$HUGIN_JOBS" = fake ]; then
     fi
 fi
 if plain "$SD/b.log" | grep -q "You are donating your hugin node fee to nilsjr"; then
-    pass fee "B (no --hugin, no terminal) says it donates its fee to nilsjr"
+    pass fee "B (no --hugin-payout, no terminal) says it donates its fee to nilsjr"
 else
     fail fee "B did not say it donates its fee: $(plain "$SD/b.log" | grep -i "fee" | tail -n 2 | tr '\n' ' ')"
 fi

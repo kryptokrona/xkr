@@ -1,13 +1,17 @@
-//! The built-in p2pool (`xkrd --p2pool`, `docs/mining.md` "Built-in p2pool"): the sidechain,
-//! block template, stratum server and P2P server of `xkr-p2pool`, fed from the node's own chain
-//! instead of the daemon RPC the C++ p2pool polls (`p2pool::p2pool`, `src/p2pool.cpp`).
+//! The built-in p2pool (`xkrd --node --p2pool`, on mainnet also without mode flags;
+//! `docs/mining.md` "Built-in p2pool"): the sidechain, block template, stratum server and P2P
+//! server of `xkr-p2pool`, fed from the node's own chain instead of the daemon RPC the C++
+//! p2pool polls (`p2pool::p2pool`, `src/p2pool.cpp`).
 //!
 //! * **Start**: once the node is synchronized (the P2P status: `synced` and not downloading, as
 //!   the built-in miner and the Hugin relay wait), so templates are never built on an old tip.
 //!   Until then `/status` `p2pool.state` is `waiting`.
-//! * **Main chain** ([`MainChainState`]): the C++ header cache (`MainChainCache`) with the
-//!   headers of the PPLNS span and the seed heights, read from the chain on every new tip
-//!   (`Chain::subscribe_tip`, a push, no polling); the tip from `Chain::miner_data`.
+//! * **Main chain** ([`MainChainSource`]): the node's own chain ([`LocalChain`]) or, without
+//!   the node (`xkrd --p2pool`), remote nodes on the Hyperswarm clients topic
+//!   ([`crate::remote::RemoteNodes`]). [`MainChainState`] is the C++ header cache
+//!   (`MainChainCache`) with the headers of the PPLNS span and the seed heights, read from the
+//!   source on every new tip (`MainChainSource::subscribe_tip`, a push, no polling); the tip
+//!   from the source's miner data.
 //! * **Templates**: on a new main-chain tip, a new sidechain tip or possible uncle, a change of
 //!   the payout address and every [`TEMPLATE_REFRESH`] (pool transactions; C++ refreshes on the
 //!   same schedule): miner data -> [`template_miner_data`] -> `PoolTemplates::update` with the
@@ -19,8 +23,9 @@
 //!   payout address too.
 //! * **Found work**: an own share goes into the sidechain on the stratum thread and is
 //!   broadcast; a main-chain block (own, or a peer's share that meets the main-chain difficulty)
-//!   goes through `xkr_rpc::submit_mined_block` on its own task (P2P manager -> chain thread ->
-//!   relay), so the stratum side never waits for the chain.
+//!   goes to the source on its own task (the node's chain: `xkr_rpc::submit_mined_block`, P2P
+//!   manager -> chain thread -> relay; remote nodes: `submitblock` to each), so the stratum side
+//!   never waits for the chain.
 //! * **P2P**: outgoing TCP to the sidechain's seeds and peers, a TCP listener only with
 //!   `--p2pool-p2p`, and every Hyperswarm connection on the sidechain topic
 //!   ([`crate::hyper::p2pool_topic`], joined once p2pool runs). The peer list lives in
@@ -42,10 +47,12 @@ use std::sync::{
 };
 use std::time::Duration;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use xkr_chain::{
-    AddBlockOutcome, Chain, ChainError, MainChainHeader, MinerData, SubmitError, unix_now,
+    AddBlockOutcome, Chain, ChainError, MainChainHeader, MinerData, SubmitError, TipInfo, unix_now,
 };
 use xkr_consensus::{Network, NetworkParams};
 use xkr_p2p_hyper::HyperConn;
@@ -54,7 +61,7 @@ use xkr_p2pool::p2p::{
     Direction, P2pConfig, P2pEvent, P2pServer, P2pServerConfig, P2pStats, SharedMainChain,
     SharedSideChain,
 };
-use xkr_p2pool::stratum::{ShareSink, StratumServer, StratumServerConfig};
+use xkr_p2pool::stratum::{ShareSink, StratumHandle, StratumServer, StratumServerConfig};
 use xkr_p2pool::template::{
     FoundBlock, MempoolTx, PoolNode, PoolTemplates, Template, TemplateError, TemplateMinerData,
 };
@@ -373,35 +380,44 @@ fn seed_heights(height: u64, required: u64) -> Vec<u64> {
     out
 }
 
-/// C++ `handle_miner_data` and the header requests around it, from the node's chain: the
-/// headers from `max(next - required, read_to - REREAD_DEPTH)` up to the top block, the seed
-/// heights not held yet, then the tip of `data`. Returns the top block index read.
-fn refresh_main_chain(
-    chain: &Chain,
+/// C++ `handle_miner_data` and the header requests around it: the header ranges to read for
+/// `data`, `[from, next)` with `from = max(next - required, read_to - REREAD_DEPTH)`, then one
+/// range per seed height below `from` that the cache does not hold yet.
+#[must_use]
+pub(crate) fn header_ranges(
     main: &MainChainState,
     data: &MinerData,
     read_to: Option<u64>,
-) -> Result<u64, ChainError> {
+) -> Vec<(u64, u64)> {
     let next = data.height;
     let top = next.saturating_sub(1);
-    let required = main.read().headers_required();
+    let cache = main.read();
+    let required = cache.headers_required();
     let start = next.saturating_sub(required);
     let from = read_to
         .map_or(start, |r| r.min(top).saturating_sub(REREAD_DEPTH))
         .max(start);
-    let mut headers = chain.main_chain_headers(from, next)?;
-    let missing: Vec<u64> = {
-        let cache = main.read();
+    let mut ranges = vec![(from, next)];
+    ranges.extend(
         seed_heights(next, required)
             .into_iter()
             .filter(|s| *s < from && cache.block_at_height(*s).is_none_or(|c| c.id == Hash::ZERO))
-            .collect()
-    };
-    for s in missing {
-        headers.extend(chain.main_chain_headers(s, s + 1)?);
-    }
+            .map(|s| (s, s + 1)),
+    );
+    ranges
+}
+
+/// Puts the headers read for [`header_ranges`] into the cache and sets the tip of `data`.
+/// Returns the top block index read.
+#[must_use]
+pub(crate) fn apply_headers(
+    main: &MainChainState,
+    data: &MinerData,
+    headers: &[MainChainHeader],
+) -> u64 {
+    let next = data.height;
     let mut cache = main.write();
-    for h in &headers {
+    for h in headers {
         cache.insert_header(chain_main(h));
     }
     cache.set_tip(MainChainTip {
@@ -409,7 +425,115 @@ fn refresh_main_chain(
         prev_id: data.prev_id,
         difficulty: Difficulty::from_u64(data.difficulty),
     });
-    Ok(top)
+    next.saturating_sub(1)
+}
+
+/// [`header_ranges`] read from the node's chain, then [`apply_headers`].
+fn refresh_main_chain(
+    chain: &Chain,
+    main: &MainChainState,
+    data: &MinerData,
+    read_to: Option<u64>,
+) -> Result<u64, ChainError> {
+    let mut headers = Vec::new();
+    for (start, end) in header_ranges(main, data, read_to) {
+        headers.extend(chain.main_chain_headers(start, end)?);
+    }
+    Ok(apply_headers(main, data, &headers))
+}
+
+// ---------------------------------------------------------------------------------------------
+// the source of the main chain
+
+/// A main-chain block that a source took onto its main chain: its index and id.
+pub type BlockOnChain = (u64, Hash);
+
+/// Where p2pool gets the main chain from and where its found blocks go: the node's own chain
+/// ([`LocalChain`]) or remote nodes ([`crate::remote::RemoteNodes`]).
+pub trait MainChainSource: Send + Sync + fmt::Debug + 'static {
+    /// The network's parameters (fork heights, unlock window, template versions).
+    fn params(&self) -> &'static NetworkParams;
+
+    /// A receiver that sees every new main-chain tip.
+    fn subscribe_tip(&self) -> watch::Receiver<TipInfo>;
+
+    /// The miner data of the next block and the headers p2pool needs around it, written into
+    /// `main` ([`header_ranges`], [`apply_headers`]); returns the data and the top block index
+    /// read.
+    fn refresh(
+        &self,
+        main: Arc<MainChainState>,
+        read_to: Option<u64>,
+    ) -> BoxFuture<'static, Result<(MinerData, u64), String>>;
+
+    /// Submits a found main-chain block (the `submitblock` blob): `Ok` with its index and id
+    /// once it is on the main chain, else why not.
+    fn submit_block(&self, blob: Vec<u8>) -> BoxFuture<'static, Result<BlockOnChain, Refusal>>;
+}
+
+/// The node's own chain: storage reads on blocking threads, found blocks the `submitblock` way
+/// (P2P manager -> chain thread -> relay).
+#[derive(Debug, Clone)]
+pub struct LocalChain {
+    chain: Arc<Chain>,
+    commands: mpsc::UnboundedSender<RpcCommand>,
+}
+
+impl LocalChain {
+    /// The chain, and the P2P manager's command channel for found blocks.
+    #[must_use]
+    pub fn new(chain: Arc<Chain>, commands: mpsc::UnboundedSender<RpcCommand>) -> Arc<Self> {
+        Arc::new(Self { chain, commands })
+    }
+}
+
+impl MainChainSource for LocalChain {
+    fn params(&self) -> &'static NetworkParams {
+        self.chain.params()
+    }
+
+    fn subscribe_tip(&self) -> watch::Receiver<TipInfo> {
+        self.chain.subscribe_tip()
+    }
+
+    fn refresh(
+        &self,
+        main: Arc<MainChainState>,
+        read_to: Option<u64>,
+    ) -> BoxFuture<'static, Result<(MinerData, u64), String>> {
+        let chain = self.chain.clone();
+        async move {
+            tokio::task::spawn_blocking(move || -> Result<(MinerData, u64), String> {
+                let data = chain.miner_data().map_err(|e| e.to_string())?;
+                let top =
+                    refresh_main_chain(&chain, &main, &data, read_to).map_err(|e| e.to_string())?;
+                Ok((data, top))
+            })
+            .await
+            .map_err(|e| format!("the main-chain read failed: {e}"))?
+        }
+        .boxed()
+    }
+
+    fn submit_block(&self, blob: Vec<u8>) -> BoxFuture<'static, Result<BlockOnChain, Refusal>> {
+        let (chain, commands) = (self.chain.clone(), self.commands.clone());
+        async move {
+            let raw = chain
+                .assemble_mined_block(blob)
+                .map_err(|e| submit_refusal(&e))?;
+            match xkr_rpc::submit_mined_block(&chain, &commands, raw).await {
+                Ok(r) => match outcome_refusal(&r.outcome) {
+                    None => Ok((r.height.unwrap_or_else(|| chain.tip().height), r.hash)),
+                    Some(refusal) => Err(refusal),
+                },
+                Err(e) => Err(Refusal {
+                    stale: false,
+                    reason: format!("not submitted: {e}"),
+                }),
+            }
+        }
+        .boxed()
+    }
 }
 
 /// The template's view of the node's miner data (C++ `MinerData` from `get_miner_data`): the
@@ -509,12 +633,12 @@ const REFUSAL_LOG_PERIOD: u64 = 60;
 /// Why the chain did not take a submitted p2pool block (C++ `p2pool::submit_block`,
 /// `src/p2pool.cpp`, logs the daemon's error for each one).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Refusal {
+pub struct Refusal {
     /// The block came too late: its height is taken, its transactions have left the pool or
     /// it does not build on the main-chain tip. Logged at debug.
-    stale: bool,
+    pub stale: bool,
     /// What the chain said.
-    reason: String,
+    pub reason: String,
 }
 
 /// A block that could not be assembled: a listed transaction no longer in the pool is stale.
@@ -605,6 +729,15 @@ pub enum LinkState {
     Down(String),
 }
 
+impl crate::clients::StratumSource for PoolLink {
+    fn stratum(&self) -> Option<StratumHandle> {
+        match self.state() {
+            LinkState::Running(a) => a.stratum.filter(|h| !h.is_stopped()),
+            LinkState::Waiting | LinkState::Down(_) => None,
+        }
+    }
+}
+
 impl PoolLink {
     /// The current state.
     #[must_use]
@@ -633,6 +766,9 @@ impl PoolLink {
 pub struct PoolAccess {
     templates: Arc<PoolTemplates>,
     sink: Arc<Sink>,
+    /// The stratum server's sessions on other streams (`None`: its address could not be
+    /// bound, so it does not run).
+    stratum: Option<StratumHandle>,
 }
 
 impl fmt::Debug for PoolAccess {
@@ -668,11 +804,10 @@ impl PoolAccess {
 /// What the service needs from the node.
 #[derive(Debug)]
 pub struct P2poolNode {
-    /// The chain: miner data, headers, found blocks.
-    pub chain: Arc<Chain>,
-    /// The P2P manager's command channel (block submission, as `submitblock`).
-    pub commands: mpsc::UnboundedSender<RpcCommand>,
-    /// The P2P status: p2pool starts and builds templates only while synchronized.
+    /// The main chain: miner data, headers, found blocks.
+    pub source: Arc<dyn MainChainSource>,
+    /// The sync status (the node's P2P status, or the remote nodes' as one): p2pool starts and
+    /// builds templates only while synchronized.
     pub net: watch::Receiver<Arc<NetStatus>>,
     /// The fee address in effect (`FeeAddress::subscribe`): the payout wallet.
     pub fee: watch::Receiver<Fee>,
@@ -699,8 +834,7 @@ pub struct HyperLink {
 /// and stops in order (stratum, P2P with the peer list, sidechain) with one stopping step each.
 pub async fn run(settings: P2poolSettings, node: P2poolNode, stop: CancellationToken) {
     let P2poolNode {
-        chain,
-        commands,
+        source,
         mut net,
         fee,
         status,
@@ -753,8 +887,7 @@ pub async fn run(settings: P2poolSettings, node: P2poolNode, stop: CancellationT
         None => (None, None),
     };
     let parts = Parts {
-        chain,
-        commands,
+        source,
         net,
         fee,
         status,
@@ -804,8 +937,7 @@ fn base_status(settings: &P2poolSettings, fee: &Fee) -> P2poolStatus {
 
 /// The node's side of a running service, before it started.
 struct Parts {
-    chain: Arc<Chain>,
-    commands: mpsc::UnboundedSender<RpcCommand>,
+    source: Arc<dyn MainChainSource>,
     net: watch::Receiver<Arc<NetStatus>>,
     fee: watch::Receiver<Fee>,
     status: watch::Sender<Arc<P2poolStatus>>,
@@ -951,7 +1083,7 @@ impl Running {
         settings: &P2poolSettings,
         parts: Parts,
     ) -> Result<(Self, Channels), (String, watch::Sender<Arc<P2poolStatus>>)> {
-        let params = parts.chain.params();
+        let params = parts.source.params();
         let unlock_window = u64::from(params.mined_money_unlock_window);
         let options = SidechainOptions {
             uncapped_pplns: settings.uncapped_pplns,
@@ -976,10 +1108,6 @@ impl Running {
             templates: templates.clone(),
             cmds: cmds_tx.clone(),
         });
-        let access = PoolAccess {
-            templates: templates.clone(),
-            sink: sink.clone(),
-        };
         if let Some(dir) = &settings.dir
             && let Err(e) = std::fs::create_dir_all(dir)
         {
@@ -987,18 +1115,24 @@ impl Running {
         }
         let listen = settings.stratum.listen;
         let (stratum, stratum_off) =
-            match StratumServer::bind(settings.stratum, templates.clone(), sink).await {
+            match StratumServer::bind(settings.stratum, templates.clone(), sink.clone()).await {
                 Ok(s) => (Some(s), None),
                 Err(e) => (None, Some(stratum_off_reason(listen, &e))),
             };
+        let access = PoolAccess {
+            templates: templates.clone(),
+            sink,
+            stratum: stratum.as_ref().map(StratumServer::handle),
+        };
         let stratum_addr = stratum.as_ref().map(StratumServer::local_addr);
         // The main-chain view is filled before the P2P server starts, so the first peers' tips
         // are checked against the node's real chain.
         let read_to = parts
-            .chain
-            .miner_data()
+            .source
+            .refresh(main.clone(), None)
+            .await
             .ok()
-            .and_then(|data| refresh_main_chain(&parts.chain, &main, &data, None).ok());
+            .map(|(_, top)| top);
         let shared_main: SharedMainChain = main.clone();
         let (p2p, p2p_events) = match P2pServer::start(
             settings.server_config(),
@@ -1109,7 +1243,7 @@ impl Running {
         mut channels: Channels,
         mut hyper: Option<mpsc::UnboundedReceiver<HyperConn>>,
     ) {
-        let mut tip = self.parts.chain.subscribe_tip();
+        let mut tip = self.parts.source.subscribe_tip();
         let mut fee_changes = self.parts.fee.clone();
         let (mut tip_open, mut fee_open) = (true, true);
         let mut refresh = tokio::time::interval(TEMPLATE_REFRESH);
@@ -1174,26 +1308,26 @@ impl Running {
             return;
         }
         let wallet = payout_wallet(&self.parts.fee.borrow());
-        let chain = self.parts.chain.clone();
+        let source = self.parts.source.clone();
+        let params = source.params();
         let main = self.main.clone();
         let templates = self.templates.clone();
         let read_to = self.read_to;
-        let job = tokio::task::spawn_blocking(move || -> Result<Refreshed, String> {
-            let data = chain.miner_data().map_err(|e| e.to_string())?;
-            let top =
-                refresh_main_chain(&chain, &main, &data, read_to).map_err(|e| e.to_string())?;
-            let template = wallet.map(|w| {
-                templates.update(&template_miner_data(&data, chain.params()), &w, unix_now())
-            });
-            Ok(Refreshed { top, template })
-        })
-        .await;
-        let refreshed = match job {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => {
+        let (data, top) = match source.refresh(main, read_to).await {
+            Ok(r) => r,
+            Err(e) => {
                 tracing::warn!(error = %e, "p2pool: the main chain could not be read");
                 return;
             }
+        };
+        let job = tokio::task::spawn_blocking(move || Refreshed {
+            top,
+            template: wallet
+                .map(|w| templates.update(&template_miner_data(&data, params), &w, unix_now())),
+        })
+        .await;
+        let refreshed = match job {
+            Ok(r) => r,
             Err(e) => {
                 tracing::error!(error = %e, "p2pool: the template task failed");
                 return;
@@ -1323,30 +1457,15 @@ impl Running {
     /// reaches the main chain comes back as [`Cmd::BlockAdded`] (the only path to "Block found
     /// by p2pool"). A refusal goes to [`log_refusal`].
     fn spawn_submit(&self, blob: Vec<u8>) {
-        let chain = self.parts.chain.clone();
-        let commands = self.parts.commands.clone();
+        let source = self.parts.source.clone();
         let cmds = self.cmds.clone();
         let refusals = self.refusals.clone();
         tokio::spawn(async move {
-            let refusal = match chain.assemble_mined_block(blob) {
-                Err(e) => Some(submit_refusal(&e)),
-                Ok(raw) => match xkr_rpc::submit_mined_block(&chain, &commands, raw).await {
-                    Ok(r) => {
-                        let refusal = outcome_refusal(&r.outcome);
-                        if refusal.is_none() {
-                            let height = r.height.unwrap_or_else(|| chain.tip().height);
-                            let _ = cmds.send(Cmd::BlockAdded { height, id: r.hash });
-                        }
-                        refusal
-                    }
-                    Err(e) => Some(Refusal {
-                        stale: false,
-                        reason: format!("not submitted: {e}"),
-                    }),
-                },
-            };
-            if let Some(r) = refusal {
-                log_refusal(&refusals, &r, unix_now());
+            match source.submit_block(blob).await {
+                Ok((height, id)) => {
+                    let _ = cmds.send(Cmd::BlockAdded { height, id });
+                }
+                Err(r) => log_refusal(&refusals, &r, unix_now()),
             }
         });
     }
@@ -1855,6 +1974,112 @@ mod tests {
         }
     }
 
+    /// A deterministic random source for templates built twice.
+    struct Counter(u64);
+
+    impl rand_core::RngCore for Counter {
+        fn next_u32(&mut self) -> u32 {
+            self.next_u64() as u32
+        }
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            self.0
+        }
+        fn fill_bytes(&mut self, dst: &mut [u8]) {
+            for b in dst {
+                *b = self.next_u64() as u8;
+            }
+        }
+    }
+
+    /// The same chain through the node's own storage and through remote nodes on the clients
+    /// topic: the same miner data, the same headers in the main-chain cache and the same
+    /// block template.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn remote_nodes_give_the_template_of_the_local_chain() {
+        use crate::remote::tests as rt;
+
+        let tc = rt::TestChain::new("p2pool-same");
+        for _ in 0..6 {
+            tc.mine(&rt::miner());
+        }
+        let (commands, _) = mpsc::unbounded_channel();
+        let local: Arc<dyn MainChainSource> = LocalChain::new(tc.chain().clone(), commands);
+        let (remote, stop) = rt::start(
+            vec![
+                ([1; 32], rt::TestNode::real(&tc)),
+                ([2; 32], rt::TestNode::real(&tc)),
+            ],
+            xkr_chain::StateHashes::default(),
+        );
+        rt::wait_for(&remote, |s| s.nodes.len() == 2 && s.height == Some(6)).await;
+        let remote: Arc<dyn MainChainSource> = Arc::new(remote);
+        assert_eq!(*local.subscribe_tip().borrow(), tc.chain().tip());
+        assert_eq!(
+            remote.subscribe_tip().borrow().hash,
+            local.subscribe_tip().borrow().hash
+        );
+
+        let sidechain = SidechainConfig {
+            name: "xkrd-p2pool-same".into(),
+            password: String::new(),
+            block_time: 10,
+            min_diff: 1,
+            pplns_window: 60,
+            uncle_penalty: 20,
+        };
+        let params = Network::Testnet.params();
+        let build = |source: Arc<dyn MainChainSource>| {
+            let sidechain = sidechain.clone();
+            async move {
+                let main = Arc::new(MainChainState::new(&sidechain));
+                let (data, top) = source.refresh(main.clone(), None).await.unwrap();
+                let sc = SideChain::new(SidechainOptions::new(
+                    sidechain,
+                    ForkHeights::from_params(source.params()),
+                    u64::from(params.mined_money_unlock_window),
+                ));
+                let wallet = MinerWallet::parse(fee::DEFAULT_FEE_ADDRESS).unwrap();
+                let template = xkr_p2pool::BlockTemplate::new()
+                    .update_with_rng(
+                        &template_miner_data(&data, source.params()),
+                        &sc,
+                        &*main.read(),
+                        &wallet,
+                        1_900_000_000,
+                        &mut Counter(7),
+                    )
+                    .unwrap();
+                (data, top, template, main)
+            }
+        };
+        let (local_data, local_top, local_template, local_main) = build(local).await;
+        let (remote_data, remote_top, remote_template, remote_main) = build(remote).await;
+        assert_eq!(local_data, remote_data);
+        assert_eq!((local_top, remote_top), (6, 6));
+        for h in 0..=6 {
+            assert_eq!(
+                local_main.block_at_height(h),
+                remote_main.block_at_height(h),
+                "{h}"
+            );
+        }
+        assert_eq!(
+            MainChainView::tip(&*local_main),
+            MainChainView::tip(&*remote_main)
+        );
+        assert_eq!(local_template.height(), 7);
+        assert_eq!(
+            local_template.hashing_blob(0).blob,
+            remote_template.hashing_blob(0).blob
+        );
+        assert_eq!(
+            local_template.mainchain_blob(1, 2),
+            remote_template.mainchain_blob(1, 2)
+        );
+        stop.cancel();
+    }
+
     /// Waits until the status satisfies `f`.
     async fn wait_status(
         rx: &mut watch::Receiver<Arc<P2poolStatus>>,
@@ -1928,8 +2153,7 @@ mod tests {
         let task = tokio::spawn(run(
             settings,
             P2poolNode {
-                chain: tc.chain().clone(),
-                commands,
+                source: LocalChain::new(tc.chain().clone(), commands),
                 net,
                 fee: fee_rx,
                 status: status_tx,
@@ -2052,8 +2276,7 @@ mod tests {
         let task = tokio::spawn(run(
             settings,
             P2poolNode {
-                chain: tc.chain().clone(),
-                commands: commands.clone(),
+                source: LocalChain::new(tc.chain().clone(), commands.clone()),
                 net: net.clone(),
                 fee: fee_rx,
                 status: status_tx,
@@ -2074,7 +2297,7 @@ mod tests {
                 mode: crate::miner::MineMode::P2pool(link.clone()),
                 threads: 1,
             },
-            tc.chain().clone(),
+            Some(tc.chain().clone()),
             commands,
             net,
             mining_tx,
@@ -2196,8 +2419,7 @@ mod tests {
         let task = tokio::spawn(run(
             settings,
             P2poolNode {
-                chain: tc.chain().clone(),
-                commands,
+                source: LocalChain::new(tc.chain().clone(), commands),
                 net,
                 fee: fee_rx,
                 status: status_tx,

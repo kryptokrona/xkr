@@ -11,7 +11,7 @@ pub mod write;
 
 use xkr_types::{Block, Hash, RawBlock, Transaction};
 
-pub use read::{Reader, TxGlobalIndexes};
+pub use read::{BlockPrefixes, Reader, TxGlobalIndexes};
 pub use write::{
     pop_blocks, prune_all_below, prune_alt_blocks_below, prune_stripe, push_blocks, put_alt_block,
     remove_alt_block,

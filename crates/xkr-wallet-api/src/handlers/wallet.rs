@@ -24,6 +24,8 @@ struct WalletParams {
     password: Zeroizing<String>,
     daemon_host: String,
     daemon_port: u16,
+    /// Whether `daemonHost` or `daemonPort` was in the body.
+    daemon_given: bool,
 }
 
 impl WalletParams {
@@ -42,6 +44,7 @@ impl WalletParams {
             password,
             daemon_host,
             daemon_port,
+            daemon_given: params::has(body, "daemonHost") || params::has(body, "daemonPort"),
         })
     }
 }
@@ -121,8 +124,16 @@ async fn make<N: NodeFactory>(
     route: &Route,
     body: &Value,
 ) -> Result<Wallet<N::Transport>, Fail> {
-    let p = WalletParams::read(body, app.default_daemon_port)?;
+    let mut p = WalletParams::read(body, app.default_daemon_port)?;
     let kind = kind(route, body)?;
+    // Without daemonHost/daemonPort: the local node when one answers, else Hyperswarm.
+    if !p.daemon_given
+        && app.nodes.has_swarm()
+        && !xkr_wallet::local_node_answers(p.daemon_port).await
+    {
+        tracing::info!("no daemon given and no local node: using a node found over Hyperswarm");
+        xkr_wallet::SWARM_HOST.clone_into(&mut p.daemon_host);
+    }
     let node = app.nodes.connect(&p.daemon_host, p.daemon_port)?;
     let config = app.wallet_config.clone();
     let (file, password) = (p.filename.as_str(), p.password.as_str());

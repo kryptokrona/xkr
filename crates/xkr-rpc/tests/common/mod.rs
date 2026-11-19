@@ -55,6 +55,7 @@ pub fn state_with_hugin(db: &TempDb, hugin: Option<Arc<xkr_hugin::HuginStats>>) 
         mining,
         hugin,
         p2pool: None,
+        clients: None,
         explorer: true,
         info: NodeInfo {
             version: "rpc-test".into(),

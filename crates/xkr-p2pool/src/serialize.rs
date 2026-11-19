@@ -9,7 +9,7 @@
 //! received from a peer is identified by the bytes it arrived with ([`crate::parse`]), never by
 //! a re-serialization.
 
-use xkr_crypto::{cn_fast_hash, cn_turtle_lite_slow_hash_v2, tree_hash};
+use xkr_crypto::{cn_fast_hash, cn_turtle_lite_slow_hash_v2_reused, tree_hash};
 use xkr_types::Hash;
 
 use crate::block::{
@@ -202,7 +202,7 @@ impl PoolBlock {
     /// its own nonce and extra nonce (`get_pow_hash`).
     #[must_use]
     pub fn pow_hash(&self, unlock_window: u64) -> Hash {
-        cn_turtle_lite_slow_hash_v2(
+        cn_turtle_lite_slow_hash_v2_reused(
             &self
                 .pow_blob(unlock_window, self.extra_nonce, self.nonce)
                 .blob,

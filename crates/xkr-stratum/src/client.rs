@@ -268,8 +268,40 @@ pub fn tls_connector() -> Result<TlsConnector, String> {
     Ok(TlsConnector::from(Arc::new(cfg)))
 }
 
-type PoolReader = Box<dyn AsyncRead + Send + Unpin>;
-type PoolWriter = Box<dyn AsyncWrite + Send + Unpin>;
+/// The read side of a pool connection.
+pub type PoolReader = Box<dyn AsyncRead + Send + Unpin>;
+/// The write side of a pool connection.
+pub type PoolWriter = Box<dyn AsyncWrite + Send + Unpin>;
+
+/// Opens the pools of a [`StratumPool`] that are not reached over TCP (e.g. a node's stratum
+/// service over Hyperswarm). The pool speaks the same line protocol on the stream it returns.
+pub trait PoolConnector: Send + Sync + fmt::Debug {
+    /// Whether this connector opens `pool` (an entry of [`StratumConfig::pools`] as given).
+    fn serves(&self, pool: &str) -> bool;
+    /// A new connection to `pool`.
+    fn open(&self, pool: &str) -> BoxFuture<'static, Result<(PoolReader, PoolWriter), String>>;
+}
+
+/// Where one entry of [`StratumConfig::pools`] is reached.
+#[derive(Debug, Clone)]
+struct Target {
+    /// The entry as given.
+    raw: String,
+    /// Its address (for TCP pools).
+    addr: PoolAddr,
+    /// Opened by the [`PoolConnector`].
+    custom: bool,
+}
+
+impl fmt::Display for Target {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.custom {
+            f.write_str(&self.raw)
+        } else {
+            fmt::Display::fmt(&self.addr, f)
+        }
+    }
+}
 
 struct Submit {
     share: ShareSubmit,
@@ -328,6 +360,19 @@ impl StratumPool {
         failover: Failover,
         shutdown: CancellationToken,
     ) -> Arc<Self> {
+        Self::spawn_with_connector(cfg, extras, failover, None, shutdown)
+    }
+
+    /// [`Self::spawn_with_failover`] with a [`PoolConnector`] for the pools it
+    /// [serves](PoolConnector::serves); the other pools are reached over TCP (or TLS).
+    #[must_use]
+    pub fn spawn_with_connector(
+        cfg: StratumConfig,
+        extras: LoginExtras,
+        failover: Failover,
+        connector: Option<Arc<dyn PoolConnector>>,
+        shutdown: CancellationToken,
+    ) -> Arc<Self> {
         let (jobs_tx, jobs) = watch::channel(None);
         let (cmd, cmd_rx) = mpsc::channel(256);
         let (login, login_rx) = watch::channel(cfg.login.clone());
@@ -355,6 +400,7 @@ impl StratumPool {
             ready: ready.clone(),
             shutdown,
             tls,
+            connector,
             logged_in: false,
         };
         tokio::spawn(task.run());
@@ -483,6 +529,8 @@ struct PoolTask {
     shutdown: CancellationToken,
     /// For `stratum+ssl://` pools (`None` when no pool uses TLS or TLS is unavailable).
     tls: Option<TlsConnector>,
+    /// Opens the pools that are not reached over TCP.
+    connector: Option<Arc<dyn PoolConnector>>,
     /// The session that just ended had logged in.
     logged_in: bool,
 }
@@ -562,10 +610,29 @@ async fn open_pool(
     Ok((Box::new(r), Box::new(w)))
 }
 
-/// Whether `addr` accepts a connection and a login with `params` right now (a separate socket,
-/// closed after the answer). Used to move back to the first pool.
-async fn probe_login(addr: &PoolAddr, tls: Option<&TlsConnector>, params: &Value) -> bool {
-    let Ok((r, w)) = open_pool(addr, tls).await else {
+/// Connects to `target`: through the connector for a pool it serves, else [`open_pool`].
+async fn open_target(
+    target: &Target,
+    tls: Option<&TlsConnector>,
+    connector: Option<&Arc<dyn PoolConnector>>,
+) -> Result<(PoolReader, PoolWriter), String> {
+    match connector.filter(|_| target.custom) {
+        Some(c) => tokio::time::timeout(CONNECT_TIMEOUT, c.open(&target.raw))
+            .await
+            .map_err(|_| "connection timed out".to_owned())?,
+        None => open_pool(&target.addr, tls).await,
+    }
+}
+
+/// Whether `target` accepts a connection and a login with `params` right now (a separate
+/// connection, closed after the answer). Used to move back to the first pool.
+async fn probe_login(
+    target: &Target,
+    tls: Option<&TlsConnector>,
+    connector: Option<&Arc<dyn PoolConnector>>,
+    params: &Value,
+) -> bool {
+    let Ok((r, w)) = open_target(target, tls, connector).await else {
         return false;
     };
     let mut lines = FramedRead::new(r, LinesCodec::new_with_max_length(MAX_LINE));
@@ -591,6 +658,15 @@ async fn probe_login(addr: &PoolAddr, tls: Option<&TlsConnector>, params: &Value
 impl PoolTask {
     fn publish(&self, f: impl FnOnce(&mut PoolStatus)) {
         self.status_tx.send_modify(f);
+    }
+
+    /// Where `pool` (an entry of the list) is reached.
+    fn target(&self, pool: &str) -> Target {
+        Target {
+            raw: pool.to_owned(),
+            addr: PoolAddr::parse(pool),
+            custom: self.connector.as_ref().is_some_and(|c| c.serves(pool)),
+        }
     }
 
     fn login_params(&self, login: &str) -> Value {
@@ -620,7 +696,7 @@ impl PoolTask {
         let mut failed_sessions = 0u32;
         let mut backoff = RECONNECT_DELAY;
         loop {
-            let addr = PoolAddr::parse(&self.cfg.pools[index]);
+            let addr = self.target(&self.cfg.pools[index]);
             let shown = addr.to_string();
             self.publish(|s| {
                 s.pool = Some(shown);
@@ -711,10 +787,10 @@ impl PoolTask {
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn session(&mut self, addr: &PoolAddr, on_first: bool) -> End {
+    async fn session(&mut self, addr: &Target, on_first: bool) -> End {
         let opened = tokio::select! {
             () = self.shutdown.cancelled() => return End::Shutdown,
-            r = open_pool(addr, self.tls.as_ref()) => r,
+            r = open_target(addr, self.tls.as_ref(), self.connector.as_ref()) => r,
         };
         let (r, w) = match opened {
             Ok(rw) => rw,
@@ -723,7 +799,7 @@ impl PoolTask {
                 return End::ConnectFailed;
             }
         };
-        tracing::info!(pool = %addr, tls = addr.tls, "connected to the stratum pool");
+        tracing::info!(pool = %addr, tls = addr.addr.tls && !addr.custom, "connected to the stratum pool");
         let mut lines = FramedRead::new(r, LinesCodec::new_with_max_length(MAX_LINE));
         let mut out = FramedWrite::new(w, LinesCodec::new());
 
@@ -770,12 +846,13 @@ impl PoolTask {
                 }
                 _ = probe_tick.tick(), if probe_every.is_some() && !probing => {
                     probing = true;
-                    let first = PoolAddr::parse(&self.cfg.pools[0]);
+                    let first = self.target(&self.cfg.pools[0]);
                     let params = self.login_params(&self.login_rx.borrow().clone());
                     let tls = self.tls.clone();
+                    let connector = self.connector.clone();
                     let tx = probe_tx.clone();
                     tokio::spawn(async move {
-                        let ok = probe_login(&first, tls.as_ref(), &params).await;
+                        let ok = probe_login(&first, tls.as_ref(), connector.as_ref(), &params).await;
                         let _ = tx.send(ok).await;
                     });
                 }

@@ -16,7 +16,7 @@
 //!   same path as `submitblock` (P2P manager -> chain thread -> relay with hop 0). At trivial
 //!   difficulty it waits [`MIN_BLOCK_SPACING`] between blocks so testnet blocks stay spaced
 //!   out.
-//! * **p2pool** (`--p2pool` running): the built-in p2pool's current template, in process
+//! * **p2pool** (the built-in p2pool running): the built-in p2pool's current template, in process
 //!   ([`PoolLink`]), as the stratum server hands it to a miner: paid to the node's p2pool
 //!   payout address (the fee address, as the Hugin relay's shares). The job target is the
 //!   stratum template target (C++ `StratumServer::on_block`); a result at the main-chain
@@ -176,7 +176,8 @@ enum PoolStep {
 #[derive(Debug)]
 pub struct ChainJobSource {
     cfg: MinerConfig,
-    chain: Arc<Chain>,
+    /// The node's chain (solo); `None` without the node (p2pool only).
+    chain: Option<Arc<Chain>>,
     commands: mpsc::UnboundedSender<RpcCommand>,
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
@@ -191,11 +192,11 @@ pub struct ChainJobSource {
 }
 
 impl ChainJobSource {
-    /// A source mining in `cfg.mode` on `chain`.
+    /// A source mining in `cfg.mode` on `chain` (solo needs it).
     #[must_use]
     pub fn new(
         cfg: MinerConfig,
-        chain: Arc<Chain>,
+        chain: Option<Arc<Chain>>,
         commands: mpsc::UnboundedSender<RpcCommand>,
         net: watch::Receiver<Arc<NetStatus>>,
         status: watch::Sender<Arc<MiningStatus>>,
@@ -247,7 +248,7 @@ impl ChainJobSource {
         match &self.current {
             None => true,
             Some(c) => {
-                c.prev_hash() != Some(self.chain.tip().hash)
+                c.prev_hash() != self.chain.as_ref().map(|chain| chain.tip().hash)
                     || c.built.elapsed() >= REFRESH_INTERVAL
             }
         }
@@ -264,7 +265,10 @@ impl ChainJobSource {
         let MineMode::Solo { miner, .. } = &self.cfg.mode else {
             return Err("not mining solo".to_owned());
         };
-        let template = self.chain.block_template(miner, &[]).map_err(|e| {
+        let Some(chain) = &self.chain else {
+            return Err("solo mining needs the node".to_owned());
+        };
+        let template = chain.block_template(miner, &[]).map_err(|e| {
             // A miner thread that outlives the stop sees the closed database.
             if matches!(&e, xkr_chain::TemplateError::Chain(c) if c.is_closed()) {
                 tracing::debug!(error = %e, "no block template, the node is stopping");
@@ -369,7 +373,10 @@ impl ChainJobSource {
 
     /// Same path as `submitblock`: P2P manager -> chain thread -> relay.
     async fn submit_raw(&self, block: RawBlock) -> Result<AddBlockResult, String> {
-        xkr_rpc::submit_mined_block(&self.chain, &self.commands, block).await
+        let Some(chain) = &self.chain else {
+            return Err("solo mining needs the node".to_owned());
+        };
+        xkr_rpc::submit_mined_block(chain, &self.commands, block).await
     }
 
     /// A solo block found: it goes to the chain.
@@ -536,7 +543,7 @@ impl JobSource for ChainJobSource {
 /// Starts the miner. Returns the controller thread (it stops the hashing threads on exit).
 pub fn spawn(
     cfg: MinerConfig,
-    chain: Arc<Chain>,
+    chain: Option<Arc<Chain>>,
     commands: mpsc::UnboundedSender<RpcCommand>,
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
@@ -609,12 +616,13 @@ struct Running {
 /// `stop_mining`). At most one miner runs; its stop is a child of the node's shutdown.
 #[derive(Debug)]
 pub struct MinerControl {
-    chain: Arc<Chain>,
+    /// The node's chain (solo); `None` without the node.
+    chain: Option<Arc<Chain>>,
     commands: mpsc::UnboundedSender<RpcCommand>,
     net: watch::Receiver<Arc<NetStatus>>,
     status: watch::Sender<Arc<MiningStatus>>,
     shutdown: CancellationToken,
-    /// The built-in p2pool, `None` without `--p2pool`.
+    /// The built-in p2pool, `None` with p2pool off.
     pool: Option<PoolLink>,
     running: Mutex<Option<Running>>,
 }
@@ -623,7 +631,7 @@ impl MinerControl {
     /// No miner yet.
     #[must_use]
     pub fn new(
-        chain: Arc<Chain>,
+        chain: Option<Arc<Chain>>,
         commands: mpsc::UnboundedSender<RpcCommand>,
         net: watch::Receiver<Arc<NetStatus>>,
         status: watch::Sender<Arc<MiningStatus>>,
@@ -641,7 +649,7 @@ impl MinerControl {
         }
     }
 
-    /// The built-in p2pool's link, `None` without `--p2pool`.
+    /// The built-in p2pool's link, `None` with p2pool off.
     #[must_use]
     pub const fn pool(&self) -> Option<&PoolLink> {
         self.pool.as_ref()

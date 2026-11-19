@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use xkr_consensus::Network;
-use xkr_daemon_client::{DaemonClient, HttpTransport, Transport};
+use xkr_daemon_client::{AnyTransport, DaemonClient, Transport};
 use xkr_types::{Hash, PublicKey};
 use xkr_wallet::{TransactionInfo, Wallet};
 
@@ -52,7 +52,7 @@ impl RpcSettings {
 }
 
 /// The wallet, its daemon and the RPC settings.
-pub struct Service<T: Transport + 'static = HttpTransport> {
+pub struct Service<T: Transport + 'static = AnyTransport> {
     wallet: Arc<Wallet<T>>,
     daemon: DaemonClient<T>,
     genesis: Hash,

@@ -119,6 +119,72 @@ pub fn cn_fast_hash(data: &[u8]) -> Hash {
     Hash(out)
 }
 
+/// [`cn_fast_hash`] over data fed in pieces: `update(a); update(b); finalize()` equals
+/// `cn_fast_hash(a || b)`, without holding the whole input in memory.
+#[derive(Debug, Clone)]
+pub struct FastHasher {
+    st: [u64; 25],
+    buf: [u8; HASH_DATA_AREA],
+    len: usize,
+}
+
+impl Default for FastHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FastHasher {
+    /// An empty hasher.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            st: [0; 25],
+            buf: [0; HASH_DATA_AREA],
+            len: 0,
+        }
+    }
+
+    /// Absorbs `data`.
+    pub fn update(&mut self, mut data: &[u8]) {
+        if self.len > 0 {
+            let n = (HASH_DATA_AREA - self.len).min(data.len());
+            self.buf[self.len..self.len + n].copy_from_slice(&data[..n]);
+            self.len += n;
+            data = &data[n..];
+            if self.len < HASH_DATA_AREA {
+                return;
+            }
+            absorb_block(&mut self.st, &self.buf);
+            keccakf(&mut self.st);
+            self.len = 0;
+        }
+        let (blocks, rem) = data.as_chunks::<HASH_DATA_AREA>();
+        for block in blocks {
+            absorb_block(&mut self.st, block);
+            keccakf(&mut self.st);
+        }
+        self.buf[..rem.len()].copy_from_slice(rem);
+        self.len = rem.len();
+    }
+
+    /// The hash of everything absorbed.
+    #[must_use]
+    pub fn finalize(mut self) -> Hash {
+        let mut temp = [0u8; HASH_DATA_AREA];
+        temp[..self.len].copy_from_slice(&self.buf[..self.len]);
+        temp[self.len] = 1;
+        temp[HASH_DATA_AREA - 1] |= 0x80;
+        absorb_block(&mut self.st, &temp);
+        keccakf(&mut self.st);
+        let mut out = [0u8; 32];
+        for (dst, lane) in out.as_chunks_mut::<8>().0.iter_mut().zip(self.st.iter()) {
+            *dst = lane.to_le_bytes();
+        }
+        Hash(out)
+    }
+}
+
 /// `cn_fast_hash(a || b)` without allocating; the tree-hash node function.
 #[must_use]
 pub fn cn_fast_hash_pair(a: &Hash, b: &Hash) -> Hash {
@@ -148,6 +214,24 @@ mod tests {
             cn_fast_hash(&input).to_string(),
             "b542df5b6e7f5f05275c98e7345884e2ac726aeeb07e03e44e0389eb86cd05f0"
         );
+    }
+
+    #[test]
+    fn fast_hasher_matches_cn_fast_hash_for_any_split() {
+        let data: Vec<u8> = (0..700usize).map(|i| (i * 13 + 5) as u8).collect();
+        for len in [0usize, 1, 135, 136, 137, 272, 300, 700] {
+            let whole = cn_fast_hash(&data[..len]);
+            for cut in [0usize, 1, 7, 135, 136, 137, 200] {
+                let cut = cut.min(len);
+                let mut h = FastHasher::new();
+                h.update(&data[..cut]);
+                h.update(&[]);
+                for piece in data[cut..len].chunks(61) {
+                    h.update(piece);
+                }
+                assert_eq!(h.finalize(), whole, "len {len}, cut {cut}");
+            }
+        }
     }
 
     #[test]

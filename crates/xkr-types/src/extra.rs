@@ -282,6 +282,24 @@ pub fn tx_public_key(extra: &[u8]) -> Option<PublicKey> {
         })
 }
 
+/// The transaction public key as wallet sync reports it (C++ `Core::getPubKeyFromExtra`,
+/// `/getwalletsyncdata` `txPublicKey`): [`tx_public_key`] when the fields parse up to a key,
+/// otherwise the 32 bytes after the first `0x01` byte, and all zeros if there is none or it is
+/// truncated.
+#[must_use]
+pub fn wallet_tx_public_key(extra: &[u8]) -> [u8; 32] {
+    if let Some(key) = tx_public_key(extra) {
+        return key.0;
+    }
+    let mut key = [0u8; 32];
+    if let Some(i) = extra.iter().position(|b| *b == 0x01)
+        && let Some(bytes) = extra.get(i + 1..i + 33)
+    {
+        key.copy_from_slice(bytes);
+    }
+    key
+}
+
 /// C++ `getMergeMiningTagFromExtra`: first merge-mining tag of the (possibly partial) parse.
 #[must_use]
 pub fn merge_mining_tag(extra: &[u8]) -> Option<MergeMiningTag> {

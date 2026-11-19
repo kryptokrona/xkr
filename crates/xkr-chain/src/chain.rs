@@ -38,6 +38,7 @@ use crate::headers::{
 use crate::prepare::{
     DecodedBlock, PowMode, PrepareError, PreparedBlock, check_raw_sizes, decode_raw, prepare_block,
 };
+use crate::state::{StateHashes, StateView, load_view};
 use crate::verify::{
     HeaderVerdict, Overlay, SigJob, check_header, check_header_cheap, check_inputs,
     signature_error, verify_signatures,
@@ -75,6 +76,9 @@ pub struct ChainConfig {
     pub durable_interval: Duration,
     /// Checkpoints (defaults to the compiled-in list of the network).
     pub checkpoints: Checkpoints,
+    /// State hashes the node's own must match (defaults to the compiled-in list of the
+    /// network, [`crate::state`]).
+    pub state_hashes: StateHashes,
     /// Height of fork 13 (block major version 6, `docs/forks.md`); defaults to the network's
     /// table value (`None` = not scheduled). `xkrd --fork13-height` sets it on testnet.
     pub fork13_height: Option<u32>,
@@ -98,6 +102,7 @@ impl ChainConfig {
             header_cache: DEFAULT_HEADER_CACHE,
             durable_interval: Duration::from_secs(5),
             checkpoints: Checkpoints::for_network(network),
+            state_hashes: StateHashes::for_network(network),
             fork13_height: network.params().fork13_height,
             fork14_height: network.params().fork14_height,
             fork14: network.params().fork14,
@@ -226,6 +231,24 @@ pub struct BatchReport {
     pub error: Option<BatchError>,
     /// Main-chain tip afterwards.
     pub tip: TipInfo,
+    /// Time spent in each stage.
+    pub times: StageTimes,
+}
+
+/// Wall time of the stages of [`Chain::add_blocks`]. The stages after `prepare` are timed
+/// for a batch that extends the main chain; they stay zero for alternative blocks.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StageTimes {
+    /// Decoding, size and semantic checks and the proof of work (parallel).
+    pub prepare: Duration,
+    /// Header context checks and the key-image and ring-member lookups (serial).
+    pub context: Duration,
+    /// Ring signatures (parallel).
+    pub signatures: Duration,
+    /// Writing the blocks into the write transaction.
+    pub write: Duration,
+    /// Commit, tip and pool update.
+    pub commit: Duration,
 }
 
 /// An alternative block (in memory; the raw block is in the `alt_blocks` table).
@@ -250,6 +273,8 @@ struct MainResult {
     pushed: Vec<VerifiedBlock>,
     /// First failure: index into the input and reason.
     fail: Option<(usize, Hash, RejectReason)>,
+    /// Time of the context, signature, write and commit stages.
+    times: StageTimes,
 }
 
 /// Chain state shared by the node: one writer at a time (sync batches, live blocks, reorgs),
@@ -271,6 +296,10 @@ pub struct Chain {
     pool_gate: RwLock<()>,
     /// Fork-signal count of the readiness window, keyed by the tip it was computed for.
     pub(crate) signal_cache: Mutex<Option<crate::forks::SignalCache>>,
+    /// The stored state hashes and a mismatch against the compiled-in list ([`crate::state`]).
+    pub(crate) state: RwLock<StateView>,
+    /// Held while [`Chain::update_state_hashes`] runs.
+    pub(crate) state_update: Mutex<()>,
 }
 
 impl std::fmt::Debug for Chain {
@@ -389,6 +418,7 @@ impl Chain {
             }
         }
         drop(reader);
+        let state = load_view(&store, &cfg.state_hashes)?;
         tracing::info!(height = top, hash = %tip.hash, "chain opened");
 
         Ok(Self {
@@ -407,6 +437,8 @@ impl Chain {
             read_comps: Mutex::new(Vec::new()),
             pool_gate: RwLock::new(()),
             signal_cache: Mutex::new(None),
+            state: RwLock::new(state),
+            state_update: Mutex::new(()),
             cfg,
         })
     }
@@ -599,8 +631,10 @@ impl Chain {
     /// handles to this chain may still exist (tasks that outlive the stop); their storage calls
     /// return `xkr_storage::Error::Closed` from then on ([`ChainError::is_closed`]). Closing
     /// again does nothing. The close runs even when the final commit fails; the first error
-    /// is returned.
+    /// is returned. Waits for a running [`Self::update_state_hashes`] call.
     pub fn close(&self) -> Result<(), ChainError> {
+        // No state-hash write may be in flight when the file closes.
+        let _state = self.state_update.lock();
         let mut w = self.writer.lock();
         let flushed = if self.store.is_closed() {
             Ok(())
@@ -644,6 +678,19 @@ impl Chain {
         w.comp.clear_cache();
         self.read_comps.lock().clear();
         Ok(report)
+    }
+
+    /// [`ChainError::StateMismatch`] once a state hash differed from the compiled-in list
+    /// ([`Self::state_mismatch`]): no block is taken after that.
+    fn check_state(&self) -> Result<(), ChainError> {
+        match self.state_mismatch() {
+            Some(m) => Err(ChainError::StateMismatch {
+                span: m.span,
+                expected: m.expected,
+                found: m.found,
+            }),
+            None => Ok(()),
+        }
     }
 
     /// Stripe-pruning bound for the current tip ([`Checkpoints::prune_bound`]).
@@ -717,6 +764,7 @@ impl Chain {
         raws: Vec<RawBlock>,
         expected: Option<&[Hash]>,
     ) -> Result<BatchReport, ChainError> {
+        self.check_state()?;
         let submitted = raws.len();
         // `--fast-sync` applies to requested batches only.
         let requested = expected.is_some();
@@ -726,6 +774,7 @@ impl Chain {
             PowMode::Full
         };
         let size_limit = self.raw_size_limit(submitted);
+        let prepare_started = Instant::now();
         // Stage 1 is a pure function of the bytes: it runs before the writer lock is taken, and
         // the sizes are checked before anything is decoded. The templates are decoded first, so
         // the ids are compared with the requested ones before any transaction is decoded or
@@ -773,10 +822,15 @@ impl Chain {
         }
         let prepared: Vec<Result<PreparedBlock, PrepareError>> =
             wanted.into_par_iter().map(|d| d.prepare(pow)).collect();
+        let prepare_time = prepare_started.elapsed();
         let mut w = self.writer.lock();
 
         let mut report = BatchReport {
             submitted,
+            times: StageTimes {
+                prepare: prepare_time,
+                ..StageTimes::default()
+            },
             ..BatchReport::default()
         };
         let mut ok = Vec::with_capacity(prepared.len());
@@ -810,6 +864,10 @@ impl Chain {
         {
             let res = self.push_main(&mut w, reader, rest, false, requested)?;
             report.added_main = res.pushed.len();
+            report.times = StageTimes {
+                prepare: prepare_time,
+                ..res.times
+            };
             if let Some((i, hash, reason)) = res.fail {
                 let kind = if reason == RejectReason::NotConnected {
                     BatchErrorKind::Orphan
@@ -885,6 +943,7 @@ impl Chain {
     }
 
     fn add_block_inner(&self, raw: RawBlock) -> Result<AddBlockResult, ChainError> {
+        self.check_state()?;
         let rejected = |e: PrepareError| {
             Ok(AddBlockResult {
                 hash: e.hash.unwrap_or(Hash::ZERO),
@@ -1204,6 +1263,8 @@ impl Chain {
         let mut jobs: Vec<SigJob> = Vec::new();
         let mut verdicts: Vec<HeaderVerdict> = Vec::with_capacity(blocks.len());
         let mut fail: Option<(usize, RejectReason)> = None;
+        let mut times = StageTimes::default();
+        let context_started = Instant::now();
 
         // Stage 2: sequential context checks. The header window is extended block by block; on
         // a node-side error it is reloaded from storage before returning.
@@ -1257,6 +1318,7 @@ impl Chain {
             verdicts.push(verdict);
         }
         drop(reader);
+        times.context = context_started.elapsed();
         if let Some(e) = node_error {
             w.cache = HeaderCache::load(
                 &self.reader()?,
@@ -1269,9 +1331,11 @@ impl Chain {
         // Stage 3: ring signatures of every block that passed stage 2, in parallel.
         let checked = fail.as_ref().map_or(blocks.len(), |f| f.0);
         jobs.retain(|j| j.block < checked);
+        let signatures_started = Instant::now();
         if let Some((b, t)) = verify_signatures(&blocks[..checked], &jobs) {
             fail = Some((b, signature_error(t)));
         }
+        times.signatures = signatures_started.elapsed();
         let accepted = fail.as_ref().map_or(blocks.len(), |f| f.0);
         if !w.cache.truncate_to(start_top + accepted as u64) {
             w.cache = HeaderCache::load(
@@ -1286,6 +1350,7 @@ impl Chain {
             return Ok(MainResult {
                 pushed: Vec::new(),
                 fail,
+                times,
             });
         }
 
@@ -1301,27 +1366,41 @@ impl Chain {
                 into_verified(p, height, &v, info.map_or(0, |i| i.already_generated_coins))
             })
             .collect();
-        if let Err(e) = self.store_blocks(w, &pushed, durable) {
-            w.cache = HeaderCache::load(
-                &self.reader()?,
-                start_top,
-                self.cfg.header_cache.max(DEFAULT_HEADER_CACHE),
-            )?;
-            return Err(e);
+        match self.store_blocks(w, &pushed, durable) {
+            Ok((write, commit)) => {
+                times.write = write;
+                times.commit = commit;
+            }
+            Err(e) => {
+                w.cache = HeaderCache::load(
+                    &self.reader()?,
+                    start_top,
+                    self.cfg.header_cache.max(DEFAULT_HEADER_CACHE),
+                )?;
+                return Err(e);
+            }
         }
-        Ok(MainResult { pushed, fail })
+        Ok(MainResult {
+            pushed,
+            fail,
+            times,
+        })
     }
 
-    /// Writes verified blocks, commits, updates the tip and the pool.
+    /// Writes verified blocks, commits, updates the tip and the pool. Returns the time of the
+    /// write and of the commit with the tip and pool update.
     fn store_blocks(
         &self,
         w: &mut Writer,
         blocks: &[VerifiedBlock],
         force_durable: bool,
-    ) -> Result<(), ChainError> {
+    ) -> Result<(Duration, Duration), ChainError> {
+        let write_started = Instant::now();
         let durable = force_durable || w.last_durable.elapsed() >= self.cfg.durable_interval;
         let txn = self.store.begin_write()?;
         push_blocks(&txn, blocks, &mut w.comp)?;
+        let write = write_started.elapsed();
+        let commit_started = Instant::now();
         let gate = self.pool_gate.write();
         commit(txn, durable)?;
         if durable {
@@ -1351,7 +1430,7 @@ impl Chain {
                 "pool transactions dropped by key-image conflicts"
             );
         }
-        Ok(())
+        Ok((write, commit_started.elapsed()))
     }
 
     /// Makes the alternative branch ending at `alt_tip` the main chain.

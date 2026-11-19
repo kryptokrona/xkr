@@ -8,8 +8,8 @@
 #             --limit 2                                                       (check 3, text output)
 #   P2POOL=1: a fresh testnet xkrd A (P2P 22898, RPC 22899) mines PHASE0_BLOCKS (10) with its
 #   built-in miner and restarts without it, then with the image: p2pool A (container, stratum
-#   22333) on A; without it: A itself with --p2pool (p2pool/sidechain-testnet.json, stratum
-#   22333, payout W1 through --hugin); xkr-miner --pool stratum+tcp://127.0.0.1:22333
+#   22333) on A; without it: A itself with --node --p2pool (p2pool/sidechain-testnet.json,
+#   stratum 22333, payout W1 through --hugin-payout); xkr-miner --pool stratum+tcp://127.0.0.1:22333
 #   --limit POOL_SHARES (3)
 #
 # Checks: (1) the miner exits 0 after --limit blocks; S is SOLO_BLOCKS higher and logs as many
@@ -156,9 +156,9 @@ else
         POOL_LOG=$(pool_log a)
     else
         note "image $P2POOL_IMAGE missing: xkrd's built-in p2pool on A instead ($BUILD_P2POOL_IMAGE builds the image)"
-        # --no-hugin: no relay (and --no-hyper turns it off anyway); --hugin only sets the payout
+        # --node --p2pool: no relay (and --no-hyper turns it off anyway); --hugin-payout sets the payout
         start_xkrd pp-a "$PORT_PP_A_RPC" "$SD/xkrd-a" "$SD/xkrd-a.log" "${A_ARGS[@]}" \
-            --no-hugin --hugin "$W1" --p2pool --p2pool-config "$ROOT/p2pool/sidechain-testnet.json" \
+            --node --p2pool --hugin-payout "$W1" --p2pool-config "$ROOT/p2pool/sidechain-testnet.json" \
             --p2pool-stratum "127.0.0.1:$PORT_PP_STRATUM_A"
         watch pp-a
         a_running() { [ "$(str "$(obj "$(get "$A_RPC" /status)" p2pool)" state)" = running ]; }

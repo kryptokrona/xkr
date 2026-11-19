@@ -93,7 +93,10 @@ All of the above were also cross-checked by an independent Python reference
   on pool admission; `MAX_EXTRA_SIZE_V2` only in the wallet. They live in `validation.rs` as policy
   functions (`check_pool_policy`, `is_valid_for_block_template`).
 * Key images: `validateSemantic` requires `l * KI == identity` (`key_image_in_prime_subgroup`);
-  `checkRingSignature` repeats it with `ge_check_subgroup_precomp_vartime`. ref10 point decoding
+  `checkRingSignature` repeats it with `ge_check_subgroup_precomp_vartime`. In Rust,
+  `validate_semantic_checked` returns a `CheckedKeyImage` per input (the only way to build one)
+  and `check_ring_signature_checked` / `clsag_verify_checked` take it, so the node checks each
+  key image once; `check_ring_signature` and `clsag_verify` check it themselves. ref10 point decoding
   rejects non-canonical `y` and `x = 0` with the sign bit set, which dalek accepts; `ops::decompress`
   adds a re-encoding check to match.
 * Parent block: transaction count is read as `u64` and truncated to `u16`; a parent miner

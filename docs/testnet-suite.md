@@ -531,12 +531,12 @@ with the PPLNS weight cap lifted):
   stratum 22343, `XKR_TESTNET_UNCAPPED_PPLNS=1`, fork heights from the environment); xmrig on
   its stratum.
 * xkrd **R1** (RPC 22789): Levin to X only (`--add-peer`, no listener), Hyperswarm on a local
-  HyperDHT (as 20 and 40), `--p2pool --p2pool-config p2pool/sidechain-testnet.json
+  HyperDHT (as 20 and 40), `--node --p2pool --p2pool-config p2pool/sidechain-testnet.json
   --p2pool-uncapped-pplns --p2pool-allow-same-ip --p2pool-p2p 127.0.0.1:22791
-  --p2pool-stratum 127.0.0.1:22344 --p2pool-addpeers 127.0.0.1:22790`, payout WR1 (`--hugin`);
+  --p2pool-stratum 127.0.0.1:22344 --p2pool-addpeers 127.0.0.1:22790`, payout WR1 (`--hugin-payout`);
   xkr-miner on its stratum.
 * xkrd **R2** (RPC 22779): no legacy peer (`--p2p-bind-port 0`, dead seed, `--out-peers 0`),
-  `--p2pool` with stratum 22345, no `--p2pool-p2p`, no `--p2pool-addpeers`, payout WR2: it
+  `--node --p2pool` with stratum 22345, no `--p2pool-p2p`, no `--p2pool-addpeers`, payout WR2: it
   reaches the main chain and the sidechain only over Hyperswarm, through R1. `R2_MINER=1` puts
   an xkr-miner on its stratum too.
 
@@ -601,7 +601,7 @@ restart of the built-in p2pool (its cache), and an exact tip id comparison (see 
 ### 40-hugin-relay: xkrd as a hugin-node
 
 Local DHT, p2pool A (image `xkr-p2pool:testnet`; without it the fake stratum pool stands in and
-the p2pool check is a SKIP), A with the relay (on by default) and `--hugin <address>`, B
+the p2pool check is a SKIP), A with the relay (on by default) and `--hugin-payout <address>`, B
 `--hugin-private` with the default fee address, the app simulator
 `bridge/test/hugin-client-sim.js --testnet` (`docs/hugin-relay.md`, "Local test").
 
@@ -699,8 +699,8 @@ form, and shows the same balance as `a.wallet`.
 4. `P2POOL=1` (the default; 0 turns it off): a fresh testnet xkrd A (ports of 32) mines
    `PHASE0_BLOCKS` (10) with its built-in miner and restarts without it; with the image
    `xkr-p2pool:testnet` p2pool A runs on A, without it A runs xkrd's built-in p2pool itself
-   (`--p2pool --p2pool-config p2pool/sidechain-testnet.json --p2pool-stratum 127.0.0.1:22333`,
-   payout W1 through `--hugin`, `/status` `p2pool.state` `running`);
+   (`--node --p2pool --p2pool-config p2pool/sidechain-testnet.json --p2pool-stratum
+   127.0.0.1:22333`, payout W1 through `--hugin-payout`, `/status` `p2pool.state` `running`);
    `xkr-miner --pool stratum+tcp://127.0.0.1:22333 --limit POOL_SHARES` (3) gets a job, has 3
    shares accepted and none rejected, exits 0, and A grows (every testnet share is a block);
    with the built-in p2pool A also logs `p2pool: block found` for them. The PASS lines name

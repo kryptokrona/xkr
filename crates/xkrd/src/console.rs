@@ -17,7 +17,10 @@ use xkr_chain::{Chain, unix_now};
 use xkr_consensus::Network;
 use xkr_consensus::params::DIFFICULTY_TARGET;
 use xkr_hugin::{HuginStats, HuginStatsSnapshot};
-use xkr_rpc::{HyperDhtState, HyperNat, HyperNetStatus, MiningStatus, NetStatus, P2poolStatus};
+use xkr_rpc::{
+    ClientStats, ClientStatsSnapshot, HyperDhtState, HyperNat, HyperNetStatus, MiningStatus,
+    NetStatus, P2poolStatus,
+};
 use xkr_storage::PruningSeed;
 use xkr_types::Hash;
 
@@ -64,8 +67,8 @@ const COMMANDS: &[(&str, &str, &str)] = &[
         "start_mining",
         "mine solo to an address, or via p2pool",
         "start_mining <address>|p2pool [threads]: the built-in miner, solo to the address (blocks \
-         pay it), or via the built-in p2pool (off with --no-p2pool; shares pay the node's \
-         p2pool payout address, see fee-address). Threads: half the cores by default",
+         pay it), or via the built-in p2pool (needs p2pool on, see xkrd --help; shares pay \
+         the node's p2pool payout address, see fee-address). Threads: half the cores by default",
     ),
     (
         "stop_mining",
@@ -271,8 +274,10 @@ pub struct NodeState {
     pub hugin: Option<Arc<HuginStats>>,
     /// The fee address handle, `None` with the relay and p2pool off.
     pub fee: Option<Arc<FeeAddress>>,
-    /// The built-in p2pool's status, `None` without `--p2pool`.
+    /// The built-in p2pool's status, `None` with p2pool off.
     pub p2pool: Option<watch::Receiver<Arc<P2poolStatus>>>,
+    /// Counters of the clients topic, `None` when the node does not serve it.
+    pub clients: Option<Arc<ClientStats>>,
     /// Starts and stops the built-in miner (`start_mining`, `stop_mining`).
     pub miner: Option<Arc<MinerControl>>,
     /// Whether the Hyperswarm transport runs (not `--no-hyper`).
@@ -313,8 +318,10 @@ pub struct Status {
     pub pruning: PruningSeed,
     pub mining: MiningStatus,
     pub hugin: Option<HuginStatsSnapshot>,
-    /// The built-in p2pool, `None` without `--p2pool`.
+    /// The built-in p2pool, `None` with p2pool off.
     pub p2pool: Option<P2poolStatus>,
+    /// The clients topic, `None` when the node does not serve it.
+    pub clients: Option<ClientStatsSnapshot>,
 }
 
 impl NodeState {
@@ -350,8 +357,18 @@ impl NodeState {
             mining: self.mining.borrow().as_ref().clone(),
             hugin: self.hugin.as_deref().map(HuginStats::snapshot),
             p2pool: self.p2pool.as_ref().map(|p| p.borrow().as_ref().clone()),
+            clients: self.clients.as_deref().map(ClientStats::snapshot),
         })
     }
+}
+
+/// The `Clients:` line of `status` (the clients topic): `2 connected, 1 204 calls served`.
+fn clients_text(c: ClientStatsSnapshot) -> String {
+    format!(
+        "{} connected, {} calls served",
+        c.connections,
+        term::group(c.served_calls)
+    )
 }
 
 /// A label padded to the value column.
@@ -415,6 +432,9 @@ pub fn format_status(s: &Status, style: Style) -> String {
     );
     if s.hyper.is_some() {
         line("Hyperswarm:", &hyper_net_text(s.hyper_net));
+    }
+    if let Some(c) = s.clients {
+        line("Clients:", &clients_text(c));
     }
     line(
         "Network:",
@@ -851,7 +871,7 @@ fn start_mining(
         }
         MineChoice::P2pool => {
             let Some(link) = control.pool() else {
-                return "p2pool is off: start xkrd without --no-p2pool (testnet: with --p2pool) to mine via p2pool\n".to_owned();
+                return "p2pool is off: start xkrd with --node --hugin --p2pool (mainnet: no mode flags) to mine via p2pool\n".to_owned();
             };
             let waiting = match link.state() {
                 LinkState::Waiting => true,
@@ -1360,7 +1380,25 @@ mod tests {
             mining: MiningStatus::default(),
             hugin: None,
             p2pool: None,
+            clients: None,
         }
+    }
+
+    #[test]
+    fn the_clients_line_follows_the_hyperswarm_line() {
+        let mut s = sample_status();
+        let plain = Style::new(false);
+        assert!(!format_status(&s, plain).contains("Clients:"));
+        s.clients = Some(ClientStatsSnapshot {
+            connections: 2,
+            served_calls: 1_204,
+        });
+        let text = format_status(&s, plain);
+        assert!(
+            text.contains("\nClients:     2 connected, 1 204 calls served\n"),
+            "{text}"
+        );
+        assert!(text.find("Hyperswarm:").unwrap() < text.find("Clients:").unwrap());
     }
 
     #[test]
@@ -1701,6 +1739,7 @@ mod tests {
             hugin: Some(Arc::new(HuginStats::default())),
             fee: None,
             p2pool: None,
+            clients: None,
             miner: None,
             hyper: true,
             private: None,
@@ -1775,6 +1814,7 @@ mod tests {
             hugin: None,
             fee: None,
             p2pool: None,
+            clients: None,
             miner: None,
             hyper: false,
             private: None,
@@ -1855,6 +1895,7 @@ mod tests {
             hugin: None,
             fee: None,
             p2pool: None,
+            clients: None,
             miner: None,
             hyper: false,
             private: None,
@@ -1901,6 +1942,7 @@ mod tests {
                 hugin: None,
                 fee: None,
                 p2pool: None,
+                clients: None,
                 miner: None,
                 hyper: true,
                 private,
@@ -1957,6 +1999,7 @@ mod tests {
             hugin: Some(Arc::new(HuginStats::default())),
             fee: Some(fee.clone()),
             p2pool: None,
+            clients: None,
             miner: None,
             hyper: true,
             private: None,
@@ -2061,6 +2104,7 @@ mod tests {
                 hugin: None,
                 fee: None,
                 p2pool: None,
+                clients: None,
                 miner: None,
                 hyper: false,
                 private: None,

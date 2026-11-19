@@ -10,7 +10,7 @@
 //! | [`job`] | constants, login parsing (user, `+N` difficulty), targets and their text, the JSON lines |
 //! | [`autodiff`] | the per-miner difficulty from its share times (`update_auto_diff`) |
 //! | [`stats`] | hashrate windows and share counters, the `local/stratum` API object |
-//! | [`server`] | [`StratumServer`]: accept, bans, new jobs for every miner (`on_block`), share checks |
+//! | [`server`] | [`StratumServer`]: accept, bans, new jobs for every miner (`on_block`), share checks; [`StratumHandle`]: the same sessions on other streams (xkrd's `stratum` service over Hyperswarm) |
 //!
 //! The server takes its work from a [`TemplateSource`] (the block template) and hands found
 //! main-chain blocks and sidechain shares to a [`ShareSink`] (the node). Every miner mines for
@@ -30,7 +30,7 @@ mod session;
 pub mod stats;
 
 pub use autodiff::AutoDiff;
-pub use server::StratumServer;
+pub use server::{StratumHandle, StratumServer, StreamEnd};
 pub use stats::{StratumStats, WorkerStats};
 
 /// Default listen address: local miners only (`--p2pool-stratum`; C++ listens on

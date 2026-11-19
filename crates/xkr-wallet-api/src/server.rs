@@ -26,7 +26,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, Method, Response, Uri};
 use serde_json::Value;
 use tokio::sync::RwLock;
-use xkr_daemon_client::{HttpTransport, Transport};
+use xkr_daemon_client::{AnyTransport, ClientSource, Transport};
 use xkr_wallet::validate::{ADDRESS_PREFIX_ALT_TEXT, ADDRESS_PREFIX_TEXT, STANDARD_ADDRESS_LENGTH};
 use xkr_wallet::{AutosaveConfig, ErrorCode, Node, Wallet, WalletConfig, WalletError};
 use zeroize::Zeroizing;
@@ -46,17 +46,39 @@ pub trait NodeFactory: Send + Sync + 'static {
 
     /// A connection to `host:port` (`Nigel(daemonHost, daemonPort)`).
     fn connect(&self, host: &str, port: u16) -> Result<Node<Self::Transport>, WalletError>;
+
+    /// Whether the host [`xkr_wallet::SWARM_HOST`] works, so a wallet opened without a daemon
+    /// uses Hyperswarm when no local node answers.
+    fn has_swarm(&self) -> bool {
+        false
+    }
 }
 
-/// Daemons over HTTP.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct HttpNodes;
+/// Daemons over HTTP, and over Hyperswarm for the host [`xkr_wallet::SWARM_HOST`] when
+/// `swarm` is set.
+#[derive(Clone, Default)]
+pub struct Nodes {
+    /// Where Hyperswarm connections come from (`None`: HTTP only).
+    pub swarm: Option<Arc<dyn ClientSource>>,
+}
 
-impl NodeFactory for HttpNodes {
-    type Transport = HttpTransport;
+impl std::fmt::Debug for Nodes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Nodes")
+            .field("swarm", &self.swarm.is_some())
+            .finish()
+    }
+}
 
-    fn connect(&self, host: &str, port: u16) -> Result<Node<HttpTransport>, WalletError> {
-        Node::http(host, port)
+impl NodeFactory for Nodes {
+    type Transport = AnyTransport;
+
+    fn connect(&self, host: &str, port: u16) -> Result<Node<AnyTransport>, WalletError> {
+        Node::connect(host, port, self.swarm.as_ref())
+    }
+
+    fn has_swarm(&self) -> bool {
+        self.swarm.is_some()
     }
 }
 

@@ -31,6 +31,9 @@ serde_json        = { workspace = true }
 thiserror         = { workspace = true }
 tracing           = { workspace = true }
 hex               = { workspace = true }
+# `swarm`: daemon requests over the wallets topic (service `wallet` of xkr-hyper-rpc)
+xkr-hyper-rpc     = { path = "../xkr-hyper-rpc" }
+futures           = { workspace = true }
 
 [dev-dependencies]
 # in-process node behind the axum router (tests/common, tests/walletsync.rs)

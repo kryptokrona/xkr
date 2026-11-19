@@ -26,10 +26,10 @@ hex               = { workspace = true }
 tracing           = { workspace = true }
 # response bodies that hold the request permit until they are sent (`limits_layer`)
 futures           = { workspace = true }
+# `inproc::request`: one request through the router without a socket (the wallets topic)
+tower             = { workspace = true, features = ["util"] }
 
 [dev-dependencies]
-# request-limit tests (tests/prop_limits.rs): drive the router without a socket
-tower             = { workspace = true, features = ["util"] }
 # fork-14 wallet-sync vector (tests/tx_v2_walletsync.rs): key derivation and a scripted RNG
 xkr-crypto        = { path = "../xkr-crypto" }
 rand_core         = { workspace = true }

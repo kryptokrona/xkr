@@ -31,6 +31,8 @@ xkr-serialization = { path = "../xkr-serialization" }
 xkr-wallet-core   = { path = "../xkr-wallet-core" }
 xkr-daemon-client = { path = "../xkr-daemon-client" }
 xkr-wallet        = { path = "../xkr-wallet" }
+# a node over Hyperswarm when no local node runs and no daemon is given
+xkr-hyper-wallet  = { path = "../xkr-hyper-wallet" }
 axum              = { workspace = true }
 tokio             = { workspace = true, features = ["signal"] }
 clap              = { workspace = true }

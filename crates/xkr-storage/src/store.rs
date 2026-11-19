@@ -241,6 +241,56 @@ impl Store {
         }
     }
 
+    /// The stored state hashes of the stripe spans `0..n` (`META_BLOBS["state_hashes"]`,
+    /// `docs/storage.md` "State hashes"): per span `(state hash, hash of the span's last block)`.
+    /// Empty when none were computed. [`Error::Busy`] during maintenance.
+    pub fn state_hashes(&self) -> Result<Vec<([u8; 32], [u8; 32])>> {
+        let db = self.try_db()?;
+        let txn = db.begin_read()?;
+        drop(db);
+        let blobs = txn.open_table(META_BLOBS)?;
+        let Some(g) = blobs.get(meta::STATE_HASHES)? else {
+            return Ok(Vec::new());
+        };
+        let (entries, rest) = g.value().as_chunks::<64>();
+        if !rest.is_empty() {
+            return Err(Error::Corrupt(
+                "state hashes are not a multiple of 64 bytes",
+            ));
+        }
+        Ok(entries
+            .iter()
+            .map(|e| {
+                let (state, last) = e.split_at(32);
+                (
+                    state.try_into().expect("32 bytes"),
+                    last.try_into().expect("32 bytes"),
+                )
+            })
+            .collect())
+    }
+
+    /// Replaces the stored state hashes with `hashes` (spans `0..hashes.len()`, as
+    /// [`Store::state_hashes`] returns them); an empty list removes the entry.
+    pub fn set_state_hashes(&self, hashes: &[([u8; 32], [u8; 32])]) -> Result<()> {
+        let txn = self.begin_write()?;
+        {
+            let mut blobs = txn.open_table(META_BLOBS)?;
+            if hashes.is_empty() {
+                blobs.remove(meta::STATE_HASHES)?;
+            } else {
+                let mut bytes = Vec::with_capacity(hashes.len() * 64);
+                for (state, last) in hashes {
+                    bytes.extend_from_slice(state);
+                    bytes.extend_from_slice(last);
+                }
+                blobs.insert(meta::STATE_HASHES, bytes.as_slice())?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Sets how many blocks behind the tip a chunk is sealed (default
     /// [`crate::schema::DEFAULT_SEAL_LAG`]; tests use small values).
     pub fn set_seal_lag(&self, lag: u64) -> Result<()> {

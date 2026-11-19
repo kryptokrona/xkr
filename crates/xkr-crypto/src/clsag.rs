@@ -32,7 +32,7 @@ use xkr_types::{ClsagSignature, EcScalar, Hash, KeyImage, PublicKey, SecretKey};
 use zeroize::Zeroize;
 
 use crate::ops::{
-    canonical, decompress, hash_to_ec, hash_to_scalar, point_in_prime_subgroup, random_scalar,
+    CheckedKeyImage, canonical, decompress, hash_to_ec, hash_to_scalar, random_scalar,
 };
 
 /// Domain separator of the aggregation coefficient `mu` (zero-padded to 32 bytes).
@@ -254,6 +254,20 @@ pub fn clsag_verify(
     key_image: &KeyImage,
     sig: &ClsagSignature,
 ) -> bool {
+    CheckedKeyImage::new(key_image)
+        .is_some_and(|image| clsag_verify_checked(msg, ring, &image, sig))
+}
+
+/// [`clsag_verify`] with the key image decoded and in the prime-order subgroup
+/// ([`CheckedKeyImage`]), for callers that checked it while validating the transaction. The
+/// identity is still rejected here.
+#[must_use]
+pub fn clsag_verify_checked(
+    msg: &Hash,
+    ring: &[PublicKey],
+    image: &CheckedKeyImage,
+    sig: &ClsagSignature,
+) -> bool {
     let n = ring.len();
     if n == 0 || sig.s.len() != n {
         return false;
@@ -269,12 +283,11 @@ pub fn clsag_verify(
     else {
         return false;
     };
-    let Some(image_point) = decompress(&key_image.0) else {
-        return false;
-    };
-    if image_point.is_identity() || !point_in_prime_subgroup(&image_point) {
+    let image_point = *image.point();
+    if image_point.is_identity() {
         return false;
     }
+    let key_image = image.key_image();
     let Some(points) = ring
         .iter()
         .map(|p| decompress(&p.0))
@@ -415,6 +428,9 @@ mod tests {
                 let sig = clsag_sign(&msg, &ring, &secrets[l], l, &mut rng).unwrap();
                 assert_eq!(sig.s.len(), n);
                 assert!(clsag_verify(&msg, &ring, &ki, &sig), "n {n} l {l}");
+                let checked = CheckedKeyImage::new(&ki).unwrap();
+                assert!(clsag_verify_checked(&msg, &ring, &checked, &sig));
+                assert!(!clsag_verify_checked(&Hash::ZERO, &ring, &checked, &sig));
                 assert!(
                     ClsagCheck {
                         msg: &msg,
@@ -457,6 +473,8 @@ mod tests {
         let mut id = [0u8; 32];
         id[0] = 1;
         assert!(!clsag_verify(&msg, &ring, &KeyImage(id), &sig));
+        let identity = CheckedKeyImage::new(&KeyImage(id)).unwrap();
+        assert!(!clsag_verify_checked(&msg, &ring, &identity, &sig));
         let torsion = curve25519_dalek::constants::EIGHT_TORSION[1];
         let torsioned = decompress(&ki.0).unwrap() + torsion;
         assert!(!clsag_verify(

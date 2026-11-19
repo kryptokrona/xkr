@@ -28,6 +28,9 @@ pub struct Config {
     pub daemon_address: String,
     /// `--daemon-port`.
     pub daemon_port: i32,
+    /// Whether the daemon address or port was given (flag or config file); without them the
+    /// service uses the local node when one answers, else a node found over Hyperswarm.
+    pub daemon_given: bool,
     /// `--bind-address`.
     pub bind_address: String,
     /// `--bind-port`.
@@ -92,6 +95,7 @@ impl Config {
         Self {
             daemon_address: "127.0.0.1".into(),
             daemon_port: i32::from(network.params().rpc_port),
+            daemon_given: false,
             bind_address: "127.0.0.1".into(),
             bind_port: i32::from(SERVICE_DEFAULT_PORT),
             rpc_password: String::new(),
@@ -301,6 +305,9 @@ impl Cli {
         set(&mut config.dump_config, self.dump_config.as_ref());
         set(&mut config.daemon_address, self.daemon_address.as_ref());
         set(&mut config.daemon_port, self.daemon_port.as_ref());
+        if self.daemon_address.is_some() || self.daemon_port.is_some() {
+            config.daemon_given = true;
+        }
         set(&mut config.init_timeout, self.init_timeout.as_ref());
         set(&mut config.log_file, self.log_file.as_ref());
         set(&mut config.log_level, self.log_level.as_ref());
@@ -410,8 +417,14 @@ pub fn read_ini(path: &str, config: &mut Config) -> Result<bool, String> {
         };
         let int = |v: &str| stoi(v).map_err(|e| format!("{e} - Invalid value for {key}"));
         match key {
-            "daemon-address" => value.clone_into(&mut config.daemon_address),
-            "daemon-port" => config.daemon_port = int(value)?,
+            "daemon-address" => {
+                value.clone_into(&mut config.daemon_address);
+                config.daemon_given = true;
+            }
+            "daemon-port" => {
+                config.daemon_port = int(value)?;
+                config.daemon_given = true;
+            }
             "init-timeout" => config.init_timeout = int(value)?,
             "log-file" => value.clone_into(&mut config.log_file),
             "log-level" => config.log_level = int(value)?,
@@ -497,9 +510,11 @@ pub fn read_json(path: &str, config: &mut Config) -> Result<(), String> {
     let get = |k: &str| j.get(k);
     if let Some(v) = get("daemon-address") {
         config.daemon_address = json_string(v)?;
+        config.daemon_given = true;
     }
     if let Some(v) = get("daemon-port") {
         config.daemon_port = json_int(v)?;
+        config.daemon_given = true;
     }
     if let Some(v) = get("init-timeout") {
         config.init_timeout = json_int(v)?;

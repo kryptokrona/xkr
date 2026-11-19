@@ -37,7 +37,7 @@ and in the single-owner tasks of `xkrd`.
                          +---------------------------------------------------------------------------------------------+   |
                                     ^ ChainEvent (unbounded)                                                                |
                                     |                                                                                       v
-                         chain thread (xkr-chain, one OS thread) -- Chain::add_blocks / add_block --> rayon pool (xkr-verify-*, cores-1)
+                         chain thread (xkr-chain, one OS thread) -- Chain::add_blocks / add_block --> rayon pool (xkr-verify-*, all cores)
 
  miner controller (xkr-miner) -- Chain::block_template --> job --> hashing threads (xkr-mine-*, --mine-threads)
         |  found block: RpcCommand::SubmitBlock --> manager --> ChainJob::Block{local} --> chain thread --> relay (hop 0)
@@ -191,8 +191,10 @@ legacy_incoming,hyper,total}`, `/getinfo` `hyper_connections_count` next to the 
    *n*, job *n+1* is waiting and the network keeps filling the buffer.
 6. **`Chain::add_blocks`** (one job):
    1. *prepare*, parallel over blocks (rayon): decode, block id, coinbase hash, PoW slow hash
-      (`block_long_hash`), every transaction decoded, hashed and `validate_semantic`-checked
-      (amounts, key-image subgroup). The id must equal the requested id.
+      (`block_long_hash`; from major 5 on each thread's own `CnHasher` with the CPU's AES
+      instructions when it has them), every transaction decoded, hashed and
+      `validate_semantic_checked` (amounts, key-image subgroup; the checked key images go to
+      step 3). The id must equal the requested id.
    2. *context*, sequential: leading blocks already stored are skipped. For each block, the
       context (timestamps incl. genesis, LWMA/Zawy difficulty window, last 100 sizes, generated
       coins) is sliced from the in-memory header window, which already contains the blocks
@@ -204,12 +206,17 @@ legacy_incoming,hyper,total}`, `/getinfo` `hyper_connections_count` next to the 
       `Reader::output_keys` or the overlay of outputs created earlier in the job (global indexes
       per amount, miner transaction first, exactly like `push_blocks` assigns them); unlock
       times; signature counts. Each input becomes a signature job.
-   3. *signatures*, parallel: every ring signature of the job (`check_ring_signature`) on rayon.
+   3. *signatures*, parallel: every ring signature of the job (`check_ring_signature_checked`,
+      `clsag_verify_checked` with the key images from step 1) on rayon.
    4. *store*: the accepted prefix (everything before the first failure) becomes
       `VerifiedBlock`s and is written with one `push_blocks` in one redb write transaction.
       During sync, commits are non-durable (`Durability::None`, no fsync) with a durable commit
       at least every 5 s; live blocks and reorgs always commit durably. A crash loses at most the
       last seconds of sync and leaves a consistent shorter chain.
+
+   The debug line `batch verified` gives the time of each step per job (`prepare_ms`,
+   `context_ms`, `sigs_ms`, `write_ms`, `commit_ms`, the total `ms`), the blocks stored and
+   `blocks_per_sec`.
 7. **Result**: an invalid block bans the peer that sent it (`sources` maps heights to
    connections) and resets the downloader (new generation, stale responses and results are
    ignored). When the tracker is complete and everything is verified, synchronizing peers whose
@@ -494,7 +501,7 @@ C++-compatible: `/getinfo` `/info` `/getheight` `/height` `/fee` `/feeinfo` `/pe
 and `/json_rpc` (`getblockcount`, `on_getblockhash`,
 `getlastblockheader`, `getblockheaderbyhash`, `getblockheaderbyheight`,
 `get_block_headers_range`, `get_info`, `getcurrencyid`, `getblocktemplate`, `get_miner_data`,
-`submitblock`, `f_blocks_list_json`, `f_block_json`, `f_transaction_json`,
+`submitblock`, xkr's `getstatehash`, `f_blocks_list_json`, `f_block_json`, `f_transaction_json`,
 `f_on_transactions_pool_json`; the four `f_*` block explorer methods only on a node started with
 `--explorer`, C++ `--enable-blockexplorer`, which needs a full database: not with `--prune`,
 not on a pruned one). Every path accepts GET and POST like the C++ server. CORS like `--enable-cors` (one origin per flag, `*`
@@ -504,8 +511,10 @@ database size, uptime, the built-in miner (`mining`), the Hugin relay counters (
 clients, nodes, messages and bytes in the message pool, posts, gossip, shares submitted /
 accepted / rejected, `pool_ready` = a job can be handed out, `fee_address`, `fee_donation`,
 `p2pool { host, connected }`; `null` with the relay off), the fork state (`fork`: active and next index, next height, readiness) and
-the block-rate monitor (`block_rate`), and stripe pruning (`pruning`, "Pruned peers"; `/getinfo`
-has `pruning_seed`). `/getinfo`
+the block-rate monitor (`block_rate`), stripe pruning (`pruning`, "Pruned peers"; `/getinfo`
+has `pruning_seed`) and the state hashes (`state: { span, hash, mismatch }`: the newest hashed
+span and its hash, `null` before the first; `mismatch` is `{ span, expected, found }` once a
+hash differs from the built-in list, else `null`; `docs/storage.md` "State hashes"). `/getinfo`
 `upgrade_heights`/`supported_height` come from the fork table (unchanged until fork 13 is
 scheduled) and `fork_readiness` is xkr's addition (`docs/forks.md`). Default bind `127.0.0.1:11898` (testnet
 `11899`).
@@ -541,6 +550,12 @@ Wallet-facing behaviour (what `kryptokrona-wallet-backend-js` `Daemon.ts` calls)
 * p2pool (`mining.rs`): `get_miner_data` (C++ fields; `difficulty` hex without `0x`, `seed_hash`
   zeros, `tx_backlog` sorted by fee per byte and capped at 10 000, no transaction cloned) and
   `get_block_headers_range` (inclusive, at most 1 000, error -2 like C++).
+* State hashes (`jsonrpc.rs`, `docs/storage.md` "State hashes"): `getstatehash { span }` or
+  `{ height }` (the span holding that height) -> `{ span, height_end, hash, builtin_match,
+  status }`; `height_end` = `4096 * (span + 1)`, the first height after the span;
+  `builtin_match` is `true`/`false` when the built-in list has the span, `null` otherwise. A
+  span that is not hashed yet (not yet `max_reorg_depth` below the tip, or still being hashed
+  after a first start) is error -2; no `span`/`height` is error -1.
 * C++ `NodeRpcProxy` (kryptokrona-service / walletd and xkrwallet, `node_rpc_proxy.cpp`;
   `crates/xkr-rpc/src/node_proxy.rs`). Every call it makes is routed: `getlastblockheader`,
   `/getinfo`, `/feeinfo`, `/get_pool_changes_lite`, `/queryblockslite`, `/get_o_indexes`,

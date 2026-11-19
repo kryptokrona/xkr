@@ -1,9 +1,11 @@
 //! Proof-of-work helpers: the CryptoNight entry points named like the C++ `hash.h` inline
 //! functions and `check_hash` from `src/cryptonote_core/check_difficulty.cpp`.
 
+use std::cell::RefCell;
+
 use xkr_types::Hash;
 
-use crate::cryptonight::{CnParams, DataCanNotBeHashed, Variant, cn_slow_hash};
+use crate::cryptonight::{CnHasher, CnParams, DataCanNotBeHashed, Variant, cn_slow_hash};
 
 /// C++ `cn_slow_hash_v0`: CryptoNight, 2 MiB, 2^20 iterations (blocks of major version 1-3).
 #[must_use]
@@ -24,6 +26,20 @@ pub fn cn_lite_slow_hash_v1(data: &[u8]) -> Result<Hash, DataCanNotBeHashed> {
 pub fn cn_turtle_lite_slow_hash_v2(data: &[u8]) -> Hash {
     // Variant 2 never fails.
     Hash(cn_slow_hash(data, Variant::V2, &CnParams::CN_TURTLE_LITE).unwrap_or_default())
+}
+
+thread_local! {
+    /// This thread's CN-Turtle-Lite v2 hasher, created on first use.
+    static TURTLE_LITE_V2: RefCell<CnHasher> = RefCell::new(CnHasher::cn_turtle_lite_v2());
+}
+
+/// [`cn_turtle_lite_slow_hash_v2`] on a [`CnHasher`] kept per thread: the CPU's AES
+/// instructions when it has them ([`crate::cryptonight::AesImpl::detect`]) and no scratchpad
+/// allocation per call. The same hash.
+#[must_use]
+pub fn cn_turtle_lite_slow_hash_v2_reused(data: &[u8]) -> Hash {
+    // Variant 2 never fails.
+    TURTLE_LITE_V2.with_borrow_mut(|h| Hash(h.hash(data).unwrap_or_default()))
 }
 
 #[inline]
@@ -80,6 +96,63 @@ mod tests {
             carry = v >> 64;
         }
         carry == 0
+    }
+
+    /// The per-thread hasher gives the `cn_slow_hash` result for the vector file's input and
+    /// for inputs of other lengths, interleaved on one thread and on several threads.
+    #[test]
+    fn turtle_lite_v2_reused_matches_cn_slow_hash() {
+        let vectors = include_str!("../../../docs/test-vectors/cryptonight.txt");
+        let value = |name: &str| {
+            vectors
+                .lines()
+                .filter_map(|l| l.split_once(" = "))
+                .find(|(n, _)| n.trim() == name)
+                .map_or_else(
+                    || panic!("no vector {name}"),
+                    |(_, v)| v.trim().trim_matches('"').to_owned(),
+                )
+        };
+        let input = hex::decode(value("INPUT_DATA")).unwrap();
+        let want = value("CN_TURTLE_LITE_SLOW_HASH_V2");
+        assert_eq!(cn_turtle_lite_slow_hash_v2_reused(&input).to_hex(), want);
+        assert_eq!(cn_turtle_lite_slow_hash_v2(&input).to_hex(), want);
+
+        let mut x = 0x2545_f491_4f6c_dd1d_u64;
+        let inputs: Vec<Vec<u8>> = [43usize, 44, 76, 77, 120, 255]
+            .iter()
+            .map(|&len| {
+                (0..len)
+                    .map(|_| {
+                        x ^= x << 13;
+                        x ^= x >> 7;
+                        x ^= x << 17;
+                        x as u8
+                    })
+                    .collect()
+            })
+            .collect();
+        let reference: Vec<Hash> = inputs
+            .iter()
+            .map(|i| cn_turtle_lite_slow_hash_v2(i.as_slice()))
+            .collect();
+        std::thread::scope(|s| {
+            for t in 0..3 {
+                let (inputs, reference) = (&inputs, &reference);
+                s.spawn(move || {
+                    for round in 0..2 {
+                        for k in 0..inputs.len() {
+                            let i = (k + t) % inputs.len();
+                            assert_eq!(
+                                cn_turtle_lite_slow_hash_v2_reused(&inputs[i]),
+                                reference[i],
+                                "thread {t} round {round} input {i}"
+                            );
+                        }
+                    }
+                });
+            }
+        });
     }
 
     #[test]

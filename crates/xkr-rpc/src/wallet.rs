@@ -11,22 +11,14 @@ use crate::handlers::{ApiError, top_index};
 /// `BLOCKS_SYNCHRONIZING_DEFAULT_COUNT`: most blocks per `/getwalletsyncdata` call.
 const WALLET_SYNC_MAX_BLOCKS: u64 = 100;
 
-/// `Core::getPubKeyFromExtra`: the transaction public key of `extra`. The fields are read in
-/// order (`xkr_types::tx_public_key`), so the key is found whatever comes before it, also a
-/// payment id nonce (`WalletBackend` writes the nonce first). When the fields do not parse up
-/// to a key, the 32 bytes after the first `0x01` byte (all zeros if absent or truncated).
+/// `Core::getPubKeyFromExtra` (`xkr_types::wallet_tx_public_key`): the fields are read in
+/// order, so the key is found whatever comes before it, also a payment id nonce
+/// (`WalletBackend` writes the nonce first). When the fields do not parse up to a key, the 32
+/// bytes after the first `0x01` byte (all zeros if absent or truncated). The state hashes
+/// (`xkr_chain::state`) use the same function.
 #[must_use]
 pub fn pub_key_from_extra(extra: &[u8]) -> [u8; 32] {
-    if let Some(key) = xkr_types::tx_public_key(extra) {
-        return key.0;
-    }
-    let mut key = [0u8; 32];
-    if let Some(i) = extra.iter().position(|b| *b == 0x01)
-        && let Some(bytes) = extra.get(i + 1..i + 33)
-    {
-        key.copy_from_slice(bytes);
-    }
-    key
+    xkr_types::wallet_tx_public_key(extra)
 }
 
 /// `Core::getPaymentIDFromExtra`: the payment id of `extra` as lowercase hex, or an empty

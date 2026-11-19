@@ -45,5 +45,7 @@ pub use state::{
 pub use sync::status::SyncStatus;
 pub use sync::{DaemonStatus, SyncConfig};
 pub use validate::{create_integrated_address, validate_address, validate_hash};
-pub use wallet::{Node, NodeInfo, Wallet, WalletConfig, WalletStatus};
+pub use wallet::{
+    LOCAL_PROBE, Node, NodeInfo, SWARM_HOST, Wallet, WalletConfig, WalletStatus, local_node_answers,
+};
 pub use xkr_wallet_core::select::FusionEstimate;

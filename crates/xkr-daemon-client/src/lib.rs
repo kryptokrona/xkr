@@ -40,6 +40,7 @@
 pub mod explorer;
 pub mod http;
 pub mod mining;
+pub mod swarm;
 pub mod types;
 mod wallet;
 
@@ -50,6 +51,7 @@ pub use http::{
     DaemonUrl, HttpConfig, HttpRequest, HttpResponse, HttpTransport, Method, Transport,
     TransportError,
 };
+pub use swarm::{AnyTransport, ClientSource, SwarmTransport};
 pub use types::{
     BlockHeader, BlockTemplate, Info, KeyInput, KeyOutput, NodeFee, OutputEntry, RandomOuts,
     RawCoinbaseTransaction, RawTransaction, SendOutcome, Transactions, TransactionsStatus,

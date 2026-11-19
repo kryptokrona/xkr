@@ -26,8 +26,8 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::pool::{
-    ChainTip, Failover, JobSource, LoginExtras, PoolJob, PoolStatus, ShareSubmit, StratumConfig,
-    StratumPool, SubmitOutcome, VALID_JOBS,
+    ChainTip, Failover, JobSource, LoginExtras, PoolConnector, PoolJob, PoolStatus, ShareSubmit,
+    StratumConfig, StratumPool, SubmitOutcome, VALID_JOBS,
 };
 
 /// The local p2pool's stratum port (p2pool's default `--stratum`).
@@ -190,6 +190,9 @@ pub struct P2poolConfig {
     pub app_difficulty: u64,
     /// Stratum `agent`.
     pub agent: String,
+    /// Opens the entries of `nodes` that are not reached over TCP (xkrd without the node: the
+    /// stratum service of remote nodes over Hyperswarm).
+    pub connector: Option<Arc<dyn PoolConnector>>,
 }
 
 /// The relay's job source on p2pool.
@@ -224,7 +227,7 @@ impl P2poolSource {
         shutdown: &CancellationToken,
     ) -> Arc<Self> {
         let difficulty = login_difficulty(cfg.app_difficulty);
-        let pool = StratumPool::spawn_with_failover(
+        let pool = StratumPool::spawn_with_connector(
             StratumConfig {
                 pools: cfg.nodes,
                 login: p2pool_login(cfg.fee_address.as_deref(), difficulty),
@@ -237,6 +240,7 @@ impl P2poolSource {
                 return_to_first: Some(RETURN_TO_LOCAL),
                 max_backoff: MAX_BACKOFF,
             },
+            cfg.connector,
             shutdown.clone(),
         );
         let (tx, jobs) = watch::channel(None);
@@ -460,6 +464,7 @@ mod tests {
                 fee_address: Some("SEKRfee".into()),
                 app_difficulty: crate::relay::DEFAULT_APP_DIFFICULTY,
                 agent: "test".into(),
+                connector: None,
             },
             synced,
             tip,
