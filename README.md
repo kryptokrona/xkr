@@ -50,6 +50,9 @@ over Hyperswarm.
 `xkrd --p2pool`: `docs/mining.md`, "p2pool without the node". `xkrd --hugin`: the relay takes
 its sync state from the remote nodes and its jobs from the local p2pool, `--hugin-p2pool`, then
 the p2pool of a remote node (`docs/hugin-relay.md`, "The relay without the node").
+The relay's fee for the traffic it carries reaches `--hugin-payout` only through its own p2pool:
+run `xkrd --hugin --p2pool` (or plain `xkrd`) to be paid. Without it the start-up says
+"fees reach --hugin-payout only with --p2pool".
 
 - `--fast-sync` skips proof of work up to the last checkpoint.
 - `--prune` keeps 25 % of the old ring signatures (about 45 % less disk space).

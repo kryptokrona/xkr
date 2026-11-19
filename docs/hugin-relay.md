@@ -393,7 +393,9 @@ same). What changes:
   wallet it was started with (above). With `xkrd --hugin --p2pool` that is the relay's own
   p2pool, paying the fee address (`--hugin-payout`). Shares submitted through a remote node's
   stratum service count for that node's p2pool wallet; run `--p2pool` (or a p2pool of your
-  own with `--hugin-p2pool`) to have the relay's shares paid to its fee address.
+  own with `--hugin-p2pool`) to have the relay's shares paid to its fee address. Without the
+  built-in p2pool the "Hugin relay" start-up step notes "fees reach --hugin-payout only with
+  --p2pool" and the log has the same as a warning (also with the node, e.g. `--node --hugin`).
 - **Status.** `/status` has `hugin` as with the node, next to `remote` and `p2pool`.
 
 ### Mining difficulty and the fee

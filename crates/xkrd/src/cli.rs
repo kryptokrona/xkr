@@ -83,7 +83,8 @@ pub struct Args {
     /// Run the Hugin relay for Hugin apps (`docs/hugin-relay.md`; needs the Hyperswarm
     /// transport). The fee address is `--hugin-payout`. Without `--node` the sync state and the
     /// main-chain tip come from public xkrd nodes over Hyperswarm, and the jobs from the local
-    /// p2pool (`--p2pool`), `--hugin-p2pool`, then the stratum service of those nodes.
+    /// p2pool (`--p2pool`), `--hugin-p2pool`, then the stratum service of those nodes. The relay's
+    /// fee reaches `--hugin-payout` only through the built-in p2pool: add `--p2pool`.
     #[arg(long, overrides_with = "hugin", help_heading = MODES)]
     pub hugin: bool,
 

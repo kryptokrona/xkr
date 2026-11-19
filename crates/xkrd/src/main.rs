@@ -1141,7 +1141,12 @@ async fn async_main(
     } else if let Some(e) = hugin_failed {
         ui.step("Hugin relay").fail(e);
     } else if let (true, Some(fee)) = (hugin_on, &fee_handle) {
-        ui.step("Hugin relay").done_with(hugin_step_detail(
+        let step = ui.step("Hugin relay");
+        if !args.p2pool_enabled() {
+            step.handle().note(HUGIN_PAYOUT_NOTE);
+            tracing::warn!("{HUGIN_PAYOUT_WARNING}");
+        }
+        step.done_with(hugin_step_detail(
             args.hugin_max_clients,
             &fee.get(),
             hugin_p2pool.as_deref(),
@@ -1537,6 +1542,10 @@ async fn async_main_remote(
         let step = ui.step("Hugin relay");
         step.handle()
             .note("jobs once the remote nodes are synchronized");
+        if p2pool_task.is_none() {
+            step.handle().note(HUGIN_PAYOUT_NOTE);
+            tracing::warn!("{HUGIN_PAYOUT_WARNING}");
+        }
         step.done_with(hugin_step_detail(
             args.hugin_max_clients,
             &fee.get(),
@@ -1620,6 +1629,14 @@ fn hugin_step_detail(max_apps: usize, fee: &fee::Fee, p2pool: Option<&str>) -> S
     );
     format!("max {max_apps} apps · {fee} · {pool}")
 }
+
+/// Note on the "Hugin relay" step when the built-in p2pool does not run (at most 60 columns).
+const HUGIN_PAYOUT_NOTE: &str = "fees reach --hugin-payout only with --p2pool";
+
+/// Log line for the same case: the apps' shares go to another p2pool, which pays its own wallet.
+const HUGIN_PAYOUT_WARNING: &str = "Hugin relay without the built-in p2pool: the apps' shares \
+     pay the wallet of the p2pool they are sent to, not --hugin-payout; run with --p2pool to be \
+     paid for the relay's traffic";
 
 /// Longest p2pool node name in the "Hugin relay" start-up step.
 const P2POOL_DETAIL_MAX: usize = 24;
