@@ -99,7 +99,7 @@ tracing-subscriber = { version = "=0.3.22", features = ["env-filter", "json"] }
 windows-sys        = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }
 parking_lot     = "=0.12.5"
 axum            = "=0.8.8"
-clap            = { version = "=4.5.60", features = ["derive"] }
+clap            = { version = "=4.6.7", features = ["derive"] }
 # vendored crates (vendor/VENDORED.md)
 xkr-levin       = { path = "vendor/levin" }
 xkr-epee        = { path = "vendor/epee-encoding" }
