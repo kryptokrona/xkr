@@ -484,6 +484,20 @@ mod tests {
         );
     }
 
+    /// The wallets topic key and a private clients topic key, the vectors hugin-network's
+    /// `xkr-daemon` test checks (`test/xkr-daemon.test.js`).
+    #[test]
+    fn wallets_and_private_clients_topic_keys() {
+        assert_eq!(
+            hex::encode(topic::xkr_wallets_topic(XkrNetwork::Mainnet).topic_key),
+            "1e35744b40a383370e2e6a489927834ebe5392570afaa926761308916f48aa39"
+        );
+        assert_eq!(
+            hex::encode(PrivateTopics::of(&[0x11; 32], XkrNetwork::Mainnet).clients.topic_key),
+            "ba0997cb6b12806ed79dc089ca82acc6c22f1ee39bc6adb508f36cb2718d5034"
+        );
+    }
+
     /// The derivation spelled out: topic keys from the secret, identity seeds from the
     /// identity, each under its own domain; the topics are Hugin topics of their base keys.
     #[test]
