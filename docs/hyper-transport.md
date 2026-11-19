@@ -621,7 +621,7 @@ more. Code: `crates/xkrd/src/clients.rs` (`Door`, `WalletHandler`), `xkr_rpc::in
   (status codes included). Paths (`WALLET_PATHS`): `/getinfo /info /getheight /height /fee
   /feeinfo /getwalletsyncdata /get_global_indexes_for_range /get_transactions_status
   /sendrawtransaction /getrandom_outs /get_pool_changes_lite /queryblockslite /gettransactions
-  /get_o_indexes /json_rpc`, at most one query string; `/json_rpc` with the methods
+  /get_o_indexes /get_transaction_details_by_hashes /json_rpc`, at most one query string; `/json_rpc` with the methods
   `get_block_headers_range getblockcount getblockheaderbyheight getblockheaderbyhash
   getlastblockheader get_info`. Anything else: `-32601`; a method other than GET/POST: `-32602`.
 - **Pushes:** `tip` as on service `node`.

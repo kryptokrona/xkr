@@ -69,9 +69,9 @@ pub const NODE_METHODS: [&str; 8] = [
 /// transactions), hex. A client hashes it to check the block's id and proof of work.
 pub const GET_BLOCK_BLOB: &str = "get_block_blob";
 
-/// The HTTP paths of service `wallet` (method [`WALLET_HTTP`]): what the wallet tools and
-/// wallet-backend-js call on a daemon.
-pub const WALLET_PATHS: [&str; 16] = [
+/// The HTTP paths of service `wallet` (method [`WALLET_HTTP`]): what the wallet tools,
+/// wallet-backend-js and Aesir's swaps call on a daemon.
+pub const WALLET_PATHS: [&str; 17] = [
     "/getinfo",
     "/info",
     "/getheight",
@@ -87,6 +87,7 @@ pub const WALLET_PATHS: [&str; 16] = [
     "/queryblockslite",
     "/gettransactions",
     "/get_o_indexes",
+    "/get_transaction_details_by_hashes",
     "/json_rpc",
 ];
 
