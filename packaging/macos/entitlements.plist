@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the signed/notarised release programs. xkrd runs the
+  Hyperswarm bridge on Bare worker threads through libbare-kit, whose V8 needs JIT; it loads
+  libbare-kit.dylib and the bridge's native .bare addons (sodium-native, udx-native prebuilds),
+  which are signed with the hardened runtime but carry no team ID, so library validation is off;
+  it finds libbare-kit next to itself through the loader. These are the same entitlements the
+  Tauri sidecar uses (packaging/tauri-sidecar/src-tauri/Entitlements.plist).
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>

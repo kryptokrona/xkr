@@ -3,7 +3,8 @@
 # Hyperswarm bridge.
 #
 #   packaging/scripts/package-release.sh --target <triple> --bridge <bridge dir> \
-#       [--version <version>] [--bin-dir <dir>] [--bare-kit <dir>] [--out <dir>] [--max-glibc <v>]
+#       [--version <version>] [--bin-dir <dir>] [--bare-kit <dir>] [--out <dir>] [--max-glibc <v>] \
+#       [--codesign-identity <id>] [--entitlements <plist>]
 #
 # --version defaults to the workspace version in Cargo.toml. --bin-dir defaults to
 # target/<target>/release when xkrd is there, else target/release (both under $CARGO_TARGET_DIR
@@ -31,12 +32,17 @@
 # it is installed (a release build without XKR_DEV_RPATH=1 has exactly that already); without
 # patchelf, a run path that names any other directory is reported. --max-glibc (Linux targets,
 # 2.35 for the releases) stops when any program, library or addon in the archive needs a newer
-# glibc (check-glibc.sh). Prints the archive path.
+# glibc (check-glibc.sh). On an Apple target, --codesign-identity signs every Mach-O in the
+# archive (the programs, libbare-kit and the bridge's .bare addons) with that Developer ID
+# Application identity and the hardened runtime before the checksums are taken, so the archive
+# can be notarised (packaging/macos/sign-release.sh; --entitlements overrides its default
+# plist). Prints the archive path.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 target="" version="" bridge="" bin_dir="" bare_kit="" out="$repo/dist" max_glibc=""
+codesign_identity="" entitlements=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) target=${2:?}; shift 2 ;;
@@ -46,7 +52,9 @@ while [[ $# -gt 0 ]]; do
     --bare-kit) bare_kit=${2:?}; shift 2 ;;
     --out) out=${2:?}; shift 2 ;;
     --max-glibc) max_glibc=${2:?}; shift 2 ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    --codesign-identity) codesign_identity=${2:?}; shift 2 ;;
+    --entitlements) entitlements=${2:?}; shift 2 ;;
+    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -138,6 +146,16 @@ chmod -R go-w "$stage"
 
 if [[ -n "$max_glibc" && "$target" == *linux* ]]; then
   "$here/check-glibc.sh" --max "$max_glibc" "$stage" >&2
+fi
+
+# macOS: codesign every Mach-O (the programs, libbare-kit and the bridge's .bare addons) with
+# the hardened runtime before the checksums below, so the archive can be notarised.
+if [[ -n "$codesign_identity" && "$target" == *apple* ]]; then
+  sign=("$repo/packaging/macos/sign-release.sh" --identity "$codesign_identity" --dir "$stage")
+  [[ -n "$entitlements" ]] && sign+=(--entitlements "$entitlements")
+  "${sign[@]}" >&2
+elif [[ -n "$codesign_identity" ]]; then
+  echo "warning: --codesign-identity ignored for non-Apple target $target" >&2
 fi
 
 (
