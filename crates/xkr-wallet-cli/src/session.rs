@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tokio::runtime::Handle;
 use xkr_consensus::Network;
-use xkr_daemon_client::{HttpTransport, Transport};
+use xkr_daemon_client::{AnyTransport, ClientSource, Transport};
 use xkr_wallet::{Node, Wallet, WalletConfig, WalletError};
 use xkr_wallet_files::address_book::ADDRESS_BOOK_FILENAME;
 use zeroize::Zeroizing;
@@ -36,15 +36,27 @@ pub trait NodeFactory: Send + Sync + 'static {
     fn connect(&self, host: &str, port: u16) -> Result<Node<Self::Transport>, WalletError>;
 }
 
-/// Daemons over HTTP.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct HttpNodes;
+/// Daemons over HTTP, and over Hyperswarm for the host [`xkr_wallet::SWARM_HOST`] when
+/// `swarm` is set.
+#[derive(Clone, Default)]
+pub struct Nodes {
+    /// Where Hyperswarm connections come from (`None`: HTTP only).
+    pub swarm: Option<Arc<dyn ClientSource>>,
+}
 
-impl NodeFactory for HttpNodes {
-    type Transport = HttpTransport;
+impl std::fmt::Debug for Nodes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Nodes")
+            .field("swarm", &self.swarm.is_some())
+            .finish()
+    }
+}
 
-    fn connect(&self, host: &str, port: u16) -> Result<Node<HttpTransport>, WalletError> {
-        Node::http(host, port)
+impl NodeFactory for Nodes {
+    type Transport = AnyTransport;
+
+    fn connect(&self, host: &str, port: u16) -> Result<Node<AnyTransport>, WalletError> {
+        Node::connect(host, port, self.swarm.as_ref())
     }
 }
 

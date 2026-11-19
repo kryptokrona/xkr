@@ -7,10 +7,12 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use xkr_daemon_client::ClientSource;
+use xkr_hyper_wallet::{LazySwarm, SwarmOptions};
 use xkr_wallet::{AutosaveConfig, WalletConfig};
 use xkr_wallet_api::cli::{self, Command, Options};
 use xkr_wallet_api::console::{self, HINT};
-use xkr_wallet_api::{ApiConfig, App, HttpNodes, router};
+use xkr_wallet_api::{ApiConfig, App, Nodes, router};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args_os()
@@ -56,7 +58,15 @@ async fn run(options: Options) -> ExitCode {
             ..WalletConfig::default()
         },
     };
-    let app = App::new(config, HttpNodes);
+    let swarm = LazySwarm::new(SwarmOptions::from_env(
+        options.network,
+        None,
+        concat!("xkr-wallet-api/", env!("CARGO_PKG_VERSION")),
+    ));
+    let nodes = Nodes {
+        swarm: Some(Arc::new(swarm.clone()) as Arc<dyn ClientSource>),
+    };
+    let app = App::new(config, nodes);
     app.set_autosave(Some(AutosaveConfig::default()));
     let Ok(listener) = TcpListener::bind((options.rpc_bind_ip.as_str(), options.port)).await else {
         println!(
@@ -98,6 +108,7 @@ async fn run(options: Options) -> ExitCode {
         let _ = server.await;
     }
     app.close_wallet().await;
+    swarm.stop().await;
     code
 }
 

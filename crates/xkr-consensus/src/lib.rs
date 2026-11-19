@@ -18,6 +18,7 @@ pub mod forks;
 pub mod genesis;
 pub mod params;
 pub mod reward;
+pub mod state_hashes;
 pub mod validation;
 pub mod version;
 

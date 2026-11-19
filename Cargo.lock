@@ -2104,6 +2104,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "xkr-hyper-wallet"
+version = "1.0.0"
+dependencies = [
+ "futures",
+ "hex",
+ "tokio",
+ "tracing",
+ "xkr-consensus",
+ "xkr-daemon-client",
+ "xkr-hyper-rpc",
+ "xkr-p2p-hyper",
+]
+
+[[package]]
 name = "xkr-levin"
 version = "0.1.0"
 dependencies = [
@@ -2347,6 +2361,7 @@ dependencies = [
  "xkr-consensus",
  "xkr-crypto",
  "xkr-daemon-client",
+ "xkr-hyper-wallet",
  "xkr-rpc",
  "xkr-serialization",
  "xkr-storage",
@@ -2374,6 +2389,7 @@ dependencies = [
  "xkr-consensus",
  "xkr-crypto",
  "xkr-daemon-client",
+ "xkr-hyper-wallet",
  "xkr-rpc",
  "xkr-serialization",
  "xkr-storage",
@@ -2441,6 +2457,7 @@ dependencies = [
  "xkr-consensus",
  "xkr-crypto",
  "xkr-daemon-client",
+ "xkr-hyper-wallet",
  "xkr-rpc",
  "xkr-serialization",
  "xkr-storage",

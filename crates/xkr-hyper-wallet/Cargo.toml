@@ -1,0 +1,22 @@
+[package]
+name = "xkr-hyper-wallet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Wallets reach a node over Hyperswarm: the wallets topic (or a private node's invite), hello and state-hash checks, a ClientSource for xkr-daemon-client's SwarmTransport."
+
+[dependencies]
+xkr-consensus     = { path = "../xkr-consensus" }
+xkr-p2p-hyper     = { path = "../xkr-p2p-hyper" }
+xkr-hyper-rpc     = { path = "../xkr-hyper-rpc" }
+xkr-daemon-client = { path = "../xkr-daemon-client" }
+futures           = { workspace = true }
+hex               = { workspace = true }
+tokio             = { workspace = true }
+tracing           = { workspace = true }
+
+[lints]
+workspace = true
