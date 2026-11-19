@@ -55,6 +55,7 @@ of the bridge.
 | private sync | `PrivateTopics::of(secret).sync` (`xkr_p2p_hyper::private`) | server (`--private` only) | peers with the private node's invite; Levin, see "Private node" |
 | private Hugin | `PrivateTopics::of(secret).hugin` | server (`--private` only) | Hugin apps with the private node's invite, see "Private node" |
 | `xkr/<network>/clients/v1` | topic key `cn_fast_hash(name)`, keyed like p2pool (`topic::xkr_clients_topic`) | server, once synchronized (node on; not with `--hyper-client-only` or `--private`) | chainless xkrd modes (and later tools) use a node's chain, see "Clients topic" |
+| `xkr/<network>/wallets/v1` | as the clients topic (`topic::xkr_wallets_topic`) | server, as the clients topic | wallets find a node that serves their sync (service `wallet` only), see "Wallets topic" |
 | private clients | `PrivateTopics::of(secret).clients` | server (`--private` only) | the clients topic for holders of the private node's invite |
 
 Further XKR topics (e.g. separate `txs`/`sync` topics) are added by name with
@@ -605,6 +606,30 @@ topics (the public-node topic only while the remote nodes are synchronized;
 Rust clients use `xkr_hyper_rpc::Client::connect(stream, Hello::new(network, service, agent))`,
 then `call(method, params)`, `tips()` (a watch channel with the tip of the hello, then every
 push) and `closed()`.
+
+### Wallets topic
+
+Wallets find a node through `xkr/<network>/wallets/v1` (`topic::xkr_wallets_topic`, keyed and
+announced like the clients topic, by every node with the node component once synchronized,
+pruned nodes too: wallet sync needs no ring signatures). The connection speaks the clients-topic
+protocol above with `service: "wallet"`, the only service offered there; a private node offers
+`wallet` on its private clients topic next to `node` (and `stratum`), so the invite needs nothing
+more. Code: `crates/xkrd/src/clients.rs` (`Door`, `WalletHandler`), `xkr_rpc::inproc`.
+
+- **Method `http`:** `{"method": "GET"|"POST", "path": "/…", "body": {…}}` ->
+  `{"status": <http status>, "body": <the JSON answer>}`. The request runs through the node's
+  HTTP router in process, so the answer is byte for byte what the HTTP server returns
+  (status codes included). Paths (`WALLET_PATHS`): `/getinfo /info /getheight /height /fee
+  /feeinfo /getwalletsyncdata /get_global_indexes_for_range /get_transactions_status
+  /sendrawtransaction /getrandom_outs /get_pool_changes_lite /queryblockslite /gettransactions
+  /get_o_indexes /json_rpc`, at most one query string; `/json_rpc` with the methods
+  `get_block_headers_range getblockcount getblockheaderbyheight getblockheaderbyhash
+  getlastblockheader get_info`. Anything else: `-32601`; a method other than GET/POST: `-32602`.
+- **Pushes:** `tip` as on service `node`.
+- **Answer size:** a frame holds at most 1 MiB; a sync request whose answer is larger gets
+  `-32002`, and the wallet asks again for fewer blocks.
+- **Choosing a node:** the hello reply carries `state_span`/`state_hash` (docs/storage.md, "State
+  hashes") and `pruning_seed`; wallets compare the state hash with their built-in list.
 
 ### What comes later
 

@@ -155,6 +155,13 @@ pub fn xkr_clients_topic(network: XkrNetwork) -> HuginTopic {
     xkr_service_topic(network, "clients")
 }
 
+/// The wallets topic `xkr/<network>/wallets/v1`: wallets find a node that serves their sync
+/// there (service `wallet` of `xkr-hyper-rpc`; `docs/hyper-transport.md`, "Wallets topic").
+#[must_use]
+pub fn xkr_wallets_topic(network: XkrNetwork) -> HuginTopic {
+    xkr_service_topic(network, "wallets")
+}
+
 /// `Buffer.alloc(32).fill(bytes)`: `bytes` repeated cyclically (all zeros if empty).
 #[must_use]
 pub fn fill32(bytes: &[u8]) -> [u8; 32] {

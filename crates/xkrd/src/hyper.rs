@@ -105,7 +105,7 @@ use xkr_rpc::{HyperDhtState, HyperNat, HyperNetStatus, NetStatus, RemoteStatus};
 use xkr_storage::pruning::{DEFAULT_STRIPES, PruningSeed};
 
 use crate::cli::Args;
-use crate::clients::ClientsServer;
+use crate::clients::{ClientsServer, Door};
 use crate::downloader::stripe_holders_for;
 use crate::fee::{Fee, FeeAddress};
 use crate::p2p::{P2pHandle, PeerOrigin};
@@ -2196,6 +2196,7 @@ impl Supervisor {
             private_peers,
             clients: self.cfg.clients.as_ref(),
             clients_topic: topic::xkr_clients_topic(net),
+            wallets_topic: topic::xkr_wallets_topic(net),
             clients_handles: HashMap::new(),
         };
         s.spawn_announce(self.cfg.mode);
@@ -2322,6 +2323,8 @@ struct Session<'a> {
     clients: Option<&'a Arc<ClientsServer>>,
     /// The public clients topic (`xkr/<network>/clients/v1`).
     clients_topic: HuginTopic,
+    /// The public wallets topic (`xkr/<network>/wallets/v1`).
+    wallets_topic: HuginTopic,
     /// Close handles of the client connections.
     clients_handles: HashMap<u64, CloseHandle>,
 }
@@ -2345,6 +2348,7 @@ const PRIVATE_SYNC_LABEL: &str = "private sync";
 const PRIVATE_HUGIN_LABEL: &str = "private hugin";
 const CLIENTS_LABEL: &str = "clients";
 const PRIVATE_CLIENTS_LABEL: &str = "private clients";
+const WALLETS_LABEL: &str = "wallets";
 
 impl Session<'_> {
     fn spawn_announce(&self, mode: AnnounceMode) {
@@ -2598,6 +2602,12 @@ impl Session<'_> {
                 self.clients_topic.mid(),
                 true,
             ));
+            joins.push((
+                WALLETS_LABEL,
+                self.wallets_topic.topic,
+                self.wallets_topic.mid(),
+                true,
+            ));
         }
         if let Some(p) = &self.private {
             joins.push((
@@ -2646,18 +2656,27 @@ impl Session<'_> {
         }
     }
 
-    /// Whether `topic` is the public or the private clients topic.
-    fn is_clients_topic(&self, topic: &Key) -> bool {
-        self.clients.is_some()
-            && (*topic == self.clients_topic.topic
-                || self
-                    .private
-                    .as_ref()
-                    .is_some_and(|p| p.topics.clients.topic == *topic))
+    /// The door of `topic` when it is the public clients or wallets topic or the private
+    /// clients topic (and the clients server runs).
+    fn client_door(&self, topic: &Key) -> Option<Door> {
+        self.clients?;
+        if *topic == self.clients_topic.topic {
+            Some(Door::Clients)
+        } else if *topic == self.wallets_topic.topic {
+            Some(Door::Wallets)
+        } else if self
+            .private
+            .as_ref()
+            .is_some_and(|p| p.topics.clients.topic == *topic)
+        {
+            Some(Door::Private)
+        } else {
+            None
+        }
     }
 
     /// Hands a connection from a clients topic to the clients server, if it admits it.
-    fn start_client(&mut self, conn: HyperConn) {
+    fn start_client(&mut self, conn: HyperConn, door: Door) {
         let Some(server) = self.clients.cloned() else {
             conn.close(CloseReason::Normal);
             return;
@@ -2677,7 +2696,7 @@ impl Session<'_> {
         self.clients_handles.insert(conn_id, conn.close_handle());
         let events = self.event_tx.clone();
         tokio::spawn(async move {
-            let end = server.serve(slot, key, conn).await;
+            let end = server.serve(slot, key, conn, door).await;
             tracing::debug!(peer = %short(&key), %end, "client connection ended");
             let _ = events.send(Event::ClientsDone { conn_id });
         });
@@ -2734,8 +2753,8 @@ impl Session<'_> {
         if let Some(t) = conn_topic
             && !self.xkr_topics.contains(&t)
         {
-            if self.is_clients_topic(&t) {
-                self.start_client(conn);
+            if let Some(door) = self.client_door(&t) {
+                self.start_client(conn, door);
             } else if let Some(p) = self.p2pool.filter(|p| p.topic.topic == t) {
                 // The p2pool P2P server takes it; if p2pool is gone the connection is dropped,
                 // which closes it.
@@ -2994,10 +3013,10 @@ impl Session<'_> {
                 p.topics.clients.topic,
             ]
         });
-        let clients_topic = self
+        let clients_topics = self
             .clients
             .filter(|_| self.mode != AnnounceMode::Client)
-            .map(|_| self.clients_topic.topic);
+            .map(|_| [self.clients_topic.topic, self.wallets_topic.topic]);
         let stripe_topics = &self.stripe_topics;
         let step = crate::stopping::step("Hyperswarm announcements");
         let unannounced = tokio::time::timeout(SHUTDOWN_UNANNOUNCE, async {
@@ -3008,8 +3027,8 @@ impl Session<'_> {
             if let Some(t) = p2pool_topic {
                 let _ = bridge.unannounce(t).await;
             }
-            if let Some(t) = clients_topic {
-                let _ = bridge.unannounce(t).await;
+            for t in clients_topics.iter().flatten() {
+                let _ = bridge.unannounce(*t).await;
             }
             for t in private_topics.iter().flatten() {
                 let _ = bridge.unannounce(*t).await;

@@ -1956,7 +1956,12 @@ pub(crate) mod tests {
             match self.clone() {
                 Self::Real(server) => {
                     let slot = server.admit(&key, None, Instant::now()).expect("admitted");
-                    tokio::spawn(server.serve(slot, key, server_end));
+                    tokio::spawn(server.serve(
+                        slot,
+                        key,
+                        server_end,
+                        crate::clients::Door::Clients,
+                    ));
                 }
                 Self::Twisted { rpc, twist, calls } => {
                     tokio::spawn(xkr_hyper_rpc::serve(

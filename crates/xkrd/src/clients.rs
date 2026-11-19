@@ -69,6 +69,54 @@ pub const NODE_METHODS: [&str; 8] = [
 /// transactions), hex. A client hashes it to check the block's id and proof of work.
 pub const GET_BLOCK_BLOB: &str = "get_block_blob";
 
+/// The HTTP paths of service `wallet` (method [`WALLET_HTTP`]): what the wallet tools and
+/// wallet-backend-js call on a daemon.
+pub const WALLET_PATHS: [&str; 16] = [
+    "/getinfo",
+    "/info",
+    "/getheight",
+    "/height",
+    "/fee",
+    "/feeinfo",
+    "/getwalletsyncdata",
+    "/get_global_indexes_for_range",
+    "/get_transactions_status",
+    "/sendrawtransaction",
+    "/getrandom_outs",
+    "/get_pool_changes_lite",
+    "/queryblockslite",
+    "/gettransactions",
+    "/get_o_indexes",
+    "/json_rpc",
+];
+
+/// The `/json_rpc` methods of service `wallet`.
+pub const WALLET_JSON_RPC: [&str; 6] = [
+    "get_block_headers_range",
+    "getblockcount",
+    "getblockheaderbyheight",
+    "getblockheaderbyhash",
+    "getlastblockheader",
+    "get_info",
+];
+
+/// `http {"method": "GET"|"POST", "path": "/…", "body": {…}}` -> `{"status": n, "body": …}`:
+/// one daemon HTTP request of service `wallet`, answered as the node's HTTP server answers it
+/// (a path in [`WALLET_PATHS`], at most one query string, `/json_rpc` with a method in
+/// [`WALLET_JSON_RPC`]).
+pub const WALLET_HTTP: &str = "http";
+
+/// Where a client connection came in: the topic decides the services offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Door {
+    /// The public clients topic: `node`, and `stratum` while p2pool runs.
+    Clients,
+    /// The public wallets topic: `wallet`.
+    Wallets,
+    /// The private clients topic of the node's invite: every service.
+    Private,
+}
+
 /// Client connections from one IP address (IPv6: one /64).
 pub const MAX_CLIENTS_PER_IP: usize = 8;
 
@@ -254,15 +302,17 @@ impl ClientsServer {
         book.bans.insert(key, now + BAN);
     }
 
-    /// Serves an admitted connection until it ends; bans `key` if the client broke the
-    /// protocol or its limits.
-    pub async fn serve<S>(self: Arc<Self>, slot: Slot, key: Key, stream: S) -> ServeEnd
+    /// Serves an admitted connection that came in through `door` until it ends; bans `key` if
+    /// the client broke the protocol or its limits.
+    pub async fn serve<S>(self: Arc<Self>, slot: Slot, key: Key, stream: S, door: Door) -> ServeEnd
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
         let addr = slot.addr;
-        let end =
-            xkr_hyper_rpc::serve(stream, self.limits, |hello| self.accept(hello, key, addr)).await;
+        let end = xkr_hyper_rpc::serve(stream, self.limits, |hello| {
+            self.accept(hello, key, addr, door)
+        })
+        .await;
         if end.is_misbehaviour() {
             self.ban(key, Instant::now());
         }
@@ -281,19 +331,25 @@ impl ClientsServer {
         self.p2pool.as_ref().and_then(|s| s.stratum())
     }
 
-    /// The services offered now.
-    fn services(&self) -> Vec<Service> {
+    /// The services offered now through `door`.
+    fn services(&self, door: Door) -> Vec<Service> {
+        if door == Door::Wallets {
+            return vec![Service::Wallet];
+        }
         let mut out = vec![Service::Node];
         if self.stratum_handle().is_some() {
             out.push(Service::Stratum);
         }
+        if door == Door::Private {
+            out.push(Service::Wallet);
+        }
         out
     }
 
-    /// The answer to an accepted hello: the tip, the sync state, the services, the newest
-    /// stable state hash and the pruning seed.
+    /// The answer to an accepted hello through `door`: the tip, the sync state, the services,
+    /// the newest stable state hash and the pruning seed.
     #[must_use]
-    pub fn hello_reply(&self) -> HelloReply {
+    pub fn hello_reply(&self, door: Door) -> HelloReply {
         let tip = self.rpc.chain.tip();
         let net = self.rpc.net.borrow().clone();
         let state = self.rpc.chain.state_view().latest();
@@ -303,7 +359,7 @@ impl ClientsServer {
             hash: tip.hash.to_string(),
             synced: hyper::synced_now(&net),
             services: self
-                .services()
+                .services(door)
                 .into_iter()
                 .map(|s| s.as_str().to_owned())
                 .collect(),
@@ -318,6 +374,7 @@ impl ClientsServer {
         hello: &Hello,
         key: Key,
         addr: Option<SocketAddr>,
+        door: Door,
     ) -> Result<Accepted, Refused> {
         let network = hyper::xkr_network(self.network).as_str();
         if hello.network != network {
@@ -326,7 +383,7 @@ impl ClientsServer {
                 format!("this node is on {network}"),
             ));
         }
-        let offered = self.services();
+        let offered = self.services(door);
         let Some(service) = Service::parse(&hello.service).filter(|s| offered.contains(s)) else {
             let names: Vec<&str> = offered.iter().map(|s| s.as_str()).collect();
             return Err(Refused::new(
@@ -375,11 +432,17 @@ impl ClientsServer {
                 }) as Arc<dyn Handler>,
                 stratum_pushes,
             ),
-            Service::Wallet => (Arc::new(NotYet { service }) as Arc<dyn Handler>, None),
+            Service::Wallet => (
+                Arc::new(WalletHandler {
+                    rpc: self.rpc.clone(),
+                    stats: self.stats.clone(),
+                }) as Arc<dyn Handler>,
+                Some(self.tip_pushes()),
+            ),
         };
         tracing::debug!(client = %hello.client, %service, "client on the clients topic");
         Ok(Accepted {
-            reply: self.hello_reply(),
+            reply: self.hello_reply(door),
             handler,
             pushes,
         })
@@ -722,20 +785,84 @@ async fn run_stratum(
 }
 
 /// A service that is negotiated but not served yet (`wallet`).
-struct NotYet {
-    service: Service,
+/// Service `wallet`: [`WALLET_HTTP`] requests through the node's HTTP router, in process.
+struct WalletHandler {
+    rpc: Arc<RpcState>,
+    stats: Arc<ClientStats>,
 }
 
-impl Handler for NotYet {
-    fn call(&self, _method: String, _params: Value) -> BoxFuture<'static, Result<Value, RpcError>> {
-        let error = RpcError::new(
-            code::UNAVAILABLE,
-            format!(
-                "the {} service is not available on the clients topic yet",
-                self.service
-            ),
-        );
-        futures::future::ready(Err(error)).boxed()
+impl Handler for WalletHandler {
+    fn call(&self, method: String, params: Value) -> BoxFuture<'static, Result<Value, RpcError>> {
+        if method != WALLET_HTTP {
+            let error = RpcError::new(
+                code::METHOD_NOT_FOUND,
+                format!("{method} is not served on the wallet service (only {WALLET_HTTP})"),
+            );
+            return futures::future::ready(Err(error)).boxed();
+        }
+        let request = match WalletRequest::parse(&params) {
+            Ok(r) => r,
+            Err(e) => return futures::future::ready(Err(e)).boxed(),
+        };
+        let (rpc, stats) = (self.rpc.clone(), self.stats.clone());
+        async move {
+            let answer =
+                xkr_rpc::inproc::request(rpc, request.method, &request.path, request.body.as_ref())
+                    .await
+                    .map_err(|e| RpcError::new(code::INTERNAL, e))?;
+            stats.served_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(json!({"status": answer.status, "body": answer.body}))
+        }
+        .boxed()
+    }
+}
+
+/// A checked [`WALLET_HTTP`] request.
+#[derive(Debug, PartialEq)]
+struct WalletRequest {
+    method: &'static str,
+    path: String,
+    body: Option<Value>,
+}
+
+impl WalletRequest {
+    fn parse(params: &Value) -> Result<Self, RpcError> {
+        let invalid = |m: &str| RpcError::new(code::INVALID_PARAMS, m.to_owned());
+        let method = match params.get("method").and_then(Value::as_str) {
+            Some("GET") => "GET",
+            Some("POST") => "POST",
+            _ => return Err(invalid("method must be GET or POST")),
+        };
+        let path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid("path is missing"))?;
+        let bare = path.split_once('?').map_or(path, |(p, _)| p);
+        if !WALLET_PATHS.contains(&bare) || path.contains('#') || path.matches('?').count() > 1 {
+            return Err(RpcError::new(
+                code::METHOD_NOT_FOUND,
+                format!("{bare} is not served on the wallet service"),
+            ));
+        }
+        let body = params.get("body").filter(|b| !b.is_null()).cloned();
+        if bare == "/json_rpc" {
+            let rpc_method = body
+                .as_ref()
+                .and_then(|b| b.get("method"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !WALLET_JSON_RPC.contains(&rpc_method) {
+                return Err(RpcError::new(
+                    code::METHOD_NOT_FOUND,
+                    format!("json_rpc {rpc_method} is not served on the wallet service"),
+                ));
+            }
+        }
+        Ok(Self {
+            method,
+            path: path.to_owned(),
+            body,
+        })
     }
 }
 
@@ -1018,7 +1145,7 @@ mod tests {
     ) -> (tokio::io::DuplexStream, JoinHandle<ServeEnd>) {
         let (client_end, server_end) = tokio::io::duplex(4 * MAX_FRAME);
         let slot = server.admit(&k, None, Instant::now()).expect("admitted");
-        let task = tokio::spawn(server.clone().serve(slot, k, server_end));
+        let task = tokio::spawn(server.clone().serve(slot, k, server_end, Door::Clients));
         (client_end, task)
     }
 
@@ -1034,6 +1161,94 @@ mod tests {
             Err(ClientError::Rpc(e)) => e,
             other => panic!("not an error answer: {other:?}"),
         }
+    }
+
+    /// Serves `door` over an in-memory stream and connects with `service`.
+    async fn connect_door(
+        server: &Arc<ClientsServer>,
+        k: Key,
+        door: Door,
+        service: Service,
+    ) -> Result<Client, ClientError> {
+        let (client_end, server_end) = tokio::io::duplex(4 * MAX_FRAME);
+        let slot = server.admit(&k, None, Instant::now()).expect("admitted");
+        tokio::spawn(server.clone().serve(slot, k, server_end, door));
+        Client::connect(client_end, Hello::new("testnet", service, "wallet-test/1")).await
+    }
+
+    /// The wallets topic offers only `wallet`; its `http` method answers the allowlisted daemon
+    /// paths as the HTTP server does and refuses the others.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_wallet_service_answers_daemon_requests() {
+        let n = node("wallet", None, 8, ServerLimits::default());
+        let tip = n.tc.chain().tip();
+
+        let reply = n.server.hello_reply(Door::Wallets);
+        assert_eq!(reply.services, vec!["wallet".to_owned()]);
+        assert!(
+            connect_door(&n.server, [1; 32], Door::Wallets, Service::Node)
+                .await
+                .is_err()
+        );
+        let private = n.server.hello_reply(Door::Private);
+        assert!(private.services.contains(&"wallet".to_owned()));
+        assert!(private.services.contains(&"node".to_owned()));
+
+        let c = connect_door(&n.server, [2; 32], Door::Wallets, Service::Wallet)
+            .await
+            .expect("wallet hello");
+        let info = c
+            .call(WALLET_HTTP, json!({"method": "GET", "path": "/info"}))
+            .await
+            .unwrap();
+        assert_eq!(info["status"], 200);
+        assert_eq!(info["body"]["height"], tip.height + 1);
+
+        let sync = c
+            .call(
+                WALLET_HTTP,
+                json!({"method": "POST", "path": "/getwalletsyncdata",
+                       "body": {"startHeight": 0, "blockCount": 2, "blockHashCheckpoints": []}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(sync["status"], 200);
+        assert_eq!(sync["body"]["items"].as_array().unwrap().len(), 2);
+
+        let count = c
+            .call(
+                WALLET_HTTP,
+                json!({"method": "POST", "path": "/json_rpc",
+                       "body": {"jsonrpc": "2.0", "id": 1, "method": "getblockcount"}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(count["body"]["result"]["count"], tip.height + 1);
+
+        for params in [
+            json!({"method": "GET", "path": "/status"}),
+            json!({"method": "GET", "path": "/peers"}),
+            json!({"method": "POST", "path": "/json_rpc", "body": {"method": "submitblock"}}),
+            json!({"method": "GET", "path": "/info?a=1?b=2"}),
+        ] {
+            assert_eq!(
+                rpc_error(c.call(WALLET_HTTP, params.clone()).await).code,
+                code::METHOD_NOT_FOUND,
+                "{params}"
+            );
+        }
+        assert_eq!(
+            rpc_error(
+                c.call(WALLET_HTTP, json!({"method": "PUT", "path": "/info"}))
+                    .await
+            )
+            .code,
+            code::INVALID_PARAMS
+        );
+        assert_eq!(
+            rpc_error(c.call("getinfo", json!({})).await).code,
+            code::METHOD_NOT_FOUND
+        );
     }
 
     /// Hello, every allowlisted method, then a block submitted over the topic comes back as a

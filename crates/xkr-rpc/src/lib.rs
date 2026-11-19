@@ -56,6 +56,7 @@
 mod details;
 mod explorer;
 mod handlers;
+pub mod inproc;
 mod jsonrpc;
 mod listing;
 mod mining;
