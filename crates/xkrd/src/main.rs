@@ -1643,13 +1643,14 @@ const P2POOL_DETAIL_MAX: usize = 24;
 
 /// The signals that stop the node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
 enum StopSignal {
     /// SIGINT (Ctrl-C), everywhere.
     Interrupt,
     /// SIGTERM.
     Terminate,
     /// SIGHUP: the terminal went away (its window was closed); stops cleanly like SIGTERM.
+    /// On Windows: the console window was closed.
     Hangup,
 }
 
@@ -1668,7 +1669,9 @@ impl StopSignal {
 const UNIX_STOP_SIGNALS: [(i32, StopSignal); 2] =
     [(15, StopSignal::Terminate), (1, StopSignal::Hangup)];
 
-/// SIGINT (Ctrl-C) everywhere, SIGTERM and SIGHUP on Unix.
+/// SIGINT (Ctrl-C) everywhere, SIGTERM and SIGHUP on Unix; on Windows also Ctrl-Break, a
+/// closed console window, log-off and shutdown. Windows ends the process a few seconds after
+/// the last three (tokio holds its handler until then), time enough to close the database.
 async fn wait_for_signal() -> StopSignal {
     #[cfg(unix)]
     {
@@ -1681,10 +1684,39 @@ async fn wait_for_signal() -> StopSignal {
             Some(stop) = next_signal(&mut second) => stop,
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows::{
+            CtrlBreak, CtrlClose, CtrlLogoff, CtrlShutdown, ctrl_break, ctrl_close, ctrl_logoff,
+            ctrl_shutdown,
+        };
+        let (mut brk, mut close, mut logoff, mut shutdown) = (
+            ctrl_break().ok(),
+            ctrl_close().ok(),
+            ctrl_logoff().ok(),
+            ctrl_shutdown().ok(),
+        );
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => StopSignal::Interrupt,
+            Some(()) = windows_event(brk.as_mut().map(CtrlBreak::recv)) => StopSignal::Interrupt,
+            Some(()) = windows_event(close.as_mut().map(CtrlClose::recv)) => StopSignal::Hangup,
+            Some(()) = windows_event(logoff.as_mut().map(CtrlLogoff::recv)) => StopSignal::Terminate,
+            Some(()) = windows_event(shutdown.as_mut().map(CtrlShutdown::recv)) => StopSignal::Terminate,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = tokio::signal::ctrl_c().await;
         StopSignal::Interrupt
+    }
+}
+
+/// The next Windows console event of one kind (never, when its handler could not be set).
+#[cfg(windows)]
+async fn windows_event(recv: Option<impl Future<Output = Option<()>>>) -> Option<()> {
+    match recv {
+        Some(recv) => recv.await,
+        None => std::future::pending().await,
     }
 }
 
