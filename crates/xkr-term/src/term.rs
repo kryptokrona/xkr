@@ -368,10 +368,38 @@ impl Term {
         let mut buf = Vec::new();
         f(&mut screen, &mut buf);
         if !buf.is_empty() {
+            let buf = self.for_terminal(buf);
             let mut out = io::stdout().lock();
             let _ = out.write_all(&buf);
             let _ = out.flush();
         }
+    }
+
+    /// The bytes as they go to stdout. On Windows a terminal (mintty/ConPTY) does not turn a
+    /// line feed into a carriage return + line feed the way a Unix pty's `ONLCR` does, so a bare
+    /// `\n` moves the cursor down without returning it to column 0 and the lines march to the
+    /// right. For a terminal there, each `\n` is written as `\r\n` (an existing `\r\n` is left
+    /// as is; the in-place redraw writes its own `\r` before an escape, never before `\n`).
+    /// Everywhere else, and for a file or pipe, the bytes are unchanged.
+    #[cfg(windows)]
+    fn for_terminal(&self, buf: Vec<u8>) -> Vec<u8> {
+        if !self.0.tty {
+            return buf;
+        }
+        let mut out = Vec::with_capacity(buf.len() + buf.len() / 8 + 8);
+        for &b in &buf {
+            if b == b'\n' && out.last() != Some(&b'\r') {
+                out.push(b'\r');
+            }
+            out.push(b);
+        }
+        out
+    }
+
+    #[cfg(not(windows))]
+    #[allow(clippy::unused_self)]
+    fn for_terminal(&self, buf: Vec<u8>) -> Vec<u8> {
+        buf
     }
 
     /// A writer for [`Term::print`]-like output in pieces (the console's replies).
