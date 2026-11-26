@@ -481,3 +481,89 @@ async fn a_stopped_save_leaves_the_last_saved_wallet() {
         assert!(only_files(dir.path(), &names), "{point:?}");
     }
 }
+
+/// A `WalletLegacy` file (version 1, simplewallet) with `keys` and no details, as C++
+/// `WalletLegacySerializer::serialize` wrote it.
+fn legacy_v1_file(keys: &WalletKeys, password: &str) -> Vec<u8> {
+    use green::binary::Writer;
+    let mut p = Writer::new();
+    p.varint(0); // creation timestamp
+    p.bytes(&keys.spend_public.0);
+    p.bytes(&keys.spend_secret.0);
+    p.bytes(&keys.view_public.0);
+    p.bytes(&keys.view_secret.0);
+    p.bool(false); // has_details
+    p.string(b""); // cache
+    let iv = [7u8; green::chacha8::IV_SIZE];
+    let cipher = green::chacha8::chacha8(
+        &p.into_bytes(),
+        &green::chacha8::generate_chacha8_key(password),
+        &iv,
+    );
+    let mut w = Writer::new();
+    w.varint(1);
+    w.bytes(&iv);
+    w.string(&cipher);
+    w.into_bytes()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn legacy_wallet_file_is_converted_on_open() {
+    let mock = Mock::new();
+    let me = keys();
+    let dir = tempfile::tempdir().unwrap();
+    mock.mine_to(&me.address(), 1_000_000, 0);
+    let tip = mock.mine();
+    let path = wallet_path(dir.path(), "old.wallet");
+    let old = legacy_v1_file(&me, "pw");
+    std::fs::write(&path, &old).unwrap();
+    assert_eq!(detect(&old), FileKind::WalletGreenLegacy(1));
+
+    // a wrong password changes nothing on disk
+    let err = Wallet::open(
+        &path,
+        "nope",
+        mock.node(),
+        config(Network::Mainnet, FileFormat::WalletBackend, false),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::WrongPassword);
+    assert_eq!(std::fs::read(&path).unwrap(), old);
+    assert!(!green::legacy::backup_path(&path).exists());
+
+    // opened like any wallet: converted to a container, the old file kept as .backup
+    let w = Wallet::open(
+        &path,
+        "pw",
+        mock.node(),
+        config(Network::Mainnet, FileFormat::WalletBackend, true),
+    )
+    .await
+    .unwrap();
+    assert_eq!(w.format(), FileFormat::WalletGreen);
+    assert_eq!(w.primary_address(), me.address().to_string());
+    assert_eq!(
+        std::fs::read(green::legacy::backup_path(&path)).unwrap(),
+        old
+    );
+    assert_eq!(
+        detect(&std::fs::read(&path).unwrap()),
+        FileKind::WalletGreen
+    );
+    wait_for_block(&w, tip).await;
+    assert_eq!(w.balance(None).unwrap().unlocked, 1_000_000);
+    w.close().await.unwrap();
+
+    // later opens are ordinary container opens
+    let w = Wallet::open(
+        &path,
+        "pw",
+        mock.node(),
+        config(Network::Mainnet, FileFormat::WalletBackend, false),
+    )
+    .await
+    .unwrap();
+    assert_eq!(w.balance(None).unwrap().unlocked, 1_000_000);
+    w.close().await.unwrap();
+}
