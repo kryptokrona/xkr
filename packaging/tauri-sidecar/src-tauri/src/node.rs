@@ -1,5 +1,5 @@
 //! Runs xkrd as a sidecar: start it with its own data directory, wait for its RPC, restart it
-//! with new mining flags, and stop it cleanly (SIGINT / Ctrl-C, wait for exit, kill only after
+//! with new settings (miner, p2pool, Hugin relay), and stop it cleanly (SIGINT / Ctrl-C, wait for exit, kill only after
 //! a timeout).
 //!
 //! Locks: `op` serialises start/stop/restart (held for seconds); `child`, `phase` and
@@ -48,8 +48,17 @@ pub struct Settings {
     pub verify_threads: usize,
     /// Hyperswarm transport (needs the bundled bridge).
     pub hyper: bool,
+    /// The Hugin relay (`--no-hugin` when off; it needs Hyperswarm).
+    pub hugin: bool,
+    /// The node's fee address (`--hugin-payout`): the Hugin relay's fee and the built-in
+    /// p2pool's payout. Empty: the address xkrd saved before, or its default donation address.
+    pub payout_address: String,
     /// Built-in miner.
     pub mining: Mining,
+    /// Built-in p2pool.
+    pub p2pool: P2pool,
+    /// Node the wallet syncs from, `host:port`; empty: the bundled xkrd.
+    pub wallet_node: String,
     /// Extra xkrd arguments, appended as they are.
     pub extra_args: Vec<String>,
 }
@@ -61,20 +70,62 @@ impl Default for Settings {
             fast_sync: true,
             verify_threads: 0,
             hyper: true,
+            hugin: true,
+            payout_address: String::new(),
             mining: Mining::default(),
+            p2pool: P2pool::default(),
+            wallet_node: String::new(),
             extra_args: Vec::new(),
         }
     }
 }
 
-/// Built-in miner settings (`--mine <address> --mine-threads N`).
+/// Where the built-in miner's work goes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MineMode {
+    /// Blocks paid to [`Mining::address`] (`--mine <address>`).
+    #[default]
+    Solo,
+    /// Shares on the built-in p2pool, paid to the payout address (`--mine-p2pool`).
+    P2pool,
+}
+
+/// Built-in miner settings (`--mine <address>` or `--mine-p2pool`, `--mine-threads N`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Mining {
     pub enabled: bool,
+    pub mode: MineMode,
+    /// Solo mining address.
     pub address: String,
     /// 0 = half of the cores.
     pub threads: usize,
+}
+
+/// Built-in p2pool settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct P2pool {
+    /// Run it (`--no-p2pool` when off).
+    pub enabled: bool,
+    /// `default`, `mini` (`--p2pool-mini`) or `nano` (`--p2pool-nano`).
+    pub sidechain: String,
+    /// Take stratum miners from the network (`0.0.0.0`) instead of this machine only.
+    pub stratum_lan: bool,
+    /// Stratum port.
+    pub stratum_port: u16,
+}
+
+impl Default for P2pool {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sidechain: "default".to_owned(),
+            stratum_lan: false,
+            stratum_port: 3333,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,13 +205,27 @@ impl NodeManager {
         self.rpc_port
     }
 
+    /// The settings in effect.
+    pub fn settings(&self) -> Settings {
+        lock(&self.settings).clone()
+    }
+
+    /// The app data directory.
+    pub fn app_data(&self) -> &Path {
+        &self.paths.app_data
+    }
+
     /// Half of the cores, at least 1: the default for mining and verification threads.
     fn half_cores(&self) -> usize {
         (self.cores / 2).max(1)
     }
 
     fn hyper_available(&self) -> bool {
-        self.paths.bridge_dir.join("src").join("worker.js").is_file()
+        self.paths
+            .bridge_dir
+            .join("src")
+            .join("worker.js")
+            .is_file()
     }
 
     fn data_dir(&self, s: &Settings) -> PathBuf {
@@ -189,6 +254,7 @@ impl NodeManager {
             "default_threads": self.half_cores(),
             "settings": settings,
             "data_dir": self.data_dir(&settings),
+            "app_data": self.paths.app_data,
             "log_file": self.paths.log_file,
             "hyper_available": self.hyper_available(),
         })
@@ -225,32 +291,17 @@ impl NodeManager {
         self.exiting.load(Ordering::SeqCst)
     }
 
-    /// Changes the miner settings. xkrd has no RPC to start or stop its built-in miner at
-    /// runtime (`--mine` is a start flag), so this restarts xkrd with the new flags. If xkrd
-    /// does not come up with them (e.g. it refuses the address), the previous settings are
-    /// restored and xkrd is started again with those.
-    pub fn set_mining(&self, enabled: bool, address: String, threads: usize) -> Result<(), String> {
-        let address = address.trim().to_owned();
-        if enabled {
-            check_address(&address)?;
-        }
-        let threads = if threads == 0 {
-            self.half_cores()
-        } else {
-            threads.min(self.cores)
-        };
-
+    /// Applies new settings. xkrd takes mining, p2pool and the other options as start flags
+    /// (no RPC changes them at runtime), so this restarts xkrd when something changed. If
+    /// xkrd does not come up with them (e.g. it refuses an address), the previous settings
+    /// are restored and xkrd is started again with those.
+    pub fn update_settings(&self, mut next: Settings) -> Result<(), String> {
+        self.normalize(&mut next)?;
         let _op = lock(&self.op);
         if self.is_exiting() {
             return Err("the app is quitting".into());
         }
         let previous = lock(&self.settings).clone();
-        let mut next = previous.clone();
-        next.mining = Mining {
-            enabled,
-            address,
-            threads,
-        };
         let running = lock(&self.phase).name == "running";
         if next == previous && running {
             return Ok(());
@@ -269,10 +320,58 @@ impl NodeManager {
                 self.stop_locked();
                 let _ = self.start_locked();
                 Err(format!(
-                    "xkrd did not start with these mining settings, previous settings restored: {e}"
+                    "xkrd did not start with these settings, previous settings restored: {e}"
                 ))
             }
         }
+    }
+
+    /// Stops and starts xkrd with the current settings.
+    pub fn restart(&self) -> Result<(), String> {
+        let _op = lock(&self.op);
+        self.stop_locked();
+        self.start_locked()
+    }
+
+    /// The last `n` lines of xkrd's log.
+    pub fn log(&self, n: usize) -> String {
+        self.log_tail(n)
+    }
+
+    /// Checks and tidies settings from the UI before a restart.
+    fn normalize(&self, s: &mut Settings) -> Result<(), String> {
+        s.payout_address = s.payout_address.trim().to_owned();
+        s.mining.address = s.mining.address.trim().to_owned();
+        if !s.payout_address.is_empty() {
+            check_address(&s.payout_address)?;
+        }
+        if s.mining.enabled {
+            match s.mining.mode {
+                MineMode::Solo => check_address(&s.mining.address)?,
+                MineMode::P2pool if !s.p2pool.enabled => {
+                    return Err("mining on p2pool needs p2pool turned on".into());
+                }
+                MineMode::P2pool => {}
+            }
+        }
+        if !matches!(s.p2pool.sidechain.as_str(), "default" | "mini" | "nano") {
+            return Err(format!("unknown sidechain {:?}", s.p2pool.sidechain));
+        }
+        if s.p2pool.stratum_port == 0 {
+            return Err("the stratum port cannot be 0".into());
+        }
+        s.mining.threads = if s.mining.threads == 0 {
+            self.half_cores()
+        } else {
+            s.mining.threads.min(self.cores)
+        };
+        s.verify_threads = s.verify_threads.min(self.cores);
+        s.extra_args.retain(|a| !a.trim().is_empty());
+        s.wallet_node = s.wallet_node.trim().to_owned();
+        if !s.wallet_node.is_empty() {
+            wallet_node_addr(&s.wallet_node)?;
+        }
+        Ok(())
     }
 
     fn start_locked(&self) -> Result<(), String> {
@@ -363,27 +462,56 @@ impl NodeManager {
             os("0"),
             os("--log-json"),
             os("--verify-threads"),
-            os(if s.verify_threads == 0 { half } else { s.verify_threads }.to_string()),
+            os(if s.verify_threads == 0 {
+                half
+            } else {
+                s.verify_threads
+            }
+            .to_string()),
         ]);
         if s.fast_sync {
             a.push(os("--fast-sync"));
         }
         if s.hyper && self.hyper_available() {
-            a.extend([
-                os("--hyper-bridge-dir"),
-                os(&self.paths.bridge_dir),
-            ]);
+            a.extend([os("--hyper-bridge-dir"), os(&self.paths.bridge_dir)]);
         } else {
             a.push(os("--no-hyper"));
         }
-        if s.mining.enabled {
-            let threads = if s.mining.threads == 0 { half } else { s.mining.threads };
+        if !s.hugin {
+            a.push(os("--no-hugin"));
+        }
+        if !s.payout_address.is_empty() {
+            a.extend([os("--hugin-payout"), os(&s.payout_address)]);
+        }
+        if s.p2pool.enabled {
+            let ip = if s.p2pool.stratum_lan {
+                "0.0.0.0"
+            } else {
+                "127.0.0.1"
+            };
             a.extend([
-                os("--mine"),
-                os(&s.mining.address),
-                os("--mine-threads"),
-                os(threads.to_string()),
+                os("--p2pool-stratum"),
+                os(format!("{ip}:{}", s.p2pool.stratum_port)),
             ]);
+            match s.p2pool.sidechain.as_str() {
+                "mini" => a.push(os("--p2pool-mini")),
+                "nano" => a.push(os("--p2pool-nano")),
+                _ => {}
+            }
+        } else {
+            a.push(os("--no-p2pool"));
+        }
+        if s.mining.enabled {
+            let threads = if s.mining.threads == 0 {
+                half
+            } else {
+                s.mining.threads
+            };
+            match s.mining.mode {
+                MineMode::Solo => a.extend([os("--mine"), os(&s.mining.address)]),
+                MineMode::P2pool => a.push(os("--mine-p2pool")),
+            }
+            a.extend([os("--mine-threads"), os(threads.to_string())]);
         }
         a.extend(s.extra_args.iter().map(os));
         a
@@ -467,6 +595,24 @@ impl NodeManager {
     }
 }
 
+/// `host:port` (port 11898 when left out) of a remote node for the wallet.
+pub fn wallet_node_addr(text: &str) -> Result<(String, u16), String> {
+    let text = text.trim();
+    if text.contains("://") {
+        return Ok((text.to_owned(), 0));
+    }
+    match text.rsplit_once(':') {
+        Some((host, port)) if !host.is_empty() => port
+            .parse::<u16>()
+            .ok()
+            .filter(|p| *p != 0)
+            .map(|p| (host.to_owned(), p))
+            .ok_or_else(|| format!("{port:?} is not a port")),
+        _ if !text.is_empty() => Ok((text.to_owned(), 11898)),
+        _ => Err("no node address".into()),
+    }
+}
+
 /// Picks a free loopback port for the RPC, so the app never clashes with another xkrd or a
 /// C++ node on 11898.
 fn free_loopback_port() -> Result<u16, String> {
@@ -536,7 +682,9 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"mining":{"enabled":true}}"#).unwrap();
         assert!(s.mining.enabled);
         assert_eq!(s.mining.threads, 0);
-        assert!(s.fast_sync && s.hyper);
+        assert!(s.fast_sync && s.hyper && s.hugin && s.p2pool.enabled);
+        assert_eq!(s.mining.mode, super::MineMode::Solo);
+        assert_eq!(s.p2pool.stratum_port, 3333);
     }
 
     #[test]

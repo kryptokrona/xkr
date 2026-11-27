@@ -1,11 +1,11 @@
 [package]
-name = "xkr-desktop-sample"
+name = "xkr-desktop"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
 license = "GPL-3.0-or-later"
 publish = false
-description = "Sample Tauri 2 app that runs xkrd (and its Hyperswarm bridge) as a sidecar."
+description = "xkr desktop app: wallet, node, miner, p2pool and Hugin relay; runs xkrd (and its Hyperswarm bridge) as a sidecar."
 
 # A workspace of its own. The xkr root Cargo.toml lists its members explicitly and does not
 # include this crate; this empty table stops Cargo from treating the root as its workspace, so
@@ -19,7 +19,13 @@ tauri-build = { version = "=2.7.2", features = [] }
 [dependencies]
 tauri      = { version = "=2.12.3", features = [] }
 serde      = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
+serde_json = "=1.0.149"
+tauri-plugin-dialog = "=2.8.4"
+tokio      = { version = "=1.54.1", features = ["sync"] }
+zeroize    = "=1.8.2"
+# the wallet engine, from the main workspace (it syncs from the bundled xkrd)
+xkr-wallet    = { path = "../../../crates/xkr-wallet" }
+xkr-consensus = { path = "../../../crates/xkr-consensus" }
 
 # SIGINT for a clean xkrd shutdown.
 [target.'cfg(unix)'.dependencies]

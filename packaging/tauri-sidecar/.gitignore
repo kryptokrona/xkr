@@ -4,3 +4,8 @@ src-tauri/resources/
 # Build output and generated schemas
 src-tauri/target/
 src-tauri/gen/
+
+# Frontend
+node_modules/
+.svelte-kit/
+build/

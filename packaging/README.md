@@ -7,7 +7,7 @@ How to produce each distributable piece of xkr, on your own machine and in CI.
 | `xkr-<version>-<target>.tar.gz` (`.zip` on Windows) | node, wallet tools, miner and the bridge bundle for one target | `scripts/package-release.sh` | job `build`, one per target (`ci.yml` packs the Linux x86_64 one on every push) |
 | `xkr-bridge-<version>.tar.gz` | the Hyperswarm bridge with production `node_modules`, prebuilds for every platform; input of the `build` job, not a release file | `scripts/bundle-bridge.sh` | job `bridge` |
 | `SHA256SUMS` | SHA-256 of every per-target archive (each archive also holds its own `SHA256SUMS` of the files inside) | `sha256sum xkr-* > SHA256SUMS` | job `release`, tags only |
-| Tauri sample app (`.deb`, AppImage, `.app`, NSIS installer) | `tauri-sidecar/`: desktop app that runs xkrd as a sidecar | `tauri-sidecar/README.md` | job `tauri`, manual runs only |
+| desktop app (`.deb`, AppImage, `.app`, NSIS installer) | `tauri-sidecar/`: wallet, node, miner, p2pool and Hugin relay in one window; runs xkrd as a sidecar | `tauri-sidecar/README.md` | job `tauri`, manual runs only |
 
 Targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
 `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`. Every target is built natively on its own
@@ -46,7 +46,7 @@ platforms' prebuilds and the `.node` builds from a copy (about 40 MB down to abo
 
 xkrd finds the bridge as `bridge/` next to its executable (or `--hyper-bridge-dir`,
 `$XKR_BRIDGE_DIR`). The release archives use that layout and carry `libbare-kit` next to
-`xkrd`. The Tauri sample ships the bridge and libbare-kit as resources and puts its `lib/` on
+`xkrd`. The desktop app ships the bridge and libbare-kit as resources and puts its `lib/` on
 xkrd's library search path (`tauri-sidecar/README.md`).
 
 ### libbare-kit

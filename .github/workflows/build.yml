@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       tauri:
-        description: "Also build the Tauri sidecar sample (packaging/tauri-sidecar)"
+        description: "Also build the desktop app (packaging/tauri-sidecar)"
         type: boolean
         default: false
 
@@ -34,7 +34,6 @@ env:
   # Tag name on tag pushes, dev-<run number> for manual runs.
   XKR_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
   NODE_VERSION: "24.21.0"
-  TAURI_CLI_VERSION: "2.12.3"
 
 jobs:
   bridge:
@@ -316,7 +315,7 @@ jobs:
             xkr-* SHA256SUMS
 
   tauri:
-    name: tauri sample ${{ matrix.target }}
+    name: desktop app ${{ matrix.target }}
     if: github.event_name == 'workflow_dispatch' && inputs.tauri
     needs: build
     runs-on: ${{ matrix.os }}
@@ -355,8 +354,16 @@ jobs:
           key: tauri-${{ matrix.target }}
           workspaces: packaging/tauri-sidecar/src-tauri
           cache-bin: true
-      - name: Install tauri-cli
-        run: cargo install tauri-cli --version "=$TAURI_CLI_VERSION" --locked
+      # The frontend (SvelteKit + shadcn-svelte) and the Tauri CLI come from the app's
+      # package-lock.json; no package in it needs an install script.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm ci and check the frontend
+        working-directory: packaging/tauri-sidecar
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: xkr-${{ matrix.target }}
@@ -371,12 +378,13 @@ jobs:
           pkg=$(find dist -maxdepth 1 -type d -name 'xkr-*' | head -n1)
           packaging/tauri-sidecar/scripts/prepare-sidecars.sh --target "${{ matrix.target }}" \
             --xkrd-dir "$pkg" --bridge-dir "$pkg/bridge"
+      # `npm run build` (tauri.conf.json beforeBuildCommand) builds the frontend first.
       - name: Build
-        working-directory: packaging/tauri-sidecar/src-tauri
-        run: cargo tauri build --bundles "${{ matrix.bundles }}"
+        working-directory: packaging/tauri-sidecar
+        run: npm run tauri -- build --bundles "${{ matrix.bundles }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: tauri-sample-${{ matrix.target }}
+          name: xkr-desktop-${{ matrix.target }}
           path: packaging/tauri-sidecar/src-tauri/target/release/bundle/
           if-no-files-found: error
           retention-days: 7

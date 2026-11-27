@@ -675,7 +675,7 @@ bridge must travel with it: `xkrd`, `libbare-kit` next to it (found through the
 `packaging/scripts/bundle-bridge.sh`). `BridgeConfig` finds `bridge/` next to the executable,
 through `--hyper-bridge-dir` or `$XKR_BRIDGE_DIR`. The native addons (`sodium-native`,
 `udx-native`) ship as prebuilds for linux/win32/darwin, so no compiler is needed on the user's
-machine, and no Node.js. `packaging/tauri-sidecar/` is a Tauri sample.
+machine, and no Node.js. `packaging/tauri-sidecar/` is the desktop app.
 
 ## Bare workers
 

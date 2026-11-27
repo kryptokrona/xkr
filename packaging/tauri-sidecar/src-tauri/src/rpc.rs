@@ -49,12 +49,19 @@ pub fn get_json(port: u16, path: &str, timeout: Duration) -> Result<Value, Strin
         let l = l.to_ascii_lowercase();
         l.starts_with("transfer-encoding:") && l.contains("chunked")
     });
-    let body = if chunked { dechunk(body)? } else { body.to_vec() };
+    let body = if chunked {
+        dechunk(body)?
+    } else {
+        body.to_vec()
+    };
 
     if code != 200 {
         return Err(format!(
             "HTTP {code}: {}",
-            String::from_utf8_lossy(&body).chars().take(200).collect::<String>()
+            String::from_utf8_lossy(&body)
+                .chars()
+                .take(200)
+                .collect::<String>()
         ));
     }
     serde_json::from_slice(&body).map_err(|e| format!("bad JSON from {path}: {e}"))

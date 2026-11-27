@@ -164,7 +164,7 @@ them touch the public DHT.
 `xkrd`, `libbare-kit` next to it and this directory (sources and `node_modules`); no Node.js.
 `packaging/scripts/bundle-bridge.sh` makes the shipped copy (sources plus
 `npm ci --omit=dev --ignore-scripts`, optionally pruned to one platform's prebuilds); the release
-archives put it next to `xkrd`, and the Tauri sample (`packaging/tauri-sidecar/`) ships it as a
+archives put it next to `xkrd`, and the desktop app (`packaging/tauri-sidecar/`) ships it as a
 resource (`packaging/README.md`).
 
 `src/frames.js`, `src/mid.js`, `src/swarm.js`, `src/session.js` and `src/worker.js` use only
