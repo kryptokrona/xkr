@@ -90,7 +90,8 @@ pub(crate) struct Loaded {
 }
 
 /// Opens the wallet at `path` in whichever format it is (`WalletBackend::openWallet`, or
-/// `WalletGreen::load` plus the sidecar).
+/// `WalletGreen::load` plus the sidecar). A wallet file of version 1 to 5 is converted to a
+/// container first, as C++ did (`xkr_wallet_files::green::legacy::convert_file`).
 ///
 /// Temporary files that a stopped save of this wallet left next to it are deleted first
 /// (they are never read).
@@ -132,6 +133,24 @@ pub(crate) fn load(path: &Path, password: &str, now: u64) -> Result<Loaded, Wall
                 .map_or_else(|| green::state_from_green(&container, now), Ok)?;
             Ok(Loaded {
                 state,
+                file: file(FileFormat::WalletGreen, container.view.creation_timestamp),
+            })
+        }
+        FileKind::WalletGreenLegacy(version) => {
+            // As C++ WalletGreen::load: convert to a version 6 container on first open,
+            // keeping the old file as <file>.backup, then go on as with any container.
+            let container = xkr_wallet_files::green::legacy::convert_file(
+                path,
+                password,
+                &mut xkr_crypto::os_rng(),
+            )?;
+            tracing::info!(
+                "converted {} from wallet file version {version}; the old file is {}",
+                path.display(),
+                xkr_wallet_files::green::legacy::backup_path(path).display()
+            );
+            Ok(Loaded {
+                state: green::state_from_green(&container, now)?,
                 file: file(FileFormat::WalletGreen, container.view.creation_timestamp),
             })
         }

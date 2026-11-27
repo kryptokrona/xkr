@@ -77,6 +77,10 @@ pub fn summarize(bytes: &[u8], password: &str) -> Result<WalletSummary, FileErro
             Ok(from_backend(kind, &backend::open(&file, password)?))
         }
         FileKind::WalletGreen => Ok(from_green(kind, &green::open(bytes, password)?)),
+        FileKind::WalletGreenLegacy(_) => Ok(from_green(
+            kind,
+            &green::legacy::open_legacy(bytes, password)?,
+        )),
         FileKind::WalletGreenOtherVersion(_) => Err(FileError::WrongVersion),
         FileKind::Unknown => Err(FileError::NotAWalletFile),
     }

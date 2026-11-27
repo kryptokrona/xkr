@@ -8,6 +8,9 @@
 //! * [`write_keys_only`] writes a container with the same keys and no cache (an empty
 //!   suffix). C++ opens such a file and rescans from the creation timestamps
 //!   (`WalletGreen::load` only reads the cache when `suffixSize() > 0`).
+//! * [`legacy::open_legacy`] reads the files of versions 1 to 5 that the C++ wallets wrote
+//!   before version 6, and [`legacy::convert_file`] turns one into a version 6 container
+//!   (C++ `WalletGreen::convertAndLoadWalletFile`).
 //! * [`write_with_cache`] writes the keys and the transaction history
 //!   (`WalletGreen::exportWallet` / `saveWalletCache`, see [`cache::encode_cache`]).
 
@@ -15,6 +18,7 @@ pub mod binary;
 pub mod cache;
 pub mod chacha8;
 pub mod container;
+pub mod legacy;
 
 use std::path::Path;
 

@@ -66,12 +66,13 @@ bootstrap nodes (a local test DHT). wallet-api reports the node as host `hypersw
 
 ## 3. Wallet files
 
-The Rust tools open both kinds of wallet file the C++ tools write:
+The Rust tools open every kind of wallet file the C++ tools write, old ones included:
 
 | Written by | Kind | What the Rust tools do with it |
 |---|---|---|
 | `wallet-api`, `xkrwallet-beta`, wallet-backend-js | wallet file (WalletBackend) | open it and save to it in the same format; the C++ tools can open it again |
 | `kryptokrona-service`, `xkrwallet` | container (WalletGreen) | open it, keep the container as it is, and keep their own state next to it in `<container>.xkrstate` |
+| simplewallet, walletd and zedwallet from before October 2018 | old wallet file (versions 1 to 5) | turn it into a container on first open, keep the old file as `<file>.backup`, then go on as with a container |
 
 ### Containers: the first start scans once
 
@@ -92,6 +93,23 @@ Nothing is lost: the keys are in the container.
 
 Back up both files: the container (keys) and `<container>.xkrstate` (state, so a restore does
 not need a scan).
+
+### Old wallet files are converted on first open
+
+Wallet files from before the version 6 container (the `WalletLegacy` file of simplewallet and
+the `WalletSerializer` versions 1 to 5 of walletd and zedwallet) open like any other: there is
+no flag or extra step. On first open the tool does what the C++ tools of that time did
+(`WalletGreen::convertAndLoadWalletFile`):
+
+1. it reads the keys, the addresses and the transaction details from the old file;
+2. it copies the old file to `<file>.backup`;
+3. it replaces the file with a container with the same keys, password and transaction details.
+
+From then on it is a container (see above), and the current C++ tools open it as well. The
+balances and outputs the old file cached are not read; the first start finds them again with
+a scan from the addresses' creation times. If `<file>.backup` already exists with other
+contents, the conversion stops with an error rather than overwrite it: move the old backup
+away and open the wallet again.
 
 ### Exports
 

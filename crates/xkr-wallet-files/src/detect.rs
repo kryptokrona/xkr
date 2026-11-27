@@ -18,8 +18,13 @@ pub enum FileKind {
     /// A `WalletGreen` container (walletd, zedwallet): version byte 6 and a consistent
     /// prefix, metadata and record area.
     WalletGreen,
-    /// A container of another version: first byte 1-5 (the older `WalletSerializer` versions
-    /// C++ no longer reads, `WalletSerializerV2::MIN_VERSION` is 6), or another first byte
+    /// A wallet file of version 1 to 5, from before the version 6 container: the
+    /// `WalletLegacy` file (version 1) or a `WalletSerializerV1` file (versions 2 to 5). Open
+    /// it with [`crate::green::legacy::open_legacy`]; C++ converted it to a container on
+    /// first open ([`crate::green::legacy::convert_file`]).
+    WalletGreenLegacy(u8),
+    /// A container of another version: first byte 1-5 that does not frame like
+    /// [`FileKind::WalletGreenLegacy`], or another first byte
     /// with an otherwise consistent container layout. C++ refuses both with `WRONG_VERSION`.
     WalletGreenOtherVersion(u8),
     /// None of the above.
@@ -34,6 +39,9 @@ pub fn detect(bytes: &[u8]) -> FileKind {
     }
     if is_js_buffer_string(bytes) {
         return FileKind::WalletBackendJsString;
+    }
+    if let Some(v) = crate::green::legacy::legacy_version(bytes) {
+        return FileKind::WalletGreenLegacy(v);
     }
     match bytes.first() {
         Some(&SERIALIZATION_VERSION) if parse_layout(bytes).is_ok() => FileKind::WalletGreen,

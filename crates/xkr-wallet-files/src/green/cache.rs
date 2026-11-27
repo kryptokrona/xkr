@@ -197,7 +197,7 @@ fn read_transaction(r: &mut Reader<'_>) -> Result<GreenTransaction, BinaryError>
 
 /// C++ `serializeBlockHeight` (input side): a `u64` varint; `u64::MAX` means
 /// [`WALLET_UNCONFIRMED_TRANSACTION_HEIGHT`], other values above `u32::MAX` are an error.
-fn read_block_height(r: &mut Reader<'_>) -> Result<u32, BinaryError> {
+pub(super) fn read_block_height(r: &mut Reader<'_>) -> Result<u32, BinaryError> {
     let offset = r.position();
     let height = r.u64("blockHeight")?;
     if height == u64::MAX {
@@ -210,7 +210,7 @@ fn read_block_height(r: &mut Reader<'_>) -> Result<u32, BinaryError> {
     })
 }
 
-fn checked_count(
+pub(super) fn checked_count(
     r: &mut Reader<'_>,
     what: &'static str,
     min_size: u64,
